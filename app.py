@@ -13,6 +13,26 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
+import streamlit as st
+
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.markdown("## 🔒 BPJS ML Dashboard — Login")
+        password = st.text_input("Masukkan password:", type="password")
+        if st.button("Login"):
+            if password == "bpjstesting2026":   # ← ganti password di sini
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Password salah!")
+        st.stop()
+
+check_password()
+
+# === sisa kode app.py di bawah sini ===
 
 st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
 
