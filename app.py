@@ -13,6 +13,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
+
 import streamlit as st
 
 def check_password():
@@ -23,7 +24,7 @@ def check_password():
         st.markdown("## 🔒 BPJS ML Dashboard — Login")
         password = st.text_input("Masukkan password:", type="password")
         if st.button("Login"):
-            if password == "bpjstesting2026":   # ← ganti password di sini
+            if password == "BPJSTesting2026":   # ← ganti password di sini
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -91,10 +92,10 @@ def save_history_meta(meta_list):
     with open(HISTORY_META, 'w') as f:
         json.dump(meta_list, f, ensure_ascii=False, indent=2)
 
-def save_history_entry(eid, df, results):
+def save_history_entry(eid, df, results, extra=None):
     try:
         with open(_hpath(eid), 'wb') as f:
-            pickle.dump({'df': df, 'results': results}, f)
+            pickle.dump({'df': df, 'results': results, 'extra': extra or {}}, f)
         return True
     except:
         return False
@@ -102,20 +103,20 @@ def save_history_entry(eid, df, results):
 def load_history_entry(eid):
     p = _hpath(eid)
     if not os.path.exists(p):
-        return None, {}
+        return None, {}, {}
     try:
         with open(p, 'rb') as f:
             d = pickle.load(f)
-        return d.get('df'), d.get('results', {})
+        return d.get('df'), d.get('results', {}), d.get('extra', {})
     except:
-        return None, {}
+        return None, {}, {}
 
 def delete_history_entry(eid):
     p = _hpath(eid)
     if os.path.exists(p):
         os.remove(p)
 
-def add_to_history(label, eid, df, results):
+def add_to_history(label, eid, df, results, extra=None):
     meta = load_history_meta()
     meta = [m for m in meta if m['id'] != eid]
     meta.append({'id': eid, 'label': label, 'timestamp': datetime.now().isoformat()})
@@ -124,7 +125,7 @@ def add_to_history(label, eid, df, results):
             delete_history_entry(m['id'])
         meta = meta[-20:]
     save_history_meta(meta)
-    save_history_entry(eid, df, results)
+    save_history_entry(eid, df, results, extra)
 
 # ── Session state (in-memory, loaded from disk on first run) ──────────────────
 for k, v in [('active_data', None), ('active_results', {}), ('active_entry_id', None), ('history_loaded', False)]:
@@ -1008,11 +1009,14 @@ with st.sidebar:
             col_h, col_del = st.columns([5, 1])
             with col_h:
                 if st.button(h['label'], key=f"hbtn_{h['id']}", width='stretch'):
-                    df_h, res_h = load_history_entry(h['id'])
+                    df_h, res_h, extra_h = load_history_entry(h['id'])
                     if df_h is not None:
-                        st.session_state.active_data    = df_h
-                        st.session_state.active_results = res_h
+                        st.session_state.active_data     = df_h
+                        st.session_state.active_results  = res_h
                         st.session_state.active_entry_id = h['id']
+                        # Restore semua data bulanan & forecast
+                        for k, v in extra_h.items():
+                            st.session_state[k] = v
                         st.rerun()
                     else:
                         st.warning("Data riwayat tidak ditemukan.")
@@ -1346,7 +1350,16 @@ with tab2:
             eid   = f"{data_hash}_{target_ml}_L{n_lags}_T{test_pct}"
             label = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
                      f"{target_ml} | {len(years)}yr | {len(active_progs)} prog")
-            add_to_history(label, eid, df.copy(), dict(results_cache))
+            extra_snapshot = {
+                k: st.session_state[k]
+                for k in ['raw_monthly',
+                          'forecast_Kasus', 'forecast_Nominal',
+                          'forecast_monthly_Kasus', 'forecast_monthly_Nominal',
+                          'forecast_annual_Kasus', 'forecast_annual_Nominal',
+                          'last_forecast', 'last_forecast_monthly']
+                if k in st.session_state and st.session_state[k] is not None
+            }
+            add_to_history(label, eid, df.copy(), dict(results_cache), extra_snapshot)
             st.session_state.active_entry_id = eid
 
     if ml_res:
@@ -1484,6 +1497,22 @@ with tab3:
         st.session_state[f'forecast_{target_pred}']                = fut
         st.session_state[f'forecast_monthly_{target_pred}']        = fut_monthly
         st.session_state[f'forecast_annual_{target_pred}']         = fut   # tahunan per target
+
+        # Update history dengan forecast terbaru
+        data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
+        eid_pred  = f"{data_hash}_{target_pred}_L{n_lags}_T{test_pct}"
+        label_pred = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
+                      f"{target_pred} | {len(years)}yr | {len(active_progs)} prog")
+        extra_snapshot = {
+            k: st.session_state[k]
+            for k in ['raw_monthly',
+                      'forecast_Kasus', 'forecast_Nominal',
+                      'forecast_monthly_Kasus', 'forecast_monthly_Nominal',
+                      'forecast_annual_Kasus', 'forecast_annual_Nominal',
+                      'last_forecast', 'last_forecast_monthly']
+            if k in st.session_state and st.session_state[k] is not None
+        }
+        add_to_history(label_pred, eid_pred, df.copy(), dict(results_cache), extra_snapshot)
 
         future_yrs = sorted(fut['Tahun'].unique())
         yr_range   = f"{future_yrs[0]}-{future_yrs[-1]}"
