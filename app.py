@@ -13,7 +13,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
-
 import streamlit as st
 
 def check_password():
@@ -24,7 +23,7 @@ def check_password():
         st.markdown("## 🔒 BPJS ML Dashboard — Login")
         password = st.text_input("Masukkan password:", type="password")
         if st.button("Login"):
-            if password == "BPJSTesting2026":   # ← ganti password di sini
+            if password == "bpjs2026":   # ← ganti password di sini
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -34,6 +33,7 @@ def check_password():
 check_password()
 
 # === sisa kode app.py di bawah sini ===
+
 st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
 
 st.markdown("""
@@ -572,9 +572,10 @@ def export_excel(df, ml_result, fut_df,
                                   'border': 0})
 
         # ── Sheet 1: Data Gabungan ────────────────────────────────────────
-        df.to_excel(writer, sheet_name='Data Gabungan', index=False)
+        df_sorted = df.sort_values(['Tahun', 'Kategori']).reset_index(drop=True)
+        df_sorted.to_excel(writer, sheet_name='Data Gabungan', index=False)
         ws1 = writer.sheets['Data Gabungan']
-        for i, c in enumerate(df.columns):
+        for i, c in enumerate(df_sorted.columns):
             ws1.write(0, i, c, hdr)
             ws1.set_column(i, i, 22)
 
@@ -814,6 +815,7 @@ def export_excel(df, ml_result, fut_df,
                 cursor += 1
 
                 piv_k = (fut_monthly_kasus
+                         .sort_values(['Tahun','Bulan','Kategori'])
                          .pivot_table(index='Periode', columns='Kategori',
                                       values='Kasus', aggfunc='sum')
                          .reset_index()
@@ -864,6 +866,7 @@ def export_excel(df, ml_result, fut_df,
                 cursor += 1
 
                 piv_n = (fut_monthly_nominal
+                         .sort_values(['Tahun','Bulan','Kategori'])
                          .pivot_table(index='Periode', columns='Kategori',
                                       values='Nominal', aggfunc='sum')
                          .reset_index()
@@ -925,7 +928,7 @@ def export_excel(df, ml_result, fut_df,
                 detail_all = detail_frames[0]
 
             detail_all = (detail_all
-                          .sort_values(['Kategori','Tahun','Bulan'])
+                          .sort_values(['Tahun','Bulan','Kategori'])
                           .reset_index(drop=True))
             detail_all.to_excel(writer, sheet_name='Bulanan Detail', index=False)
             ws5 = writer.sheets['Bulanan Detail']
@@ -1885,8 +1888,9 @@ with tab4:
     with ec2:
         st.markdown("**📄 CSV Data Gabungan**")
         st.caption("Data tahunan yang sudah diagregasi dari semua file yang diupload")
+        df_sorted = df.sort_values(['Tahun', 'Kategori']).reset_index(drop=True)
         st.download_button(
-            "⬇️ Download CSV", data=df.to_csv(index=False),
+            "⬇️ Download CSV", data=df_sorted.to_csv(index=False),
             file_name=f"BPJS_Data_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv", width='stretch')
 
@@ -1897,7 +1901,9 @@ with tab4:
                 frames_csv.append(fut_mo_kasus.assign(Target='Kasus'))
             if has_mo_nominal:
                 frames_csv.append(fut_mo_nominal.assign(Target='Nominal'))
-            combined_csv = pd.concat(frames_csv, ignore_index=True)
+            combined_csv = (pd.concat(frames_csv, ignore_index=True)
+                            .sort_values(['Tahun', 'Bulan', 'Kategori', 'Target'])
+                            .reset_index(drop=True))
             st.download_button(
                 "⬇️ Download CSV Bulanan", data=combined_csv.to_csv(index=False),
                 file_name=f"BPJS_Bulanan_{datetime.now().strftime('%Y%m%d')}.csv",
