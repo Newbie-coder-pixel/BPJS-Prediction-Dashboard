@@ -13,26 +13,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
 
 st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
 
@@ -1080,16 +1060,7 @@ results_cache = st.session_state.active_results
 df_raw_monthly = st.session_state.get('raw_monthly', None)
 
 if df is None and not uploaded:
-    history_meta = load_history_meta()
-    if history_meta:
-        last = history_meta[-1]
-        df_h, res_h = load_history_entry(last['id'])
-        if df_h is not None:
-            st.session_state.active_data    = df_h
-            st.session_state.active_results = res_h
-            st.session_state.active_entry_id = last['id']
-            df            = df_h
-            results_cache = res_h
+    pass  # Tidak auto-load riwayat — user harus upload atau klik riwayat manual
 
 if df is None:
     st.markdown("""
