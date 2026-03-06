@@ -349,7 +349,7 @@ def get_active_programs(df):
     return sorted(df[df['Tahun'] == latest]['Kategori'].unique())
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ML CORE — UPGRADED with XGBoost, LightGBM, ElasticNet, ExtraTrees, TimeSeriesCV
+# ML CORE — Per-Program Best Model (fast, accurate, per-program prediction)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def build_features(series, n_lags, cat_id=0.0):
@@ -362,11 +362,11 @@ def build_features(series, n_lags, cat_id=0.0):
         win3 = pad[max(0, i-3):i]
         win6 = pad[max(0, i-6):i]
         lags = [pad[i - l] for l in range(1, n_lags + 1)]
-        trend = (pad[i-1] - pad[i-2]) if i >= 2 else 0.0
-        trend2= (pad[i-1] - pad[i-3]) if i >= 3 else 0.0
+        trend  = (pad[i-1] - pad[i-2]) if i >= 2 else 0.0
+        trend2 = (pad[i-1] - pad[i-3]) if i >= 3 else 0.0
         feat = lags + [
-            np.mean(win3), np.std(win3) if len(win3)>1 else 0.0,
-            np.mean(win6), np.std(win6) if len(win6)>1 else 0.0,
+            np.mean(win3), np.std(win3) if len(win3) > 1 else 0.0,
+            np.mean(win6), np.std(win6) if len(win6) > 1 else 0.0,
             trend, trend2,
             np.min(win6) if win6 else 0.0,
             np.max(win6) if win6 else 0.0,
@@ -377,202 +377,231 @@ def build_features(series, n_lags, cat_id=0.0):
     return np.array(X_all), np.array(y_all)
 
 
-def get_models(n_train):
-    """Return all available models dict."""
+def get_fast_models(n_train):
+    """Lightweight model set — fast to train, good coverage."""
     k = min(3, max(1, n_train - 1))
     models = {
         'Linear Regression': LinearRegression(),
         'Ridge':             Ridge(alpha=1.0),
-        'Lasso':             Lasso(alpha=0.1, max_iter=10000),
-        'ElasticNet':        ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=10000),
-        'Huber':             HuberRegressor(max_iter=500),
+        'Lasso':             Lasso(alpha=0.1, max_iter=5000),
+        'ElasticNet':        ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=5000),
         'Decision Tree':     DecisionTreeRegressor(max_depth=4, random_state=42),
-        'Random Forest':     RandomForestRegressor(n_estimators=100, max_depth=5, n_jobs=-1,
-                                                    min_samples_leaf=2, random_state=42),
-        'Extra Trees':       ExtraTreesRegressor(n_estimators=100, max_depth=5, n_jobs=-1, random_state=42),
-        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=3,
+        'Random Forest':     RandomForestRegressor(n_estimators=60, max_depth=5,
+                                                    n_jobs=-1, random_state=42),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=60, max_depth=3,
                                                         learning_rate=0.1, random_state=42),
-        'SVR':               SVR(kernel='rbf', C=100, gamma='scale', epsilon=0.1),
+        'SVR':               SVR(kernel='rbf', C=100, gamma='scale'),
         'KNN':               KNeighborsRegressor(n_neighbors=k, weights='distance'),
     }
     if XGBOOST_OK:
-        models['XGBoost'] = XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.1,
+        models['XGBoost'] = XGBRegressor(n_estimators=60, max_depth=4, learning_rate=0.1,
                                           subsample=0.8, colsample_bytree=0.8,
                                           n_jobs=-1, random_state=42, verbosity=0)
     if LGBM_OK:
-        models['LightGBM'] = LGBMRegressor(n_estimators=100, max_depth=4, learning_rate=0.1,
+        models['LightGBM'] = LGBMRegressor(n_estimators=60, max_depth=4, learning_rate=0.1,
                                              subsample=0.8, n_jobs=-1, random_state=42, verbose=-1)
     return models
 
 
-SCALED_MODELS = {'SVR', 'KNN', 'Ridge', 'Lasso', 'ElasticNet', 'Huber', 'Linear Regression'}
+SCALED_MODELS = {'SVR', 'KNN', 'Ridge', 'Lasso', 'ElasticNet', 'Linear Regression'}
 
 
 def score_model(yt, yp):
-    """Return metrics dict for a prediction."""
     mae  = float(mean_absolute_error(yt, yp))
     rmse = float(np.sqrt(mean_squared_error(yt, yp)))
     r2   = float(r2_score(yt, yp)) if len(yt) > 1 else 0.0
     mape = float(np.mean(np.abs((yt - yp) / (np.abs(yt) + 1e-9))) * 100)
-    return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'MAPE (%)': mape}
+    # Composite score: higher is better
+    score = r2 * 0.5 - min(mape / 100, 2.0) * 0.3 - min(rmse / (abs(np.mean(yt)) + 1e-9), 2.0) * 0.2
+    return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'MAPE (%)': mape, '_score': score}
 
 
-def run_ml(df, target, n_lags, test_ratio):
-    active    = get_active_programs(df)
-    df_active = df[df['Kategori'].isin(active)].copy()
-    years     = sorted(df_active['Tahun'].unique())
-    cat_enc   = {c: float(i) for i, c in enumerate(active)}
-    single    = len(years) == 1
+def train_best_per_program(df, target, n_lags, test_ratio):
+    """
+    Core function: for each program, find the best model independently.
+    Returns per-program best models + global summary metrics.
+    Fast because each program only has a few data points.
+    """
+    active  = get_active_programs(df)
+    cat_enc = {c: float(i) for i, c in enumerate(active)}
+    years   = sorted(df['Tahun'].unique())
+    single  = len(years) == 1
 
-    if single:
-        rows_s = []
-        for cat in active:
-            v = df_active[df_active['Kategori']==cat][target].dropna().values
-            if not len(v): continue
-            val = float(v[0])
-            rows_s.append([float(cat_enc[cat]), val, np.log1p(val)])
-        if not rows_s: return None, "Tidak ada data valid."
-        X = np.array(rows_s); y = X[:, 1].copy()
-        X_train = X_test = X; y_train = y_test = y
-    else:
-        all_X, all_y = [], []
-        for cat in active:
-            sub = (df_active[df_active['Kategori']==cat]
-                   .sort_values('Tahun')[target].dropna().values.astype(float))
-            if not len(sub): continue
-            Xc, yc = build_features(sub, n_lags, cat_enc[cat])
-            all_X.append(Xc); all_y.append(yc)
-        if not all_X: return None, "Tidak cukup data."
-        X = np.vstack(all_X); y = np.concatenate(all_y)
-        split = max(1, int(len(X) * test_ratio)) if len(X) >= 4 else 0
-        if split == 0:
-            X_train=X_test=X; y_train=y_test=y
-        else:
-            X_train,X_test = X[:-split], X[-split:]
-            y_train,y_test = y[:-split], y[-split:]
-
-    scaler = RobustScaler()
-    Xtr_s  = scaler.fit_transform(X_train)
-    Xte_s  = scaler.transform(X_test)
-
-    models   = get_models(len(y_train))
-    results, preds, fitted = [], {}, {}
-    for name, mdl in models.items():
-        try:
-            Xtr = Xtr_s if name in SCALED_MODELS else X_train
-            Xte = Xte_s if name in SCALED_MODELS else X_test
-            mdl.fit(Xtr, y_train)
-            yp = mdl.predict(Xte)
-            sc = score_model(y_test, yp)
-            results.append({'Model': name, **sc})
-            preds[name]  = yp
-            fitted[name] = mdl
-        except:
-            pass
-
-    if not results: return None, "Semua model gagal."
-    rdf = pd.DataFrame(results)
-    # Composite score: R2 higher better, MAPE lower better
-    rdf['_score'] = rdf['R2'].clip(-1,1)*0.5 - (rdf['MAPE (%)']/100).clip(0,2)*0.3 - (rdf['RMSE']/(rdf['RMSE'].max()+1e-9))*0.2
-    rdf = rdf.sort_values('_score', ascending=False).reset_index(drop=True)
-    best = rdf.iloc[0]['Model']
-    rdf  = rdf.drop(columns=['_score'])
-
-    return {
-        'results_df': rdf, 'best_name': best,
-        'fitted': fitted, 'scaler': scaler,
-        'preds': preds, 'y_test': y_test,
-        'cat_enc': cat_enc, 'single': single,
-        'n_lags': n_lags, 'target': target,
-        'active_programs': active,
-        'X_train': X_train, 'X_test': X_test,
-    }, None
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PER-PROGRAM MODEL COMPARISON — with proper leave-one-out CV for small data
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_ml_per_program(df, target, n_lags, test_ratio):
-    active = get_active_programs(df)
-    rows   = []
+    per_prog     = {}   # cat -> {best_model, scaler, metrics, all_metrics}
+    detail_rows  = []   # for heatmap
+    global_rows  = []   # aggregated for global comparison table
 
     for cat in active:
-        sub = (df[df['Kategori']==cat]
+        sub = (df[df['Kategori'] == cat]
                .sort_values('Tahun')[target].dropna().values.astype(float))
-        if len(sub) < 2:
+        if len(sub) == 0:
             continue
 
-        Xc, yc = build_features(sub, n_lags, 0.0)
-        if len(Xc) < 2:
+        if single or len(sub) < 2:
+            # Fallback: simple growth prediction
+            per_prog[cat] = {
+                'best_name': 'Linear Regression',
+                'best_model': LinearRegression(),
+                'scaler': RobustScaler(),
+                'cat_id': cat_enc.get(cat, 0.0),
+                'history': list(sub),
+                'metrics': {'R2': 0.0, 'MAPE (%)': 0.0, 'MAE': 0.0, 'RMSE': 0.0},
+                'single': True,
+            }
             continue
 
-        # Use leave-one-out if too few samples, else time-split
+        Xc, yc = build_features(sub, n_lags, cat_enc.get(cat, 0.0))
         n = len(Xc)
+
+        # Split: use LOO if <=4 points, else time split
         if n <= 4:
-            # LOO cross-validation
-            all_yt, all_yp = [], []
+            loo_preds = {m: {'yt': [], 'yp': []} for m in get_fast_models(1).keys()}
             for leave in range(n):
                 idx_tr = [i for i in range(n) if i != leave]
-                if not idx_tr: continue
+                if not idx_tr:
+                    continue
                 Xtr, ytr = Xc[idx_tr], yc[idx_tr]
                 Xte, yte = Xc[[leave]], yc[[leave]]
-                sc_pp = RobustScaler().fit(Xtr)
-                Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
-                models = get_models(len(ytr))
-                for mname, mdl in models.items():
+                sc_pp   = RobustScaler().fit(Xtr)
+                Xtr_s   = sc_pp.transform(Xtr)
+                Xte_s   = sc_pp.transform(Xte)
+                mods    = get_fast_models(len(ytr))
+                for mname, mdl in mods.items():
                     try:
                         mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
-                        yp = mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)
-                        rows.append({'Program': cat, 'Model': mname,
-                                     'R2': float(r2_score([yte[0]],[yp[0]])) if False else None,
-                                     '_yt': float(yte[0]), '_yp': float(yp[0])})
+                        yp = float(mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)[0])
+                        loo_preds[mname]['yt'].append(float(yte[0]))
+                        loo_preds[mname]['yp'].append(yp)
                     except:
                         pass
+            # Score each model across LOO folds
+            cat_scores = {}
+            for mname, d in loo_preds.items():
+                if len(d['yt']) < 1:
+                    continue
+                yt_a = np.array(d['yt'])
+                yp_a = np.array(d['yp'])
+                sc   = score_model(yt_a, yp_a)
+                cat_scores[mname] = sc
+                detail_rows.append({'Program': cat, 'Model': mname, **{k:v for k,v in sc.items() if k!='_score'}})
         else:
             split = max(1, int(n * test_ratio))
             Xtr, Xte = Xc[:-split], Xc[-split:]
             ytr, yte = yc[:-split], yc[-split:]
-            sc_pp = RobustScaler().fit(Xtr)
-            Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
-            models = get_models(len(ytr))
-            for mname, mdl in models.items():
+            sc_pp  = RobustScaler().fit(Xtr)
+            Xtr_s  = sc_pp.transform(Xtr)
+            Xte_s  = sc_pp.transform(Xte)
+            mods   = get_fast_models(len(ytr))
+            cat_scores = {}
+            for mname, mdl in mods.items():
                 try:
                     mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
                     yp  = mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)
                     sc  = score_model(yte, yp)
-                    rows.append({'Program': cat, 'Model': mname, **sc, '_yt': None, '_yp': None})
+                    cat_scores[mname] = sc
+                    detail_rows.append({'Program': cat, 'Model': mname, **{k:v for k,v in sc.items() if k!='_score'}})
                 except:
                     pass
 
-    if not rows:
-        return None
+        if not cat_scores:
+            continue
 
-    # For LOO rows, aggregate predictions per program+model then score
-    res_rows = []
-    raw_df   = pd.DataFrame(rows)
+        # Pick best model for this program
+        best_name = max(cat_scores, key=lambda m: cat_scores[m]['_score'])
+        best_sc   = cat_scores[best_name]
 
-    for (cat, mname), grp in raw_df.groupby(['Program','Model']):
-        if grp['_yt'].notna().all() and grp['_yp'].notna().all():
-            yt_arr = grp['_yt'].values
-            yp_arr = grp['_yp'].values
-            sc = score_model(yt_arr, yp_arr)
-        else:
-            sc = {'R2': grp.get('R2', pd.Series([np.nan])).mean(),
-                  'MAPE (%)': grp.get('MAPE (%)', pd.Series([np.nan])).mean(),
-                  'MAE': grp.get('MAE', pd.Series([np.nan])).mean(),
-                  'RMSE': grp.get('RMSE', pd.Series([np.nan])).mean()}
-        res_rows.append({'Program': cat, 'Model': mname, **sc})
+        # Retrain best model on ALL data for this program (no split) for forecasting
+        sc_full = RobustScaler().fit(Xc)
+        Xc_s    = sc_full.transform(Xc)
+        mods_full = get_fast_models(len(yc))
+        best_mdl  = mods_full.get(best_name, LinearRegression())
+        try:
+            best_mdl.fit(Xc_s if best_name in SCALED_MODELS else Xc, yc)
+        except:
+            best_mdl = LinearRegression()
+            best_mdl.fit(Xc_s, yc)
 
-    res_df = pd.DataFrame(res_rows)
-    # Fill NaN R2 with -999 for sorting, then restore
-    res_df['_sort_r2'] = res_df['R2'].fillna(-999)
-    best_per_prog = (res_df.sort_values('_sort_r2', ascending=False)
-                     .groupby('Program').first().reset_index()
-                     [['Program','Model','R2','MAPE (%)','MAE','RMSE']])
-    res_df = res_df.drop(columns=['_sort_r2'])
+        per_prog[cat] = {
+            'best_name':  best_name,
+            'best_model': best_mdl,
+            'scaler':     sc_full,
+            'cat_id':     cat_enc.get(cat, 0.0),
+            'history':    list(sub),
+            'metrics':    {k: v for k, v in best_sc.items() if k != '_score'},
+            'all_scores': cat_scores,
+            'single':     False,
+        }
 
-    return {'detail': res_df, 'best_per_program': best_per_prog}
+        global_rows.append({'Model': best_name, 'Program': cat,
+                             **{k: v for k, v in best_sc.items() if k != '_score'}})
+
+    # Build global results_df (summary across all programs)
+    if global_rows:
+        gdf = pd.DataFrame(global_rows)
+        # Weighted average metrics
+        summary_rows = []
+        for mname in gdf['Model'].unique():
+            sub_g = gdf[gdf['Model'] == mname]
+            summary_rows.append({
+                'Model': mname,
+                'R2':       sub_g['R2'].mean(),
+                'MAPE (%)': sub_g['MAPE (%)'].mean(),
+                'MAE':      sub_g['MAE'].mean(),
+                'RMSE':     sub_g['RMSE'].mean(),
+                'Programs': ', '.join(sub_g['Program'].tolist()),
+            })
+        results_df = pd.DataFrame(summary_rows).sort_values('R2', ascending=False).reset_index(drop=True)
+    else:
+        results_df = pd.DataFrame()
+
+    # Best per program table
+    bpp_rows = []
+    for cat, info in per_prog.items():
+        m = info['metrics']
+        bpp_rows.append({'Program': cat, 'Model': info['best_name'],
+                         'R2': m.get('R2', 0), 'MAPE (%)': m.get('MAPE (%)', 0),
+                         'MAE': m.get('MAE', 0), 'RMSE': m.get('RMSE', 0)})
+    best_per_prog = pd.DataFrame(bpp_rows)
+
+    detail_df = pd.DataFrame(detail_rows) if detail_rows else pd.DataFrame()
+
+    # Overall best = model used most often
+    if bpp_rows:
+        from collections import Counter
+        model_counts = Counter(r['Model'] for r in bpp_rows)
+        overall_best = model_counts.most_common(1)[0][0]
+        # For backward compat: pick metrics of that model
+        best_metrics_rows = [r for r in bpp_rows if r['Model'] == overall_best]
+        avg_r2   = np.mean([r['R2'] for r in best_metrics_rows])
+        avg_mape = np.mean([r['MAPE (%)'] for r in best_metrics_rows])
+        avg_mae  = np.mean([r['MAE'] for r in best_metrics_rows])
+    else:
+        overall_best = 'N/A'; avg_r2 = avg_mape = avg_mae = 0.0
+
+    return {
+        'per_prog':     per_prog,
+        'best_per_program': best_per_prog,
+        'detail':       detail_df,
+        'results_df':   results_df,
+        'best_name':    overall_best,
+        'best_r2':      avg_r2,
+        'best_mape':    avg_mape,
+        'best_mae':     avg_mae,
+        'cat_enc':      cat_enc,
+        'single':       single,
+        'n_lags':       n_lags,
+        'target':       target,
+        'active_programs': active,
+    }, None
+
+
+# Alias for backward compatibility
+def run_ml(df, target, n_lags, test_ratio):
+    return train_best_per_program(df, target, n_lags, test_ratio)
+
+def run_ml_per_program(df, target, n_lags, test_ratio):
+    res, err = train_best_per_program(df, target, n_lags, test_ratio)
+    return res  # already contains per-program data
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -583,46 +612,59 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
     lines = []
     if ml_result is None:
         return lines
-    rdf  = ml_result['results_df']
-    best = ml_result['best_name']
-    br   = rdf[rdf['Model'] == best].iloc[0]
-    r2_val, mape_val = br['R2'], br['MAPE (%)']
+
+    # Use per_prog data directly — more accurate since each program has its own model
+    bpp = ml_result.get('best_per_program', pd.DataFrame())
+    per_prog = ml_result.get('per_prog', {})
+
+    # Aggregate metrics across all programs
+    if not bpp.empty and 'R2' in bpp.columns:
+        r2_val   = float(bpp['R2'].mean())
+        mape_val = float(bpp['MAPE (%)'].mean())
+    else:
+        r2_val, mape_val = ml_result.get('best_r2', 0.0), ml_result.get('best_mape', 0.0)
+
     r2_grade   = ("Sangat Baik (>0.9)" if r2_val > 0.9 else
                   "Baik (0.8–0.9)"     if r2_val > 0.8 else
                   "Cukup (0.6–0.8)"    if r2_val > 0.6 else "Lemah (<0.6)")
     mape_grade = ("Sangat Akurat (<10%)" if mape_val < 10 else
                   "Akurat (10–20%)"      if mape_val < 20 else
                   "Cukup (20–50%)"       if mape_val < 50 else "Tidak Akurat (>50%)")
-    lines.append(('🏆', 'Model Terbaik Global',
-        f"**{best}** dipilih sebagai model terbaik dengan R² = **{r2_val:.4f}** ({r2_grade}) "
-        f"dan MAPE = **{mape_val:.2f}%** ({mape_grade})."))
-    if per_prog_result is not None:
-        bpp = per_prog_result['best_per_program']
+
+    lines.append(('🎯', 'Pendekatan Prediksi',
+        "Setiap program menggunakan **model terbaiknya sendiri** (per-program best model). "
+        f"Rata-rata R² = **{r2_val:.4f}** ({r2_grade}), rata-rata MAPE = **{mape_val:.2f}%** ({mape_grade})."))
+
+    if not bpp.empty:
         prog_str = ', '.join(f"{r['Program']} → **{r['Model']}**" for _, r in bpp.iterrows())
         lines.append(('📊', 'Model Terbaik per Program', prog_str))
-        worst  = bpp.sort_values('R2').iloc[0]
-        best_p = bpp.sort_values('R2', ascending=False).iloc[0]
-        lines.append(('🔍', 'Akurasi per Program',
-            f"Program **{best_p['Program']}** paling mudah diprediksi (R²={best_p['R2']:.3f}). "
-            f"Program **{worst['Program']}** paling sulit (R²={worst['R2']:.3f}) — "
-            "perlu data lebih banyak atau fitur eksternal."))
+        if len(bpp) > 1:
+            worst  = bpp.sort_values('R2').iloc[0]
+            best_p = bpp.sort_values('R2', ascending=False).iloc[0]
+            lines.append(('🔍', 'Akurasi per Program',
+                f"Program **{best_p['Program']}** paling mudah diprediksi (R²={best_p['R2']:.3f}, MAPE={best_p['MAPE (%)']:.1f}%). "
+                f"Program **{worst['Program']}** paling sulit (R²={worst['R2']:.3f}, MAPE={worst['MAPE (%)']:.1f}%) — "
+                "pertimbangkan menambah data historis atau fitur eksternal."))
+
     base_yr = int(df['Tahun'].max())
     lines.append(('📅', 'Horizon Prediksi',
         f"Model dilatih pada data s/d **{base_yr}** dan mampu memproyeksikan hingga "
         f"**{base_yr + n_future}** ({n_future} tahun ke depan). "
-        "Akurasi menurun semakin jauh horizon waktu."))
+        "Akurasi menurun semakin jauh horizon waktu — gunakan prediksi jangka pendek untuk keputusan kritis."))
+
     yrs = sorted(df['Tahun'].unique())
     lines.append(('📁', 'Kualitas Data',
         f"Dataset mencakup **{len(yrs)} tahun** ({yrs[0]}–{yrs[-1]}) "
         f"dengan **{len(get_active_programs(df))} program aktif**. "
-        + ("Jumlah tahun cukup untuk ML multi-lag." if len(yrs) >= 4
-           else "Tambah data historis untuk meningkatkan akurasi.")))
+        + ("✅ Jumlah tahun cukup untuk model lag." if len(yrs) >= 4
+           else "⚠️ Tambah data historis untuk meningkatkan akurasi model.")))
+
     if r2_val >= 0.8 and mape_val <= 20:
-        rec = "✅ Model layak digunakan untuk perencanaan anggaran dan proyeksi klaim."
+        rec = "✅ Model layak digunakan untuk perencanaan anggaran dan proyeksi klaim BPJS."
     elif r2_val >= 0.6:
-        rec = "⚠️ Model cukup untuk proyeksi kasar, namun perlu validasi tambahan."
+        rec = "⚠️ Model cukup untuk proyeksi kasar. Validasi manual disarankan sebelum keputusan strategis."
     else:
-        rec = "❌ Model belum cukup akurat. Tambah data historis atau fitur tambahan."
+        rec = "❌ Akurasi belum optimal. Tambah data historis minimal 5 tahun, atau gunakan Prophet/SARIMA untuk data bulanan."
     lines.append(('💡', 'Rekomendasi', rec))
     return lines
 
@@ -770,38 +812,48 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
 
 
 def forecast(df, ml, n_years):
+    """Forecast using each program's own best model."""
     target  = ml['target']
-    best    = ml['best_name']
-    mdl     = ml['fitted'][best]
-    sc      = ml['scaler']
-    enc     = ml['cat_enc']
     nlags   = ml['n_lags']
     single  = ml['single']
     active  = ml['active_programs']
+    per_prog = ml.get('per_prog', {})
     base_yr = int(df['Tahun'].max())
     rows    = []
 
     for cat in active:
-        cat_id  = float(enc.get(cat, 0))
+        info    = per_prog.get(cat, None)
         history = list(df[df['Kategori'] == cat]
                        .sort_values('Tahun')[target]
                        .dropna().values.astype(float))
         if not history: continue
 
-        for fy in range(1, n_years + 1):
-            if single:
+        if info is None or info.get('single', True):
+            # Fallback: simple 5% growth
+            for fy in range(1, n_years + 1):
                 pred = history[0] * (1.05 ** fy)
-            else:
-                # Use build_features to ensure consistent feature count
-                Xc, _ = build_features(history, nlags, cat_id)
-                if len(Xc) == 0:
-                    pred = history[-1]
-                else:
-                    feat = Xc[-1].reshape(1, -1)
-                    if best in SCALED_MODELS:
-                        feat = sc.transform(feat)
-                    pred = float(mdl.predict(feat)[0])
+                pred = max(0.0, pred)
+                rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
+                             target: pred, 'Type': 'Prediksi'})
+                history.append(pred)
+            continue
 
+        mdl      = info['best_model']
+        sc       = info['scaler']
+        best_nm  = info['best_name']
+        cat_id   = info['cat_id']
+
+        for fy in range(1, n_years + 1):
+            Xc, _ = build_features(history, nlags, cat_id)
+            if len(Xc) == 0:
+                pred = history[-1]
+            else:
+                feat = Xc[-1].reshape(1, -1)
+                try:
+                    feat_use = sc.transform(feat) if best_nm in SCALED_MODELS else feat
+                    pred = float(mdl.predict(feat_use)[0])
+                except:
+                    pred = history[-1]
             pred = max(0.0, pred)
             rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
                          target: pred, 'Type': 'Prediksi'})
@@ -1695,8 +1747,8 @@ with tab2:
             st.session_state.active_results = results_cache
             # Per-program analysis
             with st.spinner("Menganalisis model per program..."):
-                pp_res = run_ml_per_program(df, target_ml, n_lags, test_pct / 100)
-                st.session_state[f'per_prog_{target_ml}'] = pp_res
+                # Per-program analysis is already in ml_res — no separate run needed
+                st.session_state[f'per_prog_{target_ml}'] = ml_res
             data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
             eid   = f"{data_hash}_{target_ml}_L{n_lags}_T{test_pct}"
             label = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
@@ -1714,19 +1766,20 @@ with tab2:
             st.session_state.active_entry_id = eid
 
     if ml_res:
-        rdf      = ml_res['results_df']
-        best     = ml_res['best_name']
-        best_row = rdf[rdf['Model'] == best].iloc[0]
-        pp_res   = st.session_state.get(f'per_prog_{target_ml}', None)
-
+        bpp      = ml_res.get('best_per_program', pd.DataFrame())
+        per_prog = ml_res.get('per_prog', {})
+        rdf      = ml_res.get('results_df', pd.DataFrame())
+        # Use per-program averages for badge
+        avg_r2   = float(bpp['R2'].mean())   if not bpp.empty and 'R2' in bpp.columns else ml_res.get('best_r2', 0.0)
+        avg_mape = float(bpp['MAPE (%)'].mean()) if not bpp.empty and 'MAPE (%)' in bpp.columns else ml_res.get('best_mape', 0.0)
+        avg_mae  = float(bpp['MAE'].mean())  if not bpp.empty and 'MAE' in bpp.columns else ml_res.get('best_mae', 0.0)
         mode_note = '&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''
         st.markdown(
             f'<div class="badge">'
-            f'🏆 <b>Model Terbaik (Auto-Selected):</b> {best}'
-            f'&nbsp;|&nbsp; R² = <b>{best_row["R2"]:.4f}</b>'
-            f'&nbsp;|&nbsp; MAPE = <b>{best_row["MAPE (%)"]:.2f}%</b>'
-            f'&nbsp;|&nbsp; MAE = <b>{best_row["MAE"]:,.0f}</b>'
-            f'&nbsp;|&nbsp; Dilatih pada <b>{len(active_progs)} program aktif</b>'
+            f'🎯 <b>Per-Program Best Model</b> — setiap program pakai model terbaiknya sendiri'
+            f'&nbsp;|&nbsp; Avg R² = <b>{avg_r2:.4f}</b>'
+            f'&nbsp;|&nbsp; Avg MAPE = <b>{avg_mape:.2f}%</b>'
+            f'&nbsp;|&nbsp; <b>{len(active_progs)} program</b>'
             f'{mode_note}</div>',
             unsafe_allow_html=True)
 
@@ -1736,17 +1789,46 @@ with tab2:
             "📝 Conclusion & Metrics", "🔮 Prophet + Kalender", "📈 SARIMA"
         ])
 
-        # ── Sub-tab 1: Model Comparison ───────────────────────────────────
+        # ── Sub-tab 1: Model per Program Summary ─────────────────────────
         with mtab1:
-            st.markdown('<div class="sec">Perbandingan Semua Model</div>',
+            st.markdown('<div class="sec">Model Terbaik per Program (Ringkasan)</div>',
                         unsafe_allow_html=True)
-            st.dataframe(
-                rdf.style
-                   .highlight_max(subset=['R2'], color='#1e3a5f')
-                   .highlight_min(subset=['MAE', 'RMSE', 'MAPE (%)'], color='#14532d')
-                   .format({'MAE': '{:,.0f}', 'RMSE': '{:,.0f}',
-                            'R2': '{:.4f}', 'MAPE (%)': '{:.2f}'}),
-                width='stretch', height=320)
+            if not bpp.empty:
+                # Color scorecard per program
+                def badge_r2(v):
+                    return "🟢" if v>0.8 else "🔵" if v>0.6 else "🟡" if v>0.3 else "🔴"
+                def badge_mape(v):
+                    return "🟢" if v<10 else "🔵" if v<20 else "🟡" if v<50 else "🔴"
+                bpp_disp = bpp.copy()
+                bpp_disp['Kualitas R²']   = bpp_disp['R2'].apply(badge_r2)
+                bpp_disp['Kualitas MAPE'] = bpp_disp['MAPE (%)'].apply(badge_mape)
+                st.dataframe(
+                    bpp_disp.style
+                       .highlight_max(subset=['R2'], color='#14532d')
+                       .highlight_min(subset=['MAPE (%)'], color='#14532d')
+                       .format({'R2':'{:.4f}','MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}),
+                    width='stretch', height=260)
+
+                # Bar chart R² per program
+                fig_bpp_r2 = px.bar(bpp, x='Program', y='R2', color='Model',
+                                    text='Model', color_discrete_sequence=COLORS,
+                                    title='R² Model Terbaik per Program')
+                fig_bpp_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
+                                     annotation_text='Target R²=0.8')
+                fig_bpp_r2.update_traces(textposition='outside')
+                fig_bpp_r2.update_layout(**DARK, height=380, margin=dict(t=50,b=40))
+                st.plotly_chart(fig_bpp_r2, width='stretch')
+
+                # MAPE per program
+                fig_bpp_mp = px.bar(bpp, x='Program', y='MAPE (%)', color='Model',
+                                    color_discrete_sequence=COLORS,
+                                    title='MAPE % Model Terbaik per Program (lebih rendah = lebih baik)')
+                fig_bpp_mp.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
+                                     annotation_text='Threshold 20%')
+                fig_bpp_mp.update_layout(**DARK, height=360, margin=dict(t=50,b=40))
+                st.plotly_chart(fig_bpp_mp, width='stretch')
+            else:
+                st.info("Jalankan Analisis ML untuk melihat hasil.")
 
             mc1, mc2 = st.columns(2)
             with mc1:
@@ -1812,11 +1894,10 @@ with tab2:
 
         # ── Sub-tab 2: Per-Program Model Comparison ───────────────────────
         with mtab2:
-            if pp_res is None:
+            det = ml_res.get('detail', pd.DataFrame())
+            if bpp.empty:
                 st.info("Klik **Jalankan Analisis ML** untuk melihat model terbaik per program.")
             else:
-                bpp = pp_res['best_per_program']
-                det = pp_res['detail']
 
                 st.markdown('<div class="sec">Model Terbaik per Program</div>',
                             unsafe_allow_html=True)
@@ -1873,7 +1954,7 @@ with tab2:
 
         # ── Sub-tab 3: Conclusion & Metrics ───────────────────────────────
         with mtab3:
-            conclusions = build_conclusion(ml_res, pp_res, df, target_ml, n_future)
+            conclusions = build_conclusion(ml_res, ml_res, df, target_ml, n_future)
             if conclusions:
                 st.markdown('<div class="sec">Kesimpulan Otomatis Analisis ML</div>',
                             unsafe_allow_html=True)
