@@ -13,26 +13,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
 
 # Prophet (optional — graceful fallback if not installed)
 try:
@@ -1567,14 +1547,16 @@ with tab2:
         best_row = rdf[rdf['Model'] == best].iloc[0]
         pp_res   = st.session_state.get(f'per_prog_{target_ml}', None)
 
-        st.markdown(f"""<div class="badge">
-        🏆 <b>Model Terbaik (Auto-Selected):</b> {best}
-        &nbsp;|&nbsp; R² = <b>{best_row['R2']:.4f}</b>
-        &nbsp;|&nbsp; MAPE = <b>{best_row['MAPE (%)']:.2f}%</b>
-        &nbsp;|&nbsp; MAE = <b>{best_row['MAE']:,.0f}</b>
-        &nbsp;|&nbsp; Dilatih pada <b>{len(active_progs)} program aktif</b>
-        {'&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''}
-        </div>""", unsafe_allow_html=True)
+        mode_note = '&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''
+        st.markdown(
+            f'<div class="badge">'
+            f'🏆 <b>Model Terbaik (Auto-Selected):</b> {best}'
+            f'&nbsp;|&nbsp; R² = <b>{best_row["R2"]:.4f}</b>'
+            f'&nbsp;|&nbsp; MAPE = <b>{best_row["MAPE (%)"]:.2f}%</b>'
+            f'&nbsp;|&nbsp; MAE = <b>{best_row["MAE"]:,.0f}</b>'
+            f'&nbsp;|&nbsp; Dilatih pada <b>{len(active_progs)} program aktif</b>'
+            f'{mode_note}</div>',
+            unsafe_allow_html=True)
 
         # ── Sub-tabs ──────────────────────────────────────────────────────
         mtab1, mtab2, mtab3, mtab4 = st.tabs([
