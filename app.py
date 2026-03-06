@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -2435,18 +2414,33 @@ with tab3:
 
         future_yrs = sorted(fut['Tahun'].unique())
         yr_range   = f"{future_yrs[0]}-{future_yrs[-1]}"
-        best_used  = ml_pred['best_name']
         prog_list  = ", ".join(ml_pred['active_programs'])
         mode_note  = " | Mode 1 dataset (estimasi 5%/thn)" if single_yr else ""
 
-        badge_html = (
-            '<div class="badge">'
-            + "Model: <b>" + best_used + "</b>"
-            + " &nbsp;|&nbsp; Proyeksi <b>" + str(n_future) + " tahun</b> (" + yr_range + ")"
-            + " &nbsp;|&nbsp; Program: <b>" + prog_list + "</b>"
-            + mode_note
-            + "</div>"
-        )
+        # Show per-program model used
+        per_prog_info = ml_pred.get('per_prog', {})
+        if per_prog_info:
+            model_parts = " | ".join(
+                f"<b>{cat}</b>→{info['best_name']}"
+                for cat, info in per_prog_info.items()
+            )
+            badge_html = (
+                '<div class="badge">'
+                + "🎯 <b>Per-Program Model</b>: " + model_parts
+                + " &nbsp;|&nbsp; Proyeksi <b>" + str(n_future) + " tahun</b> (" + yr_range + ")"
+                + mode_note
+                + "</div>"
+            )
+        else:
+            best_used = ml_pred['best_name']
+            badge_html = (
+                '<div class="badge">'
+                + "Model: <b>" + best_used + "</b>"
+                + " &nbsp;|&nbsp; Proyeksi <b>" + str(n_future) + " tahun</b> (" + yr_range + ")"
+                + " &nbsp;|&nbsp; Program: <b>" + prog_list + "</b>"
+                + mode_note
+                + "</div>"
+            )
         st.markdown(badge_html, unsafe_allow_html=True)
 
         ptab_yr, ptab_mo = st.tabs(["📅 Prediksi Tahunan", "📆 Prediksi Bulanan"])
