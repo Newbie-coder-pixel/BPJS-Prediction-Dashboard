@@ -63,6 +63,19 @@ except ImportError:
 
 st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
 
+# ── Keep-alive: cegah app hibernasi di Streamlit Cloud ────────────────────
+# JS ping halaman sendiri setiap 10 menit — Streamlit hibernasi setelah ~15 menit idle
+st.markdown("""
+<script>
+(function keepAlive() {
+  setInterval(function() {
+    fetch(window.location.href, {method: 'GET', cache: 'no-cache'})
+      .catch(function() {});
+  }, 600000);
+})();
+</script>
+""", unsafe_allow_html=True)
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -2821,7 +2834,7 @@ with tab2:
                             showgrid=True, gridcolor='#0f1923',
                             rangemode='nonnegative',   # ← kunci: tidak pernah negatif
                             range=[global_ymin, None]))
-                    st.plotly_chart(fig_p_all, use_container_width=True)
+                    st.plotly_chart(fig_p_all, width='stretch')
 
                     # ── Per-program forecast table (tabs) ─────────────────
                     st.markdown('<div class="sec">Tabel Prediksi per Program</div>',
@@ -2997,7 +3010,7 @@ with tab2:
                                     text='Efek Hari Libur terhadap Klaim (% dari rata-rata bulanan)',
                                     font=dict(size=14, color='#e2e8f0'), x=0),
                             )
-                            st.plotly_chart(fig_lol, use_container_width=True)
+                            st.plotly_chart(fig_lol, width='stretch')
 
                             # ── SCORECARD CARDS ────────────────────────────
                             st.markdown('<div class="sec">Ringkasan Efek per Program</div>',
