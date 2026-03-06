@@ -839,7 +839,7 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 # ══════════════════════════════════════════════════════════════════════════════
 
 GCAL_ID  = "en.indonesian%23holiday%40group.v.calendar.google.com"
-GCAL_KEY = "AIzaSyD1gERwlm6R_mnm6Jd1sap3dFuPz0hpBfQ"
+GCAL_KEY = st.secrets["GCAL_KEY"]
 
 # Window overrides: hari libur tertentu punya dampak lebih luas pada klaim BPJS
 _WINDOW_RULES = {
@@ -986,21 +986,50 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
     cat_df.columns = ['ds', 'y']
     cat_df = cat_df[cat_df['y'] > 0].sort_values('ds').reset_index(drop=True)
 
-    holidays_df = INDONESIAN_HOLIDAYS if use_holidays else None
+    if len(cat_df) < 6:
+        return None, f"Data {cat} setelah filtering kurang dari 6 bulan."
+
+    holidays_df = INDONESIAN_HOLIDAYS.copy() if use_holidays and len(INDONESIAN_HOLIDAYS) > 0 else None
+
+    # Floor value — Prophet tidak akan pernah prediksi di bawah ini
+    y_floor = 0.0
+    y_cap   = float(cat_df['y'].max()) * 3.0  # cap atas wajar: 3x nilai tertinggi historis
 
     try:
+        # Pilih mode berdasarkan panjang data
+        n_data = len(cat_df)
+        if n_data >= 24:
+            # Data cukup → multiplicative (lebih akurat untuk klaim yang tumbuh)
+            s_mode = 'multiplicative'
+            cp_scale = 0.05   # konservatif agar tidak overfit
+        else:
+            # Data sedikit → additive lebih stabil, hindari prediksi liar
+            s_mode = 'additive'
+            cp_scale = 0.03
+
         m = Prophet(
             yearly_seasonality=True,
             weekly_seasonality=False,
             daily_seasonality=False,
             holidays=holidays_df,
-            seasonality_mode='multiplicative',
-            interval_width=0.95,
-            changepoint_prior_scale=0.1,
+            seasonality_mode=s_mode,
+            interval_width=0.80,          # 80% CI (lebih konservatif dari 95%)
+            changepoint_prior_scale=cp_scale,
+            seasonality_prior_scale=5.0,  # batasi efek musiman agar tidak liar
+            holidays_prior_scale=5.0,
+            growth='flat' if n_data < 12 else 'linear',  # flat untuk data sangat sedikit
         )
         m.fit(cat_df)
         future = m.make_future_dataframe(periods=n_months, freq='MS')
         fc = m.predict(future)
+
+        # ── Hard clamp: prediksi tidak pernah negatif ──────────────────
+        fc['yhat']       = fc['yhat'].clip(lower=y_floor)
+        fc['yhat_lower'] = fc['yhat_lower'].clip(lower=y_floor)
+        fc['yhat_upper'] = fc['yhat_upper'].clip(lower=y_floor)
+        # Juga clamp atas — hindari angka astronomis
+        fc['yhat']       = fc['yhat'].clip(upper=y_cap)
+        fc['yhat_upper'] = fc['yhat_upper'].clip(upper=y_cap * 1.2)
 
         # In-sample metrics
         hist_pred = fc[fc['ds'].isin(cat_df['ds'])]
@@ -1015,8 +1044,7 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
         n_holidays = len(holidays_df) if holidays_df is not None else 0
         return {'model': m, 'forecast': fc, 'history': cat_df,
                 'r2_insample': r2_is, 'mape_insample': mape_is,
-                'n_holidays': n_holidays,
-                'gcal_used': False}, None
+                'n_holidays': n_holidays, 'gcal_used': n_holidays > 0}, None
     except Exception as e:
         return None, str(e)
 
@@ -2625,87 +2653,101 @@ with tab2:
                 p_meta        = st.session_state.get('prophet_meta', {})
 
                 if all_p_results and p_meta.get('target') == target_prophet:
-                    # ── Combined forecast chart — clean version ───────────
-                    st.markdown(f'<div class="sec">Forecast Prophet — Semua Program ({target_prophet})</div>',
-                                unsafe_allow_html=True)
+                    # ── Combined forecast chart ────────────────────────────
+                    tgt_label = target_prophet  # e.g. "Kasus" or "Nominal"
+                    st.markdown(
+                        f'<div class="sec">Forecast Prophet — Semua Program ({tgt_label})</div>',
+                        unsafe_allow_html=True)
 
-                    # Convert hex to rgba helper
                     def hex_rgba(hex_c, alpha):
                         hex_c = hex_c.lstrip('#')
-                        r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                        r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
                         return f'rgba({r},{g},{b},{alpha})'
 
-                    fig_p_all = go.Figure()
+                    # Compute global y-min from actuals only (to clamp axis)
+                    all_y_vals = []
+                    for cp, pr in all_p_results.items():
+                        all_y_vals += list(pr['history']['y'].dropna())
+                    global_ymin = max(0, min(all_y_vals) * 0.85) if all_y_vals else 0
+
+                    fig_p_all    = go.Figure()
                     last_hist_ds = None
+
                     for i, (cp, pr) in enumerate(all_p_results.items()):
-                        fc_df   = pr['forecast']
-                        hist_df = pr['history']
+                        fc_df   = pr['forecast'].copy()
+                        hist_df = pr['history'].copy()
                         col_c   = COLORS[i % len(COLORS)]
                         cutoff  = hist_df['ds'].max()
                         last_hist_ds = cutoff
-                        fc_future = fc_df[fc_df['ds'] > cutoff].copy()
 
-                        # History — solid line
+                        # Clamp forecast: never below 0, never below 20% of last actual
+                        last_actual   = float(hist_df['y'].iloc[-1])
+                        floor_val     = max(0.0, last_actual * 0.0)  # allow 0 floor
+                        fc_future     = fc_df[fc_df['ds'] > cutoff].copy()
+                        fc_future['yhat']       = fc_future['yhat'].clip(lower=floor_val)
+                        fc_future['yhat_lower'] = fc_future['yhat_lower'].clip(lower=0)
+                        fc_future['yhat_upper'] = fc_future['yhat_upper'].clip(lower=0)
+
+                        # Actuals — area + line for weight
                         fig_p_all.add_trace(go.Scatter(
                             x=hist_df['ds'], y=hist_df['y'],
                             name=f'{cp} Aktual',
-                            mode='lines', legendgroup=cp,
-                            line=dict(color=col_c, width=2)))
+                            mode='lines+markers',
+                            legendgroup=cp,
+                            line=dict(color=col_c, width=2.5),
+                            marker=dict(size=5),
+                            fill='tozeroy',
+                            fillcolor=hex_rgba(col_c, 0.04),
+                            hovertemplate=f'<b>{cp}</b><br>%{{x|%b %Y}}<br>{tgt_label}: %{{y:,.0f}}<extra></extra>'))
 
-                        # CI band — very subtle, behind prediction line
+                        # CI band
                         fig_p_all.add_trace(go.Scatter(
                             x=list(fc_future['ds']) + list(fc_future['ds'][::-1]),
                             y=list(fc_future['yhat_upper']) + list(fc_future['yhat_lower'][::-1]),
                             fill='toself',
-                            fillcolor=hex_rgba(col_c, 0.1),
+                            fillcolor=hex_rgba(col_c, 0.08),
                             line=dict(color='rgba(0,0,0,0)'),
                             legendgroup=cp, showlegend=False, hoverinfo='skip'))
 
-                        # Prediction line — dashed, same color
+                        # Prediction line — dashed
                         fig_p_all.add_trace(go.Scatter(
                             x=fc_future['ds'], y=fc_future['yhat'],
                             name=f'{cp} Prediksi',
-                            mode='lines+markers', legendgroup=cp,
+                            mode='lines+markers',
+                            legendgroup=cp,
                             line=dict(color=col_c, width=2, dash='dash'),
-                            marker=dict(size=5, symbol='diamond')))
+                            marker=dict(size=6, symbol='diamond'),
+                            hovertemplate=f'<b>{cp} (Prediksi)</b><br>%{{x|%b %Y}}<br>{tgt_label}: %{{y:,.0f}}<extra></extra>'))
 
-                    # Vertical separator line at forecast start
+                    # Separator line
                     if last_hist_ds is not None:
                         fig_p_all.add_vline(
                             x=last_hist_ds.timestamp()*1000,
-                            line_dash='solid', line_color='rgba(255,255,255,0.2)',
+                            line_dash='dot', line_color='rgba(148,163,184,0.4)',
                             line_width=1.5,
                             annotation_text='← Aktual | Prediksi →',
                             annotation_font=dict(size=10, color='#94a3b8'),
                             annotation_position='top')
 
-                    # Holiday markers — only major ones, compact
-                    major_holidays = ['Idul Fitri', 'Idul Adha', 'Ramadhan', 'Tahun Baru']
-                    seen_holidays  = set()
-                    if last_hist_ds is not None:
-                        for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
-                            hname = hrow['holiday']
-                            if (hname in major_holidays and
-                                last_hist_ds <= hrow['ds'] <= last_hist_ds + pd.DateOffset(months=n_months_prophet) and
-                                hname not in seen_holidays):
-                                fig_p_all.add_vline(
-                                    x=hrow['ds'].timestamp()*1000,
-                                    line_dash='dot', line_color='rgba(251,191,36,0.5)',
-                                    line_width=1,
-                                    annotation_text=hname,
-                                    annotation_font=dict(size=8, color='#fbbf24'),
-                                    annotation_position='top right')
-                                seen_holidays.add(hname)
-
+                    # Y-axis floor — never show negative
                     fig_p_all.update_layout(
-                        **DARK, height=520, hovermode='x unified',
+                        **DARK,
+                        title=dict(
+                            text=f'Forecast Prophet — {tgt_label} per Program',
+                            font=dict(size=14, color='#e2e8f0'), x=0),
+                        height=520,
+                        hovermode='x unified',
                         legend=dict(orientation='h', y=-0.22, font=dict(size=10),
                                     groupclick='toggleitem'),
-                        margin=dict(t=40, b=120),
-                        xaxis_title='Periode', yaxis_title=target_prophet,
-                        xaxis=dict(showgrid=True, gridcolor='#1e2d45'),
-                        yaxis=dict(showgrid=True, gridcolor='#1e2d45'))
-                    st.plotly_chart(fig_p_all, width='stretch')
+                        margin=dict(t=50, b=130),
+                        xaxis_title='Periode',
+                        yaxis_title=tgt_label,
+                        xaxis=dict(showgrid=True, gridcolor='#0f1923'),
+                        yaxis=dict(
+                            showgrid=True, gridcolor='#0f1923',
+                            rangemode='nonnegative',   # ← kunci: tidak pernah negatif
+                            range=[global_ymin, None]))
+                    st.plotly_chart(fig_p_all, use_container_width=True)
 
                     # ── Per-program forecast table (tabs) ─────────────────
                     st.markdown('<div class="sec">Tabel Prediksi per Program</div>',
@@ -2723,14 +2765,13 @@ with tab2:
                                 fc_fut[col] = fc_fut[col].apply(lambda x: f"{max(0,x):,.0f}")
                             st.dataframe(fc_fut, width='stretch', height=320)
 
-                    # ── Holiday effects — per program grouped bar ─────────
+                    # ── Holiday effects — smart grouped chart ─────────────
                     st.markdown('<div class="sec">Efek Hari Libur per Program</div>',
                                 unsafe_allow_html=True)
                     heff_all = []
-                    holiday_names = list(INDONESIAN_HOLIDAYS['holiday'].unique())
+                    holiday_names = list(INDONESIAN_HOLIDAYS['holiday'].unique()) if len(INDONESIAN_HOLIDAYS) > 0 else []
                     for cp, pr in all_p_results.items():
                         fc_rep = pr['forecast']
-                        # Prophet stores holiday effects as columns named after the holiday
                         for hname in holiday_names:
                             if hname in fc_rep.columns:
                                 effect = float(fc_rep[hname].mean())
@@ -2738,24 +2779,143 @@ with tab2:
 
                     if heff_all:
                         heff_df = pd.DataFrame(heff_all)
-                        fig_heff = px.bar(
-                            heff_df, x='Hari Libur', y='Efek', color='Program',
-                            barmode='group',
-                            color_discrete_sequence=COLORS,
-                            title='Efek Hari Libur terhadap Klaim — per Program',
-                            text_auto='.0f')
-                        fig_heff.add_hline(y=0, line_color='rgba(255,255,255,0.3)', line_width=1)
-                        fig_heff.update_traces(textposition='outside', textfont_size=9)
-                        fig_heff.update_layout(
-                            **DARK, height=420,
-                            legend=dict(orientation='h', y=-0.2),
-                            margin=dict(t=50, b=100),
-                            xaxis_tickangle=-30,
-                            yaxis_title='Efek Rata-rata (+ naik / - turun)')
-                        st.plotly_chart(fig_heff, width='stretch')
+
+                        # ── Smart grouping: normalise holiday names ────────
+                        # Google Calendar returns many variants (tentative, joint, etc.)
+                        # Group by semantic category
+                        def categorize_holiday(name):
+                            nl = name.lower()
+                            if 'idul fitri' in nl or 'lebaran' in nl or 'eid al-fitr' in nl:
+                                return 'Idul Fitri / Lebaran'
+                            if 'idul adha' in nl or 'eid al-adha' in nl:
+                                return 'Idul Adha'
+                            if 'ramad' in nl or 'puasa' in nl:
+                                return 'Ramadhan'
+                            if 'natal' in nl or 'christmas' in nl:
+                                return 'Natal / Christmas'
+                            if 'tahun baru' in nl and 'islam' not in nl and 'imlek' not in nl and 'chinese' not in nl:
+                                return 'Tahun Baru Masehi'
+                            if 'imlek' in nl or 'chinese new year' in nl or 'lunar' in nl:
+                                return 'Imlek'
+                            if 'nyepi' in nl or 'silence' in nl or "bali's day" in nl:
+                                return 'Nyepi'
+                            if 'isra' in nl or "mi'raj" in nl or 'miraj' in nl or 'ascension of the prophet' in nl:
+                                return "Isra Mi'raj"
+                            if 'waisak' in nl or 'vesak' in nl or 'buddha' in nl:
+                                return 'Waisak'
+                            if 'kenaikan' in nl or 'ascension' in nl or 'good friday' in nl or 'wafat' in nl or 'easter' in nl or 'paskah' in nl:
+                                return 'Paskah / Wafat Isa'
+                            if 'maulid' in nl or 'muhammad' in nl or 'nabi' in nl:
+                                return 'Maulid Nabi'
+                            if 'muharram' in nl or 'tahun baru islam' in nl or 'islamic new year' in nl:
+                                return 'Tahun Baru Islam'
+                            if 'buruh' in nl or 'labor' in nl or 'labour' in nl or 'worker' in nl:
+                                return 'Hari Buruh'
+                            if 'pancasila' in nl:
+                                return 'Hari Pancasila'
+                            if 'kemerdekaan' in nl or 'independence' in nl or 'hut ri' in nl:
+                                return 'HUT RI'
+                            if 'election' in nl or 'pemilu' in nl:
+                                return 'Pemilu'
+                            if 'joint holiday' in nl or 'cuti bersama' in nl:
+                                return 'Cuti Bersama'
+                            return 'Lainnya'
+
+                        heff_df['Kategori'] = heff_df['Hari Libur'].apply(categorize_holiday)
+
+                        # Aggregate by category (mean effect across holiday instances)
+                        heff_grp = (heff_df.groupby(['Program','Kategori'])['Efek']
+                                    .mean().reset_index())
+                        heff_grp.rename(columns={'Kategori':'Hari Libur'}, inplace=True)
+
+                        # ── Filter: keep only categories with meaningful effect ──
+                        # (absolute mean effect > threshold, or top-15 by abs effect)
+                        abs_mean = heff_grp.groupby('Hari Libur')['Efek'].apply(lambda x: x.abs().mean())
+                        top_cats = abs_mean.nlargest(15).index.tolist()
+                        heff_grp = heff_grp[heff_grp['Hari Libur'].isin(top_cats)]
+
+                        # Sort by overall avg abs effect (descending) for readability
+                        order = (heff_grp.groupby('Hari Libur')['Efek']
+                                 .apply(lambda x: x.abs().mean())
+                                 .sort_values(ascending=True).index.tolist())
+
+                        # ── Render: two views ──────────────────────────────
+                        vcol1, vcol2 = st.columns([3, 2])
+
+                        with vcol1:
+                            # Horizontal grouped bar — much easier to read
+                            fig_heff = px.bar(
+                                heff_grp,
+                                y='Hari Libur', x='Efek',
+                                color='Program',
+                                barmode='group',
+                                orientation='h',
+                                color_discrete_sequence=COLORS,
+                                category_orders={'Hari Libur': order},
+                                title='Efek per Kategori Hari Libur',
+                                text_auto='.2f')
+                            fig_heff.add_vline(x=0, line_color='rgba(255,255,255,0.3)', line_width=1.5)
+                            fig_heff.update_traces(textposition='outside', textfont_size=8.5)
+                            fig_heff.update_layout(
+                                **DARK,
+                                height=max(380, len(top_cats) * 38 + 100),
+                                legend=dict(orientation='h', y=-0.12, font=dict(size=10)),
+                                margin=dict(t=40, b=60, l=160, r=80),
+                                xaxis_title='Efek Rata-rata (+ naik / − turun)',
+                                yaxis_title='',
+                                yaxis=dict(tickfont=dict(size=11)),
+                                xaxis=dict(showgrid=True, gridcolor='#0f1923', zeroline=False))
+                            st.plotly_chart(fig_heff, use_container_width=True)
+
+                        with vcol2:
+                            # Heatmap — efek per program × kategori
+                            pivot = heff_grp.pivot(index='Hari Libur', columns='Program', values='Efek').fillna(0)
+                            pivot = pivot.loc[order]   # same order as bar chart
+
+                            # Normalise per column for colour (so scale differences don't overwhelm)
+                            max_abs = pivot.abs().values.max()
+                            max_abs = max_abs if max_abs > 0 else 1
+
+                            fig_heat = go.Figure(go.Heatmap(
+                                z=pivot.values,
+                                x=list(pivot.columns),
+                                y=list(pivot.index),
+                                colorscale=[
+                                    [0.0,  '#ef4444'],   # red — negatif kuat
+                                    [0.45, '#1e2d45'],   # dark — netral
+                                    [0.5,  '#0a1628'],   # center
+                                    [0.55, '#1e2d45'],
+                                    [1.0,  '#34d399'],   # green — positif kuat
+                                ],
+                                zmid=0,
+                                zmin=-max_abs, zmax=max_abs,
+                                text=[[f'{v:.2f}' for v in row] for row in pivot.values],
+                                texttemplate='%{text}',
+                                textfont=dict(size=9),
+                                hoverongaps=False,
+                                hovertemplate='<b>%{y}</b><br>Program: %{x}<br>Efek: %{z:.3f}<extra></extra>',
+                                showscale=True,
+                                colorbar=dict(
+                                    title=dict(text='Efek', font=dict(size=10)),
+                                    thickness=12, len=0.7,
+                                    tickfont=dict(size=9, color='#94a3b8'),
+                                    titlefont=dict(color='#94a3b8'))
+                            ))
+                            fig_heat.update_layout(
+                                **DARK,
+                                title='Heatmap Efek Holiday',
+                                height=max(380, len(top_cats) * 38 + 100),
+                                margin=dict(t=40, b=60, l=160, r=40),
+                                xaxis=dict(tickfont=dict(size=11)),
+                                yaxis=dict(tickfont=dict(size=11), autorange='reversed'))
+                            st.plotly_chart(fig_heat, use_container_width=True)
+
+                        # Interpretasi
                         st.markdown("""<div class="info-box">
-                        📊 <b>Interpretasi:</b> Nilai <b>positif</b> = klaim naik saat libur tersebut.
-                        Nilai <b>negatif</b> = klaim turun (misal JKK turun saat Ramadhan karena aktivitas kerja berkurang).
+                        📊 <b>Interpretasi:</b>
+                        <span style="color:#34d399">■ Positif</span> = klaim <b>naik</b> saat hari libur tersebut &nbsp;|&nbsp;
+                        <span style="color:#ef4444">■ Negatif</span> = klaim <b>turun</b> (misal JKK turun saat Ramadhan karena aktivitas kerja berkurang).
+                        Hari libur dikelompokkan otomatis dari <b>Google Calendar</b> ke kategori semantik.
                         </div>""", unsafe_allow_html=True)
                     else:
                         st.info("Efek holiday akan muncul jika Prophet berhasil mendeteksi pola pada data bulanan.")
