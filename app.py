@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -2180,164 +2159,125 @@ with tab2:
                 Data Google Calendar diambil otomatis setiap 24 jam.
                 </div>""", unsafe_allow_html=True)
 
-                pc1, pc2, pc3 = st.columns(3)
+                pc1, pc2 = st.columns(2)
                 with pc1:
                     target_prophet = st.selectbox("Target", targets, key='prophet_target')
                 with pc2:
-                    cat_prophet = st.selectbox("Program", active_progs, key='prophet_cat')
-                with pc3:
                     n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
 
                 use_holidays = st.checkbox(
                     f"Gunakan kalender libur Indonesia ({n_holidays} hari libur dari Google Calendar + Islamic)",
                     value=True)
 
-                if st.button("🔮 Jalankan Prophet", type="primary", width='stretch'):
-                    with st.spinner(f"Melatih Prophet untuk {cat_prophet} — {target_prophet}..."):
-                        p_result, p_err = run_prophet(
-                            df_raw_m_p, target_prophet, cat_prophet,
-                            n_months_prophet, use_holidays
-                        )
-                    if p_err:
-                        st.error(f"Prophet Error: {p_err}")
-                    else:
-                        st.session_state['prophet_result'] = p_result
+                if st.button("🔮 Jalankan Prophet (Semua Program)", type="primary", width='stretch'):
+                    all_p_results = {}
+                    prog_errors   = {}
+                    with st.spinner(f"Melatih Prophet untuk semua program — {target_prophet}..."):
+                        for cp in active_progs:
+                            pr, pe = run_prophet(df_raw_m_p, target_prophet, cp,
+                                                 n_months_prophet, use_holidays)
+                            if pe:
+                                prog_errors[cp] = pe
+                            else:
+                                all_p_results[cp] = pr
+                    if prog_errors:
+                        st.warning("Beberapa program gagal: " + ", ".join(
+                            f"{k}: {v}" for k,v in prog_errors.items()))
+                    if all_p_results:
+                        st.session_state['prophet_all_results'] = all_p_results
                         st.session_state['prophet_meta'] = {
-                            'target': target_prophet, 'cat': cat_prophet,
-                            'use_holidays': use_holidays
+                            'target': target_prophet, 'use_holidays': use_holidays,
+                            'n_months': n_months_prophet
                         }
 
-                p_result = st.session_state.get('prophet_result', None)
-                p_meta   = st.session_state.get('prophet_meta', {})
+                all_p_results = st.session_state.get('prophet_all_results', {})
+                p_meta        = st.session_state.get('prophet_meta', {})
 
-                if p_result and p_meta.get('cat') == cat_prophet and p_meta.get('target') == target_prophet:
-                    fc_df   = p_result['forecast']
-                    hist_df = p_result['history']
-                    m_obj   = p_result['model']
-
-                    # ── Main forecast plot ────────────────────────────────
-                    st.markdown(f'<div class="sec">Forecast Prophet — {cat_prophet} ({target_prophet})</div>',
+                if all_p_results and p_meta.get('target') == target_prophet:
+                    # ── Combined forecast chart all programs ──────────────
+                    st.markdown(f'<div class="sec">Forecast Prophet — Semua Program ({target_prophet})</div>',
                                 unsafe_allow_html=True)
-                    fig_p = go.Figure()
-                    # History
-                    fig_p.add_trace(go.Scatter(
-                        x=hist_df['ds'], y=hist_df['y'],
-                        name='Aktual', mode='lines+markers',
-                        line=dict(color='#60a5fa', width=2.5),
-                        marker=dict(size=6)
-                    ))
-                    # Forecast
-                    fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()]
-                    fig_p.add_trace(go.Scatter(
-                        x=fc_future['ds'], y=fc_future['yhat'],
-                        name='Prediksi Prophet', mode='lines+markers',
-                        line=dict(color='#34d399', width=2.5, dash='dash'),
-                        marker=dict(size=7, symbol='diamond')
-                    ))
-                    # Confidence interval
-                    fig_p.add_trace(go.Scatter(
-                        x=pd.concat([fc_future['ds'], fc_future['ds'][::-1]]),
-                        y=pd.concat([fc_future['yhat_upper'], fc_future['yhat_lower'][::-1]]),
-                        fill='toself', fillcolor='rgba(52,211,153,0.1)',
-                        line=dict(color='rgba(0,0,0,0)'),
-                        name='Interval 95%', showlegend=True
-                    ))
-                    # Holiday markers
-                    if use_holidays:
-                        for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
-                            if hist_df['ds'].min() <= hrow['ds'] <= fc_future['ds'].max():
-                                fig_p.add_vline(
-                                    x=hrow['ds'].timestamp() * 1000,
-                                    line_dash='dot', line_color='#fbbf24',
-                                    line_width=1, opacity=0.6,
-                                    annotation_text=hrow['holiday'],
-                                    annotation_font=dict(size=9, color='#fbbf24'),
-                                    annotation_position='top left'
-                                )
-                    fig_p.update_layout(
-                        **DARK, height=500, hovermode='x unified',
-                        legend=dict(orientation='h', y=-0.2),
-                        margin=dict(b=80, t=20, l=70, r=20),
-                        xaxis_title='Periode', yaxis_title=target_prophet
-                    )
-                    st.plotly_chart(fig_p, width='stretch')
+                    fig_p_all = go.Figure()
+                    for i, (cp, pr) in enumerate(all_p_results.items()):
+                        fc_df   = pr['forecast']
+                        hist_df = pr['history']
+                        col_c   = COLORS[i % len(COLORS)]
+                        # History
+                        fig_p_all.add_trace(go.Scatter(
+                            x=hist_df['ds'], y=hist_df['y'],
+                            name=f'{cp} Aktual', mode='lines',
+                            line=dict(color=col_c, width=1.5, dash='dot')))
+                        # Forecast
+                        fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()]
+                        fig_p_all.add_trace(go.Scatter(
+                            x=fc_future['ds'], y=fc_future['yhat'],
+                            name=f'{cp} Prediksi', mode='lines+markers',
+                            line=dict(color=col_c, width=2.5),
+                            marker=dict(size=5)))
+                        # CI band
+                        fig_p_all.add_trace(go.Scatter(
+                            x=pd.concat([fc_future['ds'], fc_future['ds'][::-1]]),
+                            y=pd.concat([fc_future['yhat_upper'], fc_future['yhat_lower'][::-1]]),
+                            fill='toself', fillcolor=col_c.replace(')', ',0.08)').replace('rgb','rgba')
+                                if col_c.startswith('rgb') else col_c,
+                            line=dict(color='rgba(0,0,0,0)'),
+                            showlegend=False, hoverinfo='skip'))
 
-                    # ── Components plot ───────────────────────────────────
-                    st.markdown('<div class="sec">Komponen Pola (Trend + Seasonality + Holiday)</div>',
+                    # Add holiday markers
+                    cutoff = hist_df['ds'].max()
+                    for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
+                        if cutoff <= hrow['ds'] <= cutoff + pd.DateOffset(months=n_months_prophet):
+                            fig_p_all.add_vline(
+                                x=hrow['ds'].timestamp()*1000, line_dash='dash',
+                                line_color='rgba(251,191,36,0.4)', line_width=1,
+                                annotation_text=hrow['holiday'],
+                                annotation_font=dict(size=9, color='#fbbf24'))
+
+                    fig_p_all.update_layout(
+                        **DARK, height=480, hovermode='x unified',
+                        legend=dict(orientation='h', y=-0.25, font=dict(size=10)),
+                        margin=dict(t=20, b=120),
+                        xaxis_title='Periode', yaxis_title=target_prophet)
+                    st.plotly_chart(fig_p_all, width='stretch')
+
+                    # ── Per-program forecast table (tabs) ─────────────────
+                    st.markdown('<div class="sec">Tabel Prediksi per Program</div>',
                                 unsafe_allow_html=True)
-                    comp_cols = st.columns(2)
-                    # Trend
-                    with comp_cols[0]:
-                        fig_tr = go.Figure()
-                        fig_tr.add_trace(go.Scatter(
-                            x=fc_df['ds'], y=fc_df['trend'],
-                            mode='lines', line=dict(color='#60a5fa', width=2),
-                            name='Trend'
-                        ))
-                        fig_tr.update_layout(**DARK, height=280, title='Trend',
-                                             margin=dict(t=40, b=20))
-                        st.plotly_chart(fig_tr, width='stretch')
-                    # Yearly seasonality
-                    with comp_cols[1]:
-                        if 'yearly' in fc_df.columns:
-                            fig_yr = go.Figure()
-                            yr_data = fc_df[['ds','yearly']].copy()
-                            yr_data['month'] = yr_data['ds'].dt.month
-                            yr_avg = yr_data.groupby('month')['yearly'].mean().reset_index()
-                            yr_avg['Bulan'] = yr_avg['month'].apply(
-                                lambda m: ['Jan','Feb','Mar','Apr','Mei','Jun',
-                                           'Jul','Agt','Sep','Okt','Nov','Des'][m-1])
-                            fig_yr.add_trace(go.Bar(
-                                x=yr_avg['Bulan'], y=yr_avg['yearly'],
-                                marker_color=COLORS[1], name='Efek Musiman'
-                            ))
-                            fig_yr.update_layout(**DARK, height=280,
-                                                 title='Pola Musiman Tahunan',
-                                                 margin=dict(t=40, b=20))
-                            st.plotly_chart(fig_yr, width='stretch')
+                    prog_tabs = st.tabs(list(all_p_results.keys()))
+                    for tab_i, (cp, pr) in zip(prog_tabs, all_p_results.items()):
+                        with tab_i:
+                            fc_df  = pr['forecast']
+                            hist_df = pr['history']
+                            fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()][
+                                ['ds','yhat','yhat_lower','yhat_upper']].copy()
+                            fc_future.columns = ['Periode','Prediksi','Batas Bawah','Batas Atas']
+                            fc_future['Periode'] = fc_future['Periode'].dt.strftime('%Y-%m')
+                            for col in ['Prediksi','Batas Bawah','Batas Atas']:
+                                fc_future[col] = fc_future[col].apply(lambda x: f"{max(0,x):,.0f}")
+                            st.dataframe(fc_future, width='stretch', height=320)
 
-                    # Holiday effects
-                    if use_holidays:
-                        st.markdown('<div class="sec">Efek Hari Libur pada Klaim</div>',
+                    # ── Holiday effects (from first program as representative) ──
+                    first_pr  = next(iter(all_p_results.values()))
+                    fc_df_rep = first_pr['forecast']
+                    hcols = [c for c in fc_df_rep.columns if c.startswith('extra_regressors')
+                             or c in [h for h in INDONESIAN_HOLIDAYS['holiday'].unique()
+                                      if h in fc_df_rep.columns]]
+                    if hcols:
+                        st.markdown('<div class="sec">Efek Hari Libur (representatif)</div>',
                                     unsafe_allow_html=True)
-                        holiday_cols = [c for c in fc_df.columns
-                                        if c in ['Idul Fitri','Idul Adha','Ramadhan',
-                                                 'Natal','Tahun Baru']]
-                        if holiday_cols:
-                            heff_rows = []
-                            for hc in holiday_cols:
-                                heff_rows.append({'Hari Libur': hc,
-                                                  'Efek Rata-rata': fc_df[hc].mean(),
-                                                  'Efek Max': fc_df[hc].max(),
-                                                  'Efek Min': fc_df[hc].min()})
-                            heff_df = pd.DataFrame(heff_rows).sort_values('Efek Rata-rata', ascending=False)
-                            fig_heff = px.bar(heff_df, x='Hari Libur', y='Efek Rata-rata',
-                                              color='Efek Rata-rata',
-                                              color_continuous_scale='RdYlGn',
-                                              title='Dampak Hari Libur terhadap Volume Klaim',
-                                              text='Efek Rata-rata')
-                            fig_heff.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-                            fig_heff.update_layout(**DARK, height=360, coloraxis_showscale=False,
-                                                   margin=dict(t=50, b=40))
-                            st.plotly_chart(fig_heff, width='stretch')
-                            st.markdown("""<div class="info-box">
-                            <b>Interpretasi Efek Holiday:</b><br>
-                            • <b>Positif</b> = klaim cenderung <b>naik</b> saat periode tersebut<br>
-                            • <b>Negatif</b> = klaim cenderung <b>turun</b> (misal: libur panjang, kantor tutup)<br>
-                            • Ramadhan sering menunjukkan penurunan JKK (kecelakaan kerja) karena aktivitas lebih sedikit
-                            </div>""", unsafe_allow_html=True)
-                        else:
-                            st.info("Efek holiday akan muncul setelah Prophet selesai dilatih dengan data yang cukup.")
+                        heff_rows = []
+                        for hc in hcols:
+                            heff_rows.append({'Hari Libur': hc,
+                                              'Efek Rata-rata': fc_df_rep[hc].mean()})
+                        heff_df = pd.DataFrame(heff_rows).sort_values('Efek Rata-rata', ascending=False)
+                        fig_heff = px.bar(heff_df, x='Hari Libur', y='Efek Rata-rata',
+                                          color='Efek Rata-rata',
+                                          color_continuous_scale='RdYlGn',
+                                          title='Dampak Hari Libur terhadap Volume Klaim')
+                        fig_heff.update_layout(**DARK, height=340, coloraxis_showscale=False,
+                                               margin=dict(t=50,b=60))
+                        st.plotly_chart(fig_heff, width='stretch')
 
-                    # Prophet forecast table
-                    st.markdown('<div class="sec">Tabel Prediksi Prophet</div>',
-                                unsafe_allow_html=True)
-                    fc_show = fc_future[['ds','yhat','yhat_lower','yhat_upper']].copy()
-                    fc_show.columns = ['Periode','Prediksi','Batas Bawah (95%)','Batas Atas (95%)']
-                    fc_show['Periode'] = fc_show['Periode'].dt.strftime('%Y-%m')
-                    for col in ['Prediksi','Batas Bawah (95%)','Batas Atas (95%)']:
-                        fc_show[col] = fc_show[col].apply(lambda x: f"{max(0,x):,.0f}")
-                    st.dataframe(fc_show, width='stretch', height=380)
 
 
 
