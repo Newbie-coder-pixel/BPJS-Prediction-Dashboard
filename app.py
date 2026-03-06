@@ -70,6 +70,19 @@ st.markdown("""
 html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:#05090f;color:#e2e8f0;}
 
+/* ── Sembunyikan elemen UI bawaan Streamlit ── */
+[data-testid="manage-app-button"]{display:none !important;}
+.stAppDeployButton{display:none !important;}
+[data-testid="stToolbar"]{display:none !important;}
+#MainMenu{display:none !important;}
+footer{display:none !important;}
+[data-testid="stHeader"]{display:none !important;}
+[data-testid="stStatusWidget"]{display:none !important;}
+[data-testid="stShareButton"]{display:none !important;}
+.viewerBadge_container__1QSob{display:none !important;}
+.viewerBadge_link__1S137{display:none !important;}
+#stDecoration{display:none !important;}
+
 /* ── KPI Cards ── */
 .kpi{
   background:linear-gradient(145deg,#0d1424 0%,#0a1020 100%);
