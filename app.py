@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -353,7 +332,8 @@ def score_model(yt, yp):
     yt, yp = np.array(yt, dtype=float), np.array(yp, dtype=float)
     mae  = float(mean_absolute_error(yt, yp))
     rmse = float(np.sqrt(mean_squared_error(yt, yp)))
-    r2   = float(r2_score(yt, yp)) if len(yt) > 1 else 0.0
+    # R2 is only meaningful with 3+ points; with LOO on small data use None
+    r2   = float(r2_score(yt, yp)) if len(yt) >= 3 else None
     mape = float(np.mean(np.abs((yt - yp) / (np.abs(yt) + 1e-9))) * 100)
     return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'MAPE (%)': mape}
 
@@ -594,14 +574,14 @@ def train_best_per_program(df, target, n_lags, test_ratio):
 
         # ── PICK BEST across stat + ML ────────────────────────────────────
         all_scores = {**stat_scores, **ml_scores}
-        # Filter: R2 >= 0 preferred; fallback to all
-        valid = {m: s for m, s in all_scores.items()
-                 if s['R2'] is not None and s['R2'] >= 0 and s['MAPE (%)'] < 200}
+        # For small data: MAPE is the only reliable metric
+        # Filter out clearly broken models (MAPE > 200%)
+        valid = {m: s for m, s in all_scores.items() if s['MAPE (%)'] < 200}
         pool  = valid if valid else all_scores
         if not pool:
             pool = stat_scores  # fallback to stat
 
-        # Best = lowest MAPE
+        # Best = lowest MAPE (most reliable for small N)
         best_name = min(pool, key=lambda m: pool[m]['MAPE (%)'])
         best_sc   = all_scores[best_name]
 
@@ -642,9 +622,9 @@ def train_best_per_program(df, target, n_lags, test_ratio):
     best_per_prog = pd.DataFrame(bpp_rows)
     detail_df     = pd.DataFrame(detail_rows) if detail_rows else pd.DataFrame()
 
-    # Avg metrics across programs
-    valid_bpp = [r for r in bpp_rows if r['R2'] is not None and r['R2'] > -100]
-    avg_r2   = float(np.mean([r['R2']       for r in valid_bpp])) if valid_bpp else 0.0
+    # Avg metrics across programs — use MAPE as primary (R2 unreliable for small N)
+    valid_bpp = [r for r in bpp_rows if r['MAPE (%)'] is not None and r['MAPE (%)'] < 200]
+    avg_r2   = float(np.mean([r['R2'] for r in valid_bpp if r['R2'] is not None])) if valid_bpp else None
     avg_mape = float(np.mean([r['MAPE (%)'] for r in valid_bpp])) if valid_bpp else 0.0
     avg_mae  = float(np.mean([r['MAE']      for r in valid_bpp])) if valid_bpp else 0.0
 
@@ -1876,17 +1856,20 @@ with tab2:
         bpp      = ml_res.get('best_per_program', pd.DataFrame())
         per_prog = ml_res.get('per_prog', {})
         rdf      = ml_res.get('results_df', pd.DataFrame())
-        # Use per-program averages for badge
-        avg_r2   = float(bpp['R2'].mean())   if not bpp.empty and 'R2' in bpp.columns else ml_res.get('best_r2', 0.0)
-        avg_mape = float(bpp['MAPE (%)'].mean()) if not bpp.empty and 'MAPE (%)' in bpp.columns else ml_res.get('best_mape', 0.0)
-        avg_mae  = float(bpp['MAE'].mean())  if not bpp.empty and 'MAE' in bpp.columns else ml_res.get('best_mae', 0.0)
+        n_yrs    = len(sorted(df['Tahun'].unique()))
+
+        avg_mape = float(bpp['MAPE (%)'].mean()) if not bpp.empty and 'MAPE (%)' in bpp.columns else 0.0
+        mape_grade = ("🟢 Sangat Akurat" if avg_mape < 10 else
+                      "🔵 Akurat" if avg_mape < 20 else
+                      "🟡 Cukup" if avg_mape < 50 else "🔴 Perlu Perbaikan")
+        data_note = f"⚠️ {n_yrs} tahun data — R² tidak bermakna, gunakan MAPE" if n_yrs < 8 else ""
         mode_note = '&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''
         st.markdown(
             f'<div class="badge">'
-            f'🎯 <b>Per-Program Best Model</b> — setiap program pakai model terbaiknya sendiri'
-            f'&nbsp;|&nbsp; Avg R² = <b>{avg_r2:.4f}</b>'
-            f'&nbsp;|&nbsp; Avg MAPE = <b>{avg_mape:.2f}%</b>'
+            f'🎯 <b>Per-Program Best Model</b> — metode terbaik per program'
+            f'&nbsp;|&nbsp; Avg MAPE = <b>{avg_mape:.2f}%</b> ({mape_grade})'
             f'&nbsp;|&nbsp; <b>{len(active_progs)} program</b>'
+            f'{"&nbsp;|&nbsp; " + data_note if data_note else ""}'
             f'{mode_note}</div>',
             unsafe_allow_html=True)
 
@@ -2121,21 +2104,33 @@ with tab2:
                     st.info("Data tidak cukup untuk radar chart.")
 
                 # Summary table with grades
-                st.markdown('<div class="sec">Scorecard Semua Model</div>',
+                st.markdown('<div class="sec">Scorecard per Program</div>',
                             unsafe_allow_html=True)
-                def grade_r2(v):
-                    return "🟢 Sangat Baik" if v>0.9 else "🔵 Baik" if v>0.8 else "🟡 Cukup" if v>0.6 else "🔴 Lemah"
+
+                if n_yrs < 8:
+                    st.info(f"""ℹ️ **Catatan data kecil ({n_yrs} tahun):** R² tidak bermakna secara statistik
+                    dengan data < 8 tahun — gunakan **MAPE** sebagai acuan utama akurasi prediksi.
+                    MAPE mengukur rata-rata % error prediksi vs aktual. MAPE < 20% = layak pakai.""")
+
                 def grade_mape(v):
-                    return "🟢 <10%" if v<10 else "🔵 10-20%" if v<20 else "🟡 20-50%" if v<50 else "🔴 >50%"
+                    if v is None or np.isnan(v): return "⚪ N/A"
+                    return "🟢 Sangat Akurat (<10%)" if v<10 else "🔵 Akurat (10-20%)" if v<20 else "🟡 Cukup (20-50%)" if v<50 else "🔴 Tidak Akurat (>50%)"
+
                 sc_df = bpp.copy() if not bpp.empty else pd.DataFrame()
                 if not sc_df.empty:
-                    sc_df['Grade R²']   = sc_df['R2'].apply(grade_r2)
                     sc_df['Grade MAPE'] = sc_df['MAPE (%)'].apply(grade_mape)
-                    sc_df = sc_df.rename(columns={'Program': 'Program', 'Model': 'Model Terbaik'})
+                    # Show/hide R2 based on data size
+                    cols_show = ['Program','Model','MAPE (%)','MAE','RMSE','Grade MAPE']
+                    if n_yrs >= 8:
+                        cols_show = ['Program','Model','R2','MAPE (%)','MAE','RMSE','Grade MAPE']
+                    fmt = {'MAPE (%)': '{:.2f}', 'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}
+                    if 'R2' in cols_show:
+                        fmt['R2'] = '{:.4f}'
                     st.dataframe(
-                        sc_df.style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
-                                           'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
-                        width='stretch', height=320)
+                        sc_df[cols_show].style
+                            .highlight_min(subset=['MAPE (%)'], color='#14532d')
+                            .format(fmt),
+                        width='stretch', height=280)
 
         # ── Sub-tab 4: Prophet + Indonesian Calendar ──────────────────────
         with mtab4:
