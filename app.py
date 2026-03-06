@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -2084,38 +2063,41 @@ with tab2:
                         <div style="color:#dde3f0;font-size:.92rem;line-height:1.7;">{text}</div>
                     </div>""", unsafe_allow_html=True)
 
-                # Radar chart all models
-                st.markdown('<div class="sec">Radar Chart — Profil Kualitas Model</div>',
+                # Radar chart — use bpp (per program data)
+                st.markdown('<div class="sec">Radar Chart — Profil Kualitas per Program</div>',
                             unsafe_allow_html=True)
-                # Normalize metrics for radar
-                rdf_r = ml_res['results_df'].copy()
-                rdf_r['R2_n']      = rdf_r['R2'].clip(0, 1)
-                rdf_r['MAPE_n']    = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
-                rdf_r['MAE_n']     = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
-                rdf_r['RMSE_n']    = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
-                cats_radar = ['R² Score', 'Akurasi (1-MAPE)', 'Presisi (1-MAE)', 'Konsistensi (1-RMSE)']
-                fig_radar = go.Figure()
-                for i, row in rdf_r.iterrows():
-                    vals = [row['R2_n'], row['MAPE_n'], row['MAE_n'], row['RMSE_n']]
-                    vals += [vals[0]]
-                    cats_r = cats_radar + [cats_radar[0]]
-                    fig_radar.add_trace(go.Scatterpolar(
-                        r=vals, theta=cats_r, fill='toself',
-                        name=row['Model'], opacity=0.7,
-                        line=dict(color=COLORS[i % len(COLORS)])
-                    ))
-                fig_radar.update_layout(
-                    **DARK, height=500,
-                    polar=dict(
-                        radialaxis=dict(visible=True, range=[0, 1],
-                                        gridcolor='#1e2d45', tickfont=dict(color='#64748b')),
-                        angularaxis=dict(gridcolor='#1e2d45'),
-                        bgcolor='#080c14',
-                    ),
-                    legend=dict(orientation='h', y=-0.15),
-                    margin=dict(t=30, b=60)
-                )
-                st.plotly_chart(fig_radar, width='stretch')
+                if not bpp.empty and 'R2' in bpp.columns:
+                    rdf_r = bpp.dropna(subset=['R2','MAPE (%)','MAE','RMSE']).copy()
+                    rdf_r['R2_n']   = rdf_r['R2'].clip(0, 1)
+                    rdf_r['MAPE_n'] = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
+                    rdf_r['MAE_n']  = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
+                    rdf_r['RMSE_n'] = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
+                    cats_radar = ['R² Score', 'Akurasi (1-MAPE)', 'Presisi (1-MAE)', 'Konsistensi (1-RMSE)']
+                    fig_radar = go.Figure()
+                    for i, row in rdf_r.iterrows():
+                        vals   = [row['R2_n'], row['MAPE_n'], row['MAE_n'], row['RMSE_n']]
+                        vals  += [vals[0]]
+                        cats_r = cats_radar + [cats_radar[0]]
+                        label  = f"{row['Program']} ({row['Model']})"
+                        fig_radar.add_trace(go.Scatterpolar(
+                            r=vals, theta=cats_r, fill='toself',
+                            name=label, opacity=0.7,
+                            line=dict(color=COLORS[i % len(COLORS)])
+                        ))
+                    fig_radar.update_layout(
+                        **DARK, height=500,
+                        polar=dict(
+                            radialaxis=dict(visible=True, range=[0,1],
+                                            gridcolor='#1e2d45', tickfont=dict(color='#64748b')),
+                            angularaxis=dict(gridcolor='#1e2d45'),
+                            bgcolor='#080c14',
+                        ),
+                        legend=dict(orientation='h', y=-0.15),
+                        margin=dict(t=30, b=60)
+                    )
+                    st.plotly_chart(fig_radar, width='stretch')
+                else:
+                    st.info("Data tidak cukup untuk radar chart.")
 
                 # Summary table with grades
                 st.markdown('<div class="sec">Scorecard Semua Model</div>',
