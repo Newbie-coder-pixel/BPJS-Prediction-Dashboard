@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -2215,50 +2194,86 @@ with tab2:
                 p_meta        = st.session_state.get('prophet_meta', {})
 
                 if all_p_results and p_meta.get('target') == target_prophet:
-                    # ── Combined forecast chart all programs ──────────────
+                    # ── Combined forecast chart — clean version ───────────
                     st.markdown(f'<div class="sec">Forecast Prophet — Semua Program ({target_prophet})</div>',
                                 unsafe_allow_html=True)
+
+                    # Convert hex to rgba helper
+                    def hex_rgba(hex_c, alpha):
+                        hex_c = hex_c.lstrip('#')
+                        r, g, b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                        return f'rgba({r},{g},{b},{alpha})'
+
                     fig_p_all = go.Figure()
+                    last_hist_ds = None
                     for i, (cp, pr) in enumerate(all_p_results.items()):
                         fc_df   = pr['forecast']
                         hist_df = pr['history']
                         col_c   = COLORS[i % len(COLORS)]
-                        # History
+                        cutoff  = hist_df['ds'].max()
+                        last_hist_ds = cutoff
+                        fc_future = fc_df[fc_df['ds'] > cutoff].copy()
+
+                        # History — solid line
                         fig_p_all.add_trace(go.Scatter(
                             x=hist_df['ds'], y=hist_df['y'],
-                            name=f'{cp} Aktual', mode='lines',
-                            line=dict(color=col_c, width=1.5, dash='dot')))
-                        # Forecast
-                        fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()]
+                            name=f'{cp} Aktual',
+                            mode='lines', legendgroup=cp,
+                            line=dict(color=col_c, width=2)))
+
+                        # CI band — very subtle, behind prediction line
+                        fig_p_all.add_trace(go.Scatter(
+                            x=list(fc_future['ds']) + list(fc_future['ds'][::-1]),
+                            y=list(fc_future['yhat_upper']) + list(fc_future['yhat_lower'][::-1]),
+                            fill='toself',
+                            fillcolor=hex_rgba(col_c, 0.1),
+                            line=dict(color='rgba(0,0,0,0)'),
+                            legendgroup=cp, showlegend=False, hoverinfo='skip'))
+
+                        # Prediction line — dashed, same color
                         fig_p_all.add_trace(go.Scatter(
                             x=fc_future['ds'], y=fc_future['yhat'],
-                            name=f'{cp} Prediksi', mode='lines+markers',
-                            line=dict(color=col_c, width=2.5),
-                            marker=dict(size=5)))
-                        # CI band
-                        fig_p_all.add_trace(go.Scatter(
-                            x=pd.concat([fc_future['ds'], fc_future['ds'][::-1]]),
-                            y=pd.concat([fc_future['yhat_upper'], fc_future['yhat_lower'][::-1]]),
-                            fill='toself', fillcolor=col_c.replace(')', ',0.08)').replace('rgb','rgba')
-                                if col_c.startswith('rgb') else col_c,
-                            line=dict(color='rgba(0,0,0,0)'),
-                            showlegend=False, hoverinfo='skip'))
+                            name=f'{cp} Prediksi',
+                            mode='lines+markers', legendgroup=cp,
+                            line=dict(color=col_c, width=2, dash='dash'),
+                            marker=dict(size=5, symbol='diamond')))
 
-                    # Add holiday markers
-                    cutoff = hist_df['ds'].max()
-                    for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
-                        if cutoff <= hrow['ds'] <= cutoff + pd.DateOffset(months=n_months_prophet):
-                            fig_p_all.add_vline(
-                                x=hrow['ds'].timestamp()*1000, line_dash='dash',
-                                line_color='rgba(251,191,36,0.4)', line_width=1,
-                                annotation_text=hrow['holiday'],
-                                annotation_font=dict(size=9, color='#fbbf24'))
+                    # Vertical separator line at forecast start
+                    if last_hist_ds is not None:
+                        fig_p_all.add_vline(
+                            x=last_hist_ds.timestamp()*1000,
+                            line_dash='solid', line_color='rgba(255,255,255,0.2)',
+                            line_width=1.5,
+                            annotation_text='← Aktual | Prediksi →',
+                            annotation_font=dict(size=10, color='#94a3b8'),
+                            annotation_position='top')
+
+                    # Holiday markers — only major ones, compact
+                    major_holidays = ['Idul Fitri', 'Idul Adha', 'Ramadhan', 'Tahun Baru']
+                    seen_holidays  = set()
+                    if last_hist_ds is not None:
+                        for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
+                            hname = hrow['holiday']
+                            if (hname in major_holidays and
+                                last_hist_ds <= hrow['ds'] <= last_hist_ds + pd.DateOffset(months=n_months_prophet) and
+                                hname not in seen_holidays):
+                                fig_p_all.add_vline(
+                                    x=hrow['ds'].timestamp()*1000,
+                                    line_dash='dot', line_color='rgba(251,191,36,0.5)',
+                                    line_width=1,
+                                    annotation_text=hname,
+                                    annotation_font=dict(size=8, color='#fbbf24'),
+                                    annotation_position='top right')
+                                seen_holidays.add(hname)
 
                     fig_p_all.update_layout(
-                        **DARK, height=480, hovermode='x unified',
-                        legend=dict(orientation='h', y=-0.25, font=dict(size=10)),
-                        margin=dict(t=20, b=120),
-                        xaxis_title='Periode', yaxis_title=target_prophet)
+                        **DARK, height=520, hovermode='x unified',
+                        legend=dict(orientation='h', y=-0.22, font=dict(size=10),
+                                    groupclick='toggleitem'),
+                        margin=dict(t=40, b=120),
+                        xaxis_title='Periode', yaxis_title=target_prophet,
+                        xaxis=dict(showgrid=True, gridcolor='#1e2d45'),
+                        yaxis=dict(showgrid=True, gridcolor='#1e2d45'))
                     st.plotly_chart(fig_p_all, width='stretch')
 
                     # ── Per-program forecast table (tabs) ─────────────────
@@ -2267,37 +2282,52 @@ with tab2:
                     prog_tabs = st.tabs(list(all_p_results.keys()))
                     for tab_i, (cp, pr) in zip(prog_tabs, all_p_results.items()):
                         with tab_i:
-                            fc_df  = pr['forecast']
+                            fc_df   = pr['forecast']
                             hist_df = pr['history']
-                            fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()][
+                            fc_fut  = fc_df[fc_df['ds'] > hist_df['ds'].max()][
                                 ['ds','yhat','yhat_lower','yhat_upper']].copy()
-                            fc_future.columns = ['Periode','Prediksi','Batas Bawah','Batas Atas']
-                            fc_future['Periode'] = fc_future['Periode'].dt.strftime('%Y-%m')
+                            fc_fut.columns = ['Periode','Prediksi','Batas Bawah','Batas Atas']
+                            fc_fut['Periode'] = fc_fut['Periode'].dt.strftime('%Y-%m')
                             for col in ['Prediksi','Batas Bawah','Batas Atas']:
-                                fc_future[col] = fc_future[col].apply(lambda x: f"{max(0,x):,.0f}")
-                            st.dataframe(fc_future, width='stretch', height=320)
+                                fc_fut[col] = fc_fut[col].apply(lambda x: f"{max(0,x):,.0f}")
+                            st.dataframe(fc_fut, width='stretch', height=320)
 
-                    # ── Holiday effects (from first program as representative) ──
-                    first_pr  = next(iter(all_p_results.values()))
-                    fc_df_rep = first_pr['forecast']
-                    hcols = [c for c in fc_df_rep.columns if c.startswith('extra_regressors')
-                             or c in [h for h in INDONESIAN_HOLIDAYS['holiday'].unique()
-                                      if h in fc_df_rep.columns]]
-                    if hcols:
-                        st.markdown('<div class="sec">Efek Hari Libur (representatif)</div>',
-                                    unsafe_allow_html=True)
-                        heff_rows = []
-                        for hc in hcols:
-                            heff_rows.append({'Hari Libur': hc,
-                                              'Efek Rata-rata': fc_df_rep[hc].mean()})
-                        heff_df = pd.DataFrame(heff_rows).sort_values('Efek Rata-rata', ascending=False)
-                        fig_heff = px.bar(heff_df, x='Hari Libur', y='Efek Rata-rata',
-                                          color='Efek Rata-rata',
-                                          color_continuous_scale='RdYlGn',
-                                          title='Dampak Hari Libur terhadap Volume Klaim')
-                        fig_heff.update_layout(**DARK, height=340, coloraxis_showscale=False,
-                                               margin=dict(t=50,b=60))
+                    # ── Holiday effects — per program grouped bar ─────────
+                    st.markdown('<div class="sec">Efek Hari Libur per Program</div>',
+                                unsafe_allow_html=True)
+                    heff_all = []
+                    holiday_names = list(INDONESIAN_HOLIDAYS['holiday'].unique())
+                    for cp, pr in all_p_results.items():
+                        fc_rep = pr['forecast']
+                        # Prophet stores holiday effects as columns named after the holiday
+                        for hname in holiday_names:
+                            if hname in fc_rep.columns:
+                                effect = float(fc_rep[hname].mean())
+                                heff_all.append({'Program': cp, 'Hari Libur': hname, 'Efek': effect})
+
+                    if heff_all:
+                        heff_df = pd.DataFrame(heff_all)
+                        fig_heff = px.bar(
+                            heff_df, x='Hari Libur', y='Efek', color='Program',
+                            barmode='group',
+                            color_discrete_sequence=COLORS,
+                            title='Efek Hari Libur terhadap Klaim — per Program',
+                            text_auto='.0f')
+                        fig_heff.add_hline(y=0, line_color='rgba(255,255,255,0.3)', line_width=1)
+                        fig_heff.update_traces(textposition='outside', textfont_size=9)
+                        fig_heff.update_layout(
+                            **DARK, height=420,
+                            legend=dict(orientation='h', y=-0.2),
+                            margin=dict(t=50, b=100),
+                            xaxis_tickangle=-30,
+                            yaxis_title='Efek Rata-rata (+ naik / - turun)')
                         st.plotly_chart(fig_heff, width='stretch')
+                        st.markdown("""<div class="info-box">
+                        📊 <b>Interpretasi:</b> Nilai <b>positif</b> = klaim naik saat libur tersebut.
+                        Nilai <b>negatif</b> = klaim turun (misal JKK turun saat Ramadhan karena aktivitas kerja berkurang).
+                        </div>""", unsafe_allow_html=True)
+                    else:
+                        st.info("Efek holiday akan muncul jika Prophet berhasil mendeteksi pola pada data bulanan.")
 
 
 
