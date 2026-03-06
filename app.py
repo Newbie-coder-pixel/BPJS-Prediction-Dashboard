@@ -2765,24 +2765,42 @@ with tab2:
                                 fc_fut[col] = fc_fut[col].apply(lambda x: f"{max(0,x):,.0f}")
                             st.dataframe(fc_fut, width='stretch', height=320)
 
-                    # ── Holiday effects — redesigned ──────────────────────
+                    # ── Holiday effects — dalam % perubahan klaim ─────────
                     st.markdown('<div class="sec">Efek Hari Libur per Program</div>',
                                 unsafe_allow_html=True)
 
-                    # Collect holiday effect columns from Prophet forecast
+                    # ── Konversi efek Prophet ke % perubahan dari rata-rata ─
+                    # Prophet additive: efek dalam satuan y (jumlah kasus)
+                    # Prophet multiplicative: efek adalah proporsi (0.1 = +10%)
+                    # Kita konversi keduanya ke % agar mudah dibaca
                     heff_all = []
                     holiday_names = list(INDONESIAN_HOLIDAYS['holiday'].unique()) if len(INDONESIAN_HOLIDAYS) > 0 else []
                     for cp, pr in all_p_results.items():
-                        fc_rep = pr['forecast']
+                        fc_rep   = pr['forecast']
+                        hist_df  = pr['history']
+                        avg_y    = float(hist_df['y'].mean()) if len(hist_df) > 0 else 1.0
+                        s_mode   = pr.get('model').seasonality_mode if pr.get('model') else 'additive'
+
                         for hname in holiday_names:
                             if hname in fc_rep.columns:
-                                effect = float(fc_rep[hname].mean())
-                                heff_all.append({'Program': cp, 'Hari Libur': hname, 'Efek': effect})
+                                raw_eff = float(fc_rep[hname].mean())
+                                # Konversi ke % perubahan
+                                if s_mode == 'multiplicative':
+                                    pct = raw_eff * 100.0          # sudah proporsional
+                                else:
+                                    pct = (raw_eff / (avg_y + 1e-9)) * 100.0   # additive ÷ mean
+                                heff_all.append({
+                                    'Program'  : cp,
+                                    'Hari Libur': hname,
+                                    'Efek_raw' : raw_eff,
+                                    'Efek_pct' : pct,           # dalam %
+                                    'avg_y'    : avg_y,
+                                })
 
                     if heff_all:
                         heff_df = pd.DataFrame(heff_all)
 
-                        # Group semantic categories
+                        # Grouping semantik
                         def _cat_holiday(name):
                             nl = name.lower()
                             if 'idul fitri' in nl or 'lebaran' in nl or 'eid al-fitr' in nl: return 'Idul Fitri'
@@ -2802,133 +2820,107 @@ with tab2:
                             if 'kemerdekaan' in nl or 'independence' in nl or 'hut ri' in nl: return 'HUT RI'
                             if 'cuti bersama' in nl or 'joint holiday' in nl: return 'Cuti Bersama'
                             if 'election' in nl or 'pemilu' in nl: return 'Pemilu'
-                            return None  # skip minor/unknown
+                            return None
 
                         heff_df['Kategori'] = heff_df['Hari Libur'].apply(_cat_holiday)
                         heff_df = heff_df[heff_df['Kategori'].notna()]
 
-                        # Aggregate: mean effect per program × kategori
-                        heff_grp = (heff_df.groupby(['Program','Kategori'])['Efek']
-                                    .mean().reset_index())
+                        # Rata-rata % per program × kategori
+                        heff_grp = (heff_df.groupby(['Program','Kategori'])
+                                    .agg(Efek_pct=('Efek_pct','mean'),
+                                         Efek_raw=('Efek_raw','mean'),
+                                         avg_y=('avg_y','first'))
+                                    .reset_index())
 
-                        # Keep only top-10 most impactful categories
-                        top_cats = (heff_grp.groupby('Kategori')['Efek']
+                        # Top-10 kategori paling berpengaruh
+                        top_cats = (heff_grp.groupby('Kategori')['Efek_pct']
                                     .apply(lambda x: x.abs().mean())
                                     .nlargest(10).index.tolist())
                         heff_grp = heff_grp[heff_grp['Kategori'].isin(top_cats)].copy()
 
                         if len(heff_grp) == 0:
-                            st.info("Tidak ada efek hari libur yang terdeteksi dari model Prophet.")
+                            st.info("Tidak ada efek hari libur yang terdeteksi.")
                         else:
-                            programs_list = sorted(heff_grp['Program'].unique())
-
-                            # ── Cek apakah ada efek yang benar-benar signifikan ──
-                            max_abs_effect = heff_grp['Efek'].abs().max()
-                            has_meaningful = max_abs_effect > 0.001
+                            programs_list  = sorted(heff_grp['Program'].unique())
+                            max_abs_pct    = heff_grp['Efek_pct'].abs().max()
+                            has_meaningful = max_abs_pct > 0.1  # > 0.1% baru bermakna
 
                             if not has_meaningful:
-                                # Semua efek mendekati nol → Prophet tidak punya cukup data bulanan
                                 st.markdown("""<div class="warn">
-                                ⚠️ <b>Efek hari libur mendekati nol untuk semua program.</b><br>
-                                Ini berarti Prophet tidak mendeteksi pengaruh signifikan hari libur terhadap klaim —
-                                kemungkinan karena <b>data bulanan terlalu sedikit</b> (&lt;24 bulan) atau
-                                pola klaim tidak berkorelasi kuat dengan kalender libur.<br>
-                                Tetap ditampilkan sebagai referensi di bawah, namun nilai-nilai kecil ini
-                                <b>tidak bermakna secara statistik</b>.
+                                ⚠️ <b>Efek hari libur sangat kecil (&lt;0.1%) untuk semua program.</b>
+                                Kemungkinan karena data bulanan belum cukup banyak (&lt;24 bulan).
+                                Nilai tetap ditampilkan sebagai referensi.
                                 </div>""", unsafe_allow_html=True)
 
-                            # ── Sort categories by absolute effect ────────────
-                            cat_order = (heff_grp.groupby('Kategori')['Efek']
+                            cat_order = (heff_grp.groupby('Kategori')['Efek_pct']
                                          .apply(lambda x: x.abs().mean())
                                          .sort_values(ascending=False)
                                          .index.tolist())
 
-                            # ── LOLLIPOP CHART — jauh lebih bersih dari dot/bar ──
-                            # Satu baris per (program × holiday), dibuat per-program
-                            # dengan facet/subplot horizontal
-
-                            n_prog = len(programs_list)
+                            # ── LOLLIPOP CHART (dalam %) ──────────────────
                             from plotly.subplots import make_subplots
-
+                            n_prog = len(programs_list)
                             fig_lol = make_subplots(
                                 rows=1, cols=n_prog,
                                 subplot_titles=programs_list,
                                 shared_yaxes=True,
                                 horizontal_spacing=0.03,
                             )
-
-                            # Compute symmetric x-range across all programs
-                            x_max = max(0.05, max_abs_effect * 1.3)
+                            x_max = max(1.0, max_abs_pct * 1.35)
 
                             for pi, prog in enumerate(programs_list):
                                 pdata = (heff_grp[heff_grp['Program'] == prog]
-                                         .set_index('Kategori')['Efek'])
-                                col_c = COLORS[pi % len(COLORS)]
+                                         .set_index('Kategori')['Efek_pct'])
 
                                 for ci, cat in enumerate(cat_order):
                                     v = float(pdata.get(cat, 0.0))
                                     bar_col = '#34d399' if v >= 0 else '#f87171'
-
-                                    # Stem (line from 0 to value)
+                                    # Stem
                                     fig_lol.add_trace(go.Scatter(
                                         x=[0, v], y=[cat, cat],
                                         mode='lines',
                                         line=dict(color=bar_col, width=2.5),
-                                        showlegend=False,
-                                        hoverinfo='skip',
+                                        showlegend=False, hoverinfo='skip',
                                     ), row=1, col=pi+1)
-
-                                    # Dot at tip
+                                    # Dot + label
                                     fig_lol.add_trace(go.Scatter(
                                         x=[v], y=[cat],
                                         mode='markers+text',
-                                        marker=dict(
-                                            color=bar_col,
-                                            size=10,
-                                            line=dict(color='#05090f', width=1.5)),
-                                        text=[f'{v:+.3f}'],
+                                        marker=dict(color=bar_col, size=11,
+                                                    line=dict(color='#05090f', width=1.5)),
+                                        text=[f'{v:+.1f}%'],
                                         textposition='middle right' if v >= 0 else 'middle left',
-                                        textfont=dict(size=9, color='#94a3b8'),
-                                        name=prog if ci == 0 else '',
+                                        textfont=dict(size=9.5, color='#e2e8f0'),
                                         showlegend=False,
-                                        hovertemplate=f'<b>{prog} — {cat}</b><br>Efek: {v:+.4f}<extra></extra>',
+                                        hovertemplate=f'<b>{prog} — {cat}</b><br>Efek: <b>{v:+.2f}%</b> dari rata-rata klaim<extra></extra>',
                                     ), row=1, col=pi+1)
 
-                                # Zero line per subplot
-                                fig_lol.add_vline(
-                                    x=0,
-                                    line_color='rgba(255,255,255,0.2)',
-                                    line_width=1,
-                                    row=1, col=pi+1)
-
-                                # X-axis range symmetric
+                                fig_lol.add_vline(x=0, line_color='rgba(255,255,255,0.2)',
+                                                  line_width=1, row=1, col=pi+1)
                                 fig_lol.update_xaxes(
                                     range=[-x_max, x_max],
                                     showgrid=True, gridcolor='#0f1923',
                                     zeroline=False,
+                                    ticksuffix='%',
                                     tickfont=dict(size=9, color='#64748b'),
                                     row=1, col=pi+1)
 
-                            # Y-axis (shared) — holiday categories
                             fig_lol.update_yaxes(
                                 categoryorder='array',
                                 categoryarray=cat_order[::-1],
                                 tickfont=dict(size=11, color='#e2e8f0'),
-                                showgrid=True, gridcolor='#0f1923',
-                                col=1)
+                                showgrid=True, gridcolor='#0f1923', col=1)
 
-                            # Subplot titles styling
                             for ann in fig_lol.layout.annotations:
                                 ann.font = dict(size=12, color='#93c5fd')
-                                ann.y    = ann.y + 0.02
 
                             fig_lol.update_layout(
                                 **DARK,
-                                height=max(400, len(cat_order) * 44 + 120),
+                                height=max(400, len(cat_order) * 46 + 120),
                                 showlegend=False,
-                                margin=dict(t=60, b=60, l=150, r=40),
+                                margin=dict(t=60, b=50, l=150, r=40),
                                 title=dict(
-                                    text='Efek Hari Libur per Program — Lollipop Chart',
+                                    text='Efek Hari Libur terhadap Klaim (% dari rata-rata bulanan)',
                                     font=dict(size=14, color='#e2e8f0'), x=0),
                             )
                             st.plotly_chart(fig_lol, use_container_width=True)
@@ -2938,84 +2930,75 @@ with tab2:
                                         unsafe_allow_html=True)
                             card_cols = st.columns(n_prog)
                             for ci, prog in enumerate(programs_list):
-                                pdata = (heff_grp[heff_grp['Program'] == prog]
-                                         .set_index('Kategori')['Efek'])
-                                col_c = COLORS[ci % len(COLORS)]
+                                pdata    = (heff_grp[heff_grp['Program'] == prog]
+                                            .set_index('Kategori')['Efek_pct'])
+                                avg_y_p  = float(heff_grp[heff_grp['Program']==prog]['avg_y'].iloc[0])
+                                col_c    = COLORS[ci % len(COLORS)]
+                                top_up   = pdata.sort_values(ascending=False).head(3)
+                                top_down = pdata.sort_values(ascending=True).head(3)
 
-                                # Sort by actual value (not abs) so up/down are clear
-                                sorted_asc  = pdata.sort_values(ascending=True)
-                                sorted_desc = pdata.sort_values(ascending=False)
-
-                                # Top 3 positif & negatif — NO filter on threshold
-                                # Always show the top 3 even if near-zero
-                                top_up   = sorted_desc.head(3)
-                                top_down = sorted_asc.head(3)
-
-                                def _effect_pill(v):
-                                    """Return colored value string with intensity indicator."""
-                                    if abs(v) < 0.001:
-                                        return f'<span style="color:#475569">{v:+.4f} <span style="font-size:.7rem">≈ 0</span></span>'
+                                def _pill(v):
+                                    if abs(v) < 0.1:
+                                        return f'<span style="color:#475569;font-size:.8rem">±0% <span style="font-size:.7rem">(tidak signifikan)</span></span>'
                                     elif v > 0:
-                                        return f'<span style="color:#34d399;font-weight:600">{v:+.3f}</span>'
+                                        return f'<span style="color:#34d399;font-weight:700">{v:+.1f}%</span>'
                                     else:
-                                        return f'<span style="color:#f87171;font-weight:600">{v:+.3f}</span>'
+                                        return f'<span style="color:#f87171;font-weight:700">{v:+.1f}%</span>'
+
+                                # Contoh angka konkret: efek dalam jumlah kasus
+                                def _konkret(v):
+                                    delta_kasus = abs(v / 100.0 * avg_y_p)
+                                    if delta_kasus < 0.5: return ''
+                                    return f'<span style="color:#475569;font-size:.72rem"> (~{delta_kasus:,.0f} kasus)</span>'
 
                                 up_html = ''.join(
                                     f'<div style="display:flex;justify-content:space-between;'
-                                    f'align-items:center;margin:5px 0;font-size:.82rem;">'
-                                    f'<span><span style="color:#34d399;margin-right:5px">▲</span>'
-                                    f'<span style="color:#e2e8f0">{k}</span></span>'
-                                    f'{_effect_pill(v)}</div>'
+                                    f'align-items:center;margin:5px 0;font-size:.82rem;gap:4px;">'
+                                    f'<span><span style="color:#34d399;margin-right:4px">▲</span>'
+                                    f'<span style="color:#e2e8f0">{k}</span>{_konkret(v)}</span>'
+                                    f'{_pill(v)}</div>'
                                     for k, v in top_up.items())
 
                                 down_html = ''.join(
                                     f'<div style="display:flex;justify-content:space-between;'
-                                    f'align-items:center;margin:5px 0;font-size:.82rem;">'
-                                    f'<span><span style="color:#f87171;margin-right:5px">▼</span>'
-                                    f'<span style="color:#e2e8f0">{k}</span></span>'
-                                    f'{_effect_pill(v)}</div>'
+                                    f'align-items:center;margin:5px 0;font-size:.82rem;gap:4px;">'
+                                    f'<span><span style="color:#f87171;margin-right:4px">▼</span>'
+                                    f'<span style="color:#e2e8f0">{k}</span>{_konkret(v)}</span>'
+                                    f'{_pill(v)}</div>'
                                     for k, v in top_down.items())
 
-                                # Overall status badge
-                                net_effect = float(pdata.sum())
-                                if abs(net_effect) < 0.01:
-                                    badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem;">Efek Netral</span>'
-                                elif net_effect > 0:
-                                    badge = '<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem;">Net Positif</span>'
+                                net = float(pdata.sum())
+                                if abs(net) < 0.5:
+                                    badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
+                                elif net > 0:
+                                    badge = f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem">Net +{net:.1f}%</span>'
                                 else:
-                                    badge = '<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem;">Net Negatif</span>'
+                                    badge = f'<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem">Net {net:.1f}%</span>'
 
                                 with card_cols[ci]:
                                     st.markdown(f'''
                                     <div style="background:#0a1628;border:1px solid {col_c}40;
-                                    border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;
-                                    height:100%;">
+                                    border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;">
                                       <div style="display:flex;justify-content:space-between;
                                       align-items:center;margin-bottom:12px;">
                                         <span style="font-size:.75rem;color:#94a3b8;font-weight:700;
                                         text-transform:uppercase;letter-spacing:1.5px;">{prog}</span>
                                         {badge}
                                       </div>
-                                      <div style="font-size:.68rem;color:#334155;
-                                      text-transform:uppercase;letter-spacing:1px;
-                                      margin-bottom:6px;">📈 Paling Naik</div>
+                                      <div style="font-size:.68rem;color:#475569;text-transform:uppercase;
+                                      letter-spacing:1px;margin-bottom:6px;">📈 Paling Naik</div>
                                       {up_html}
                                       <div style="border-top:1px solid #1e2d45;margin:10px 0;"></div>
-                                      <div style="font-size:.68rem;color:#334155;
-                                      text-transform:uppercase;letter-spacing:1px;
-                                      margin-bottom:6px;">📉 Paling Turun</div>
+                                      <div style="font-size:.68rem;color:#475569;text-transform:uppercase;
+                                      letter-spacing:1px;margin-bottom:6px;">📉 Paling Turun</div>
                                       {down_html}
                                     </div>''', unsafe_allow_html=True)
 
-                            # Legend & explanation
                             st.markdown("""<div class="info-box" style="margin-top:16px">
-                            📊 <b>Cara membaca:</b>
-                            <span style="color:#34d399">▲ Positif</span> = klaim <b>naik</b> saat hari libur itu &nbsp;|&nbsp;
-                            <span style="color:#f87171">▼ Negatif</span> = klaim <b>turun</b>.
-                            Nilai <b>≈ 0</b> berarti hari libur tersebut tidak mempengaruhi klaim secara signifikan —
-                            biasanya karena data bulanan belum cukup banyak (&lt;24 bulan) untuk Prophet
-                            mendeteksi pola musiman yang kuat.
-                            Badge <b>Net Positif/Negatif</b> = jumlah total efek semua holiday untuk program tersebut.
+                            📊 <b>Satuan: % perubahan dari rata-rata klaim bulanan program tersebut.</b><br>
+                            Contoh: <b>Ramadhan +15%</b> artinya klaim program itu rata-rata <b>15% lebih tinggi</b> dari biasanya saat bulan Ramadhan.
+                            <b>Hari Buruh −8%</b> artinya klaim <b>8% lebih rendah</b> dari rata-rata saat Hari Buruh.
+                            Angka dalam kurung (~X kasus) adalah estimasi selisih jumlah klaim dari rata-rata.
                             </div>""", unsafe_allow_html=True)
                     else:
                         st.info("Efek holiday akan muncul jika Prophet berhasil mendeteksi pola pada data bulanan.")
