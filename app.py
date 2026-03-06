@@ -3,39 +3,41 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet, HuberRegressor
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import TimeSeriesSplit
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
+# XGBoost (optional)
+try:
+    from xgboost import XGBRegressor
+    XGBOOST_OK = True
+except ImportError:
+    XGBOOST_OK = False
 
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+# LightGBM (optional)
+try:
+    from lightgbm import LGBMRegressor
+    LGBM_OK = True
+except ImportError:
+    LGBM_OK = False
 
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
+# SARIMA
+try:
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+    from statsmodels.tsa.stattools import adfuller
+    SARIMA_OK = True
+except ImportError:
+    SARIMA_OK = False
 
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
-# Prophet (optional — graceful fallback if not installed)
+# Prophet (optional)
 try:
     from prophet import Prophet
     PROPHET_OK = True
@@ -326,99 +328,134 @@ def get_active_programs(df):
     return sorted(df[df['Tahun'] == latest]['Kategori'].unique())
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ML CORE
+# ML CORE — UPGRADED with XGBoost, LightGBM, ElasticNet, ExtraTrees, TimeSeriesCV
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_ml(df, target, n_lags, test_ratio):
-    active = get_active_programs(df)
-    df_active = df[df['Kategori'].isin(active)].copy()
+def build_features(series, n_lags, cat_id=0.0):
+    """Build rich lag + rolling features from a 1D time series."""
+    pad = list(series)
+    while len(pad) <= n_lags:
+        pad.insert(0, pad[0])
+    X_all, y_all = [], []
+    for i in range(n_lags, len(pad)):
+        win3 = pad[max(0, i-3):i]
+        win6 = pad[max(0, i-6):i]
+        lags = [pad[i - l] for l in range(1, n_lags + 1)]
+        trend = (pad[i-1] - pad[i-2]) if i >= 2 else 0.0
+        trend2= (pad[i-1] - pad[i-3]) if i >= 3 else 0.0
+        feat = lags + [
+            np.mean(win3), np.std(win3) if len(win3)>1 else 0.0,
+            np.mean(win6), np.std(win6) if len(win6)>1 else 0.0,
+            trend, trend2,
+            np.min(win6) if win6 else 0.0,
+            np.max(win6) if win6 else 0.0,
+            cat_id
+        ]
+        X_all.append(feat)
+        y_all.append(pad[i])
+    return np.array(X_all), np.array(y_all)
 
-    years   = sorted(df_active['Tahun'].unique())
-    cat_enc = {c: float(i) for i, c in enumerate(active)}
-    single  = len(years) == 1
 
-    if single:
-        rows = []
-        for cat in active:
-            v = df_active[df_active['Kategori'] == cat][target].dropna().values
-            if len(v) == 0: continue
-            val = float(v[0])
-            rows.append([float(cat_enc[cat]), val, np.log1p(val)])
-        if not rows: return None, "Tidak ada data valid."
-        X = np.array(rows)
-        y = X[:, 1].copy()
-        X_train, X_test, y_train, y_test = X, X, y, y
-    else:
-        all_X, all_y = [], []
-        for cat in active:
-            sub = (df_active[df_active['Kategori'] == cat]
-                   .sort_values('Tahun')[target].dropna().values.astype(float))
-            if len(sub) == 0: continue
-            pad = list(sub)
-            while len(pad) <= n_lags:
-                pad.insert(0, pad[0])
-            for i in range(n_lags, len(pad)):
-                win  = pad[max(0, i-3):i]
-                lags = [pad[i - l] for l in range(1, n_lags + 1)]
-                row  = lags + [
-                    np.mean(win),
-                    np.std(win) if len(win) > 1 else 0.0,
-                    pad[i-1] - pad[i-2] if i >= 2 else 0.0,
-                    cat_enc[cat]
-                ]
-                all_X.append(row)
-                all_y.append(pad[i])
-
-        if not all_X: return None, "Tidak cukup data untuk membuat fitur."
-        X, y = np.array(all_X), np.array(all_y)
-        split = max(1, int(len(X) * test_ratio)) if len(X) >= 4 else 0
-        if split == 0:
-            X_train, X_test, y_train, y_test = X, X, y, y
-        else:
-            X_train, X_test = X[:-split], X[-split:]
-            y_train, y_test = y[:-split], y[-split:]
-
+def get_models(n_train):
+    """Return all available models dict."""
+    k = min(3, max(1, n_train - 1))
     models = {
         'Linear Regression': LinearRegression(),
         'Ridge':             Ridge(alpha=1.0),
-        'Lasso':             Lasso(alpha=0.1, max_iter=5000),
+        'Lasso':             Lasso(alpha=0.1, max_iter=10000),
+        'ElasticNet':        ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=10000),
+        'Huber':             HuberRegressor(max_iter=500),
         'Decision Tree':     DecisionTreeRegressor(max_depth=4, random_state=42),
-        'Random Forest':     RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42),
-        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=42),
-        'SVR':               SVR(kernel='rbf', C=100, gamma='scale'),
-        'KNN':               KNeighborsRegressor(n_neighbors=min(3, max(1, len(y_train)-1))),
+        'Random Forest':     RandomForestRegressor(n_estimators=200, max_depth=6,
+                                                    min_samples_leaf=1, random_state=42),
+        'Extra Trees':       ExtraTreesRegressor(n_estimators=200, max_depth=6, random_state=42),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=200, max_depth=3,
+                                                        learning_rate=0.05, random_state=42),
+        'SVR':               SVR(kernel='rbf', C=100, gamma='scale', epsilon=0.1),
+        'KNN':               KNeighborsRegressor(n_neighbors=k, weights='distance'),
     }
-    scaled = {'SVR', 'KNN', 'Ridge', 'Lasso'}
-    scaler = StandardScaler()
+    if XGBOOST_OK:
+        models['XGBoost'] = XGBRegressor(n_estimators=200, max_depth=4, learning_rate=0.05,
+                                          subsample=0.8, colsample_bytree=0.8,
+                                          random_state=42, verbosity=0)
+    if LGBM_OK:
+        models['LightGBM'] = LGBMRegressor(n_estimators=200, max_depth=4, learning_rate=0.05,
+                                             subsample=0.8, random_state=42, verbose=-1)
+    return models
+
+
+SCALED_MODELS = {'SVR', 'KNN', 'Ridge', 'Lasso', 'ElasticNet', 'Huber', 'Linear Regression'}
+
+
+def score_model(yt, yp):
+    """Return metrics dict for a prediction."""
+    mae  = float(mean_absolute_error(yt, yp))
+    rmse = float(np.sqrt(mean_squared_error(yt, yp)))
+    r2   = float(r2_score(yt, yp)) if len(yt) > 1 else 0.0
+    mape = float(np.mean(np.abs((yt - yp) / (np.abs(yt) + 1e-9))) * 100)
+    return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'MAPE (%)': mape}
+
+
+def run_ml(df, target, n_lags, test_ratio):
+    active    = get_active_programs(df)
+    df_active = df[df['Kategori'].isin(active)].copy()
+    years     = sorted(df_active['Tahun'].unique())
+    cat_enc   = {c: float(i) for i, c in enumerate(active)}
+    single    = len(years) == 1
+
+    if single:
+        rows_s = []
+        for cat in active:
+            v = df_active[df_active['Kategori']==cat][target].dropna().values
+            if not len(v): continue
+            val = float(v[0])
+            rows_s.append([float(cat_enc[cat]), val, np.log1p(val)])
+        if not rows_s: return None, "Tidak ada data valid."
+        X = np.array(rows_s); y = X[:, 1].copy()
+        X_train = X_test = X; y_train = y_test = y
+    else:
+        all_X, all_y = [], []
+        for cat in active:
+            sub = (df_active[df_active['Kategori']==cat]
+                   .sort_values('Tahun')[target].dropna().values.astype(float))
+            if not len(sub): continue
+            Xc, yc = build_features(sub, n_lags, cat_enc[cat])
+            all_X.append(Xc); all_y.append(yc)
+        if not all_X: return None, "Tidak cukup data."
+        X = np.vstack(all_X); y = np.concatenate(all_y)
+        split = max(1, int(len(X) * test_ratio)) if len(X) >= 4 else 0
+        if split == 0:
+            X_train=X_test=X; y_train=y_test=y
+        else:
+            X_train,X_test = X[:-split], X[-split:]
+            y_train,y_test = y[:-split], y[-split:]
+
+    scaler = RobustScaler()
     Xtr_s  = scaler.fit_transform(X_train)
     Xte_s  = scaler.transform(X_test)
 
+    models   = get_models(len(y_train))
     results, preds, fitted = [], {}, {}
     for name, mdl in models.items():
         try:
-            Xtr = Xtr_s if name in scaled else X_train
-            Xte = Xte_s if name in scaled else X_test
+            Xtr = Xtr_s if name in SCALED_MODELS else X_train
+            Xte = Xte_s if name in SCALED_MODELS else X_test
             mdl.fit(Xtr, y_train)
-            yp   = mdl.predict(Xte)
-            yt   = y_test
-            mae  = mean_absolute_error(yt, yp)
-            rmse = np.sqrt(mean_squared_error(yt, yp))
-            r2   = float(r2_score(yt, yp))
-            mape = float(np.mean(np.abs((yt - yp) / (np.abs(yt) + 1e-9))) * 100)
-            results.append({'Model': name, 'MAE': mae, 'RMSE': rmse,
-                            'R2': r2, 'MAPE (%)': mape})
+            yp = mdl.predict(Xte)
+            sc = score_model(y_test, yp)
+            results.append({'Model': name, **sc})
             preds[name]  = yp
             fitted[name] = mdl
         except:
             pass
 
-    if not results: return None, "Semua model gagal dilatih."
-
+    if not results: return None, "Semua model gagal."
     rdf = pd.DataFrame(results)
-    rdf['_s'] = rdf['R2'] * 0.6 - rdf['MAPE (%)'] / 100 * 0.4
-    rdf = rdf.sort_values('_s', ascending=False).reset_index(drop=True)
+    # Composite score: R2 higher better, MAPE lower better
+    rdf['_score'] = rdf['R2'].clip(-1,1)*0.5 - (rdf['MAPE (%)']/100).clip(0,2)*0.3 - (rdf['RMSE']/(rdf['RMSE'].max()+1e-9))*0.2
+    rdf = rdf.sort_values('_score', ascending=False).reset_index(drop=True)
     best = rdf.iloc[0]['Model']
-    rdf  = rdf.drop(columns=['_s'])
+    rdf  = rdf.drop(columns=['_score'])
 
     return {
         'results_df': rdf, 'best_name': best,
@@ -430,69 +467,90 @@ def run_ml(df, target, n_lags, test_ratio):
         'X_train': X_train, 'X_test': X_test,
     }, None
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# PER-PROGRAM MODEL COMPARISON
+# PER-PROGRAM MODEL COMPARISON — with proper leave-one-out CV for small data
 # ══════════════════════════════════════════════════════════════════════════════
 
 def run_ml_per_program(df, target, n_lags, test_ratio):
     active = get_active_programs(df)
-    models_def = {
-        'Linear Regression': lambda: LinearRegression(),
-        'Ridge':             lambda: Ridge(alpha=1.0),
-        'Lasso':             lambda: Lasso(alpha=0.1, max_iter=5000),
-        'Decision Tree':     lambda: DecisionTreeRegressor(max_depth=4, random_state=42),
-        'Random Forest':     lambda: RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42),
-        'Gradient Boosting': lambda: GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=42),
-        'SVR':               lambda: SVR(kernel='rbf', C=100, gamma='scale'),
-        'KNN':               lambda: KNeighborsRegressor(n_neighbors=3),
-    }
-    scaled = {'SVR', 'KNN', 'Ridge', 'Lasso'}
-    rows = []
+    rows   = []
+
     for cat in active:
-        sub = (df[df['Kategori'] == cat]
+        sub = (df[df['Kategori']==cat]
                .sort_values('Tahun')[target].dropna().values.astype(float))
-        if len(sub) < 3:
+        if len(sub) < 2:
             continue
-        pad = list(sub)
-        while len(pad) <= n_lags:
-            pad.insert(0, pad[0])
-        X_all, y_all = [], []
-        for i in range(n_lags, len(pad)):
-            win  = pad[max(0, i-3):i]
-            lags = [pad[i - l] for l in range(1, n_lags + 1)]
-            X_all.append(lags + [np.mean(win),
-                                  np.std(win) if len(win) > 1 else 0.0,
-                                  pad[i-1] - pad[i-2] if i >= 2 else 0.0, 0.0])
-            y_all.append(pad[i])
-        X, y = np.array(X_all), np.array(y_all)
-        if len(X) < 2:
+
+        Xc, yc = build_features(sub, n_lags, 0.0)
+        if len(Xc) < 2:
             continue
-        split = max(1, int(len(X) * test_ratio))
-        Xtr, Xte = X[:-split], X[-split:]
-        ytr, yte = y[:-split], y[-split:]
-        if len(Xtr) == 0:
-            Xtr, ytr, Xte, yte = X, y, X, y
-        sc_pp = StandardScaler().fit(Xtr)
-        Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
-        for mname, mfunc in models_def.items():
-            try:
-                mdl = mfunc()
-                mdl.fit(Xtr_s if mname in scaled else Xtr,
-                        ytr)
-                yp  = mdl.predict(Xte_s if mname in scaled else Xte)
-                rows.append({'Program': cat, 'Model': mname,
-                             'R2':       float(r2_score(yte, yp)),
-                             'MAPE (%)': float(np.mean(np.abs((yte - yp)/(np.abs(yte)+1e-9)))*100),
-                             'MAE':      float(mean_absolute_error(yte, yp)),
-                             'RMSE':     float(np.sqrt(mean_squared_error(yte, yp)))})
-            except:
-                pass
+
+        # Use leave-one-out if too few samples, else time-split
+        n = len(Xc)
+        if n <= 4:
+            # LOO cross-validation
+            all_yt, all_yp = [], []
+            for leave in range(n):
+                idx_tr = [i for i in range(n) if i != leave]
+                if not idx_tr: continue
+                Xtr, ytr = Xc[idx_tr], yc[idx_tr]
+                Xte, yte = Xc[[leave]], yc[[leave]]
+                sc_pp = RobustScaler().fit(Xtr)
+                Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
+                models = get_models(len(ytr))
+                for mname, mdl in models.items():
+                    try:
+                        mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
+                        yp = mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)
+                        rows.append({'Program': cat, 'Model': mname,
+                                     'R2': float(r2_score([yte[0]],[yp[0]])) if False else None,
+                                     '_yt': float(yte[0]), '_yp': float(yp[0])})
+                    except:
+                        pass
+        else:
+            split = max(1, int(n * test_ratio))
+            Xtr, Xte = Xc[:-split], Xc[-split:]
+            ytr, yte = yc[:-split], yc[-split:]
+            sc_pp = RobustScaler().fit(Xtr)
+            Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
+            models = get_models(len(ytr))
+            for mname, mdl in models.items():
+                try:
+                    mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
+                    yp  = mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)
+                    sc  = score_model(yte, yp)
+                    rows.append({'Program': cat, 'Model': mname, **sc, '_yt': None, '_yp': None})
+                except:
+                    pass
+
     if not rows:
         return None
-    res_df = pd.DataFrame(rows)
-    best_per_prog = (res_df.sort_values('R2', ascending=False)
+
+    # For LOO rows, aggregate predictions per program+model then score
+    res_rows = []
+    raw_df   = pd.DataFrame(rows)
+
+    for (cat, mname), grp in raw_df.groupby(['Program','Model']):
+        if grp['_yt'].notna().all() and grp['_yp'].notna().all():
+            yt_arr = grp['_yt'].values
+            yp_arr = grp['_yp'].values
+            sc = score_model(yt_arr, yp_arr)
+        else:
+            sc = {'R2': grp.get('R2', pd.Series([np.nan])).mean(),
+                  'MAPE (%)': grp.get('MAPE (%)', pd.Series([np.nan])).mean(),
+                  'MAE': grp.get('MAE', pd.Series([np.nan])).mean(),
+                  'RMSE': grp.get('RMSE', pd.Series([np.nan])).mean()}
+        res_rows.append({'Program': cat, 'Model': mname, **sc})
+
+    res_df = pd.DataFrame(res_rows)
+    # Fill NaN R2 with -999 for sorting, then restore
+    res_df['_sort_r2'] = res_df['R2'].fillna(-999)
+    best_per_prog = (res_df.sort_values('_sort_r2', ascending=False)
                      .groupby('Program').first().reset_index()
                      [['Program','Model','R2','MAPE (%)','MAE','RMSE']])
+    res_df = res_df.drop(columns=['_sort_r2'])
+
     return {'detail': res_df, 'best_per_program': best_per_prog}
 
 
@@ -582,6 +640,83 @@ INDONESIAN_HOLIDAYS = pd.DataFrame([
     {'holiday':'Tahun Baru', 'ds':'2026-01-01','lower_window':-1,'upper_window':1},
 ])
 INDONESIAN_HOLIDAYS['ds'] = pd.to_datetime(INDONESIAN_HOLIDAYS['ds'])
+
+
+
+
+def run_sarima(df_monthly_raw, target, cat, n_months):
+    """Run SARIMA(p,d,q)(P,D,Q,12) on monthly data for a single program."""
+    if not SARIMA_OK:
+        return None, "statsmodels tidak terinstall."
+    cat_df = df_monthly_raw[df_monthly_raw['Kategori'] == cat].copy()
+    if len(cat_df) < 12:
+        return None, f"Data {cat} kurang dari 12 bulan untuk SARIMA."
+    cat_df = cat_df.sort_values(['Tahun','Bulan'])
+    cat_df['ds'] = pd.to_datetime(
+        cat_df['Tahun'].astype(str) + '-' + cat_df['Bulan'].astype(str).str.zfill(2) + '-01')
+    ts = cat_df.groupby('ds')[target].sum().sort_index()
+    ts = ts[ts > 0]
+    if len(ts) < 12:
+        return None, "Data terlalu sedikit setelah filtering."
+
+    # Auto-select order: try common configurations
+    best_aic = np.inf
+    best_cfg = (1,1,1,0,1,1)
+    configs = [
+        (1,1,1,0,1,1), (1,1,0,0,1,1), (0,1,1,0,1,1),
+        (2,1,1,0,1,1), (1,1,2,0,1,1), (1,0,1,0,1,1),
+    ]
+    best_model = None
+    for p,d,q,P,D,Q in configs:
+        try:
+            m = SARIMAX(ts, order=(p,d,q), seasonal_order=(P,D,Q,12),
+                        enforce_stationarity=False, enforce_invertibility=False)
+            res = m.fit(disp=False, maxiter=200)
+            if res.aic < best_aic:
+                best_aic = res.aic
+                best_cfg = (p,d,q,P,D,Q)
+                best_model = res
+        except:
+            pass
+
+    if best_model is None:
+        return None, "Semua konfigurasi SARIMA gagal."
+
+    try:
+        forecast_obj = best_model.get_forecast(steps=n_months)
+        fc_mean = forecast_obj.predicted_mean
+        fc_ci   = forecast_obj.conf_int(alpha=0.05)
+        last_date = ts.index[-1]
+        future_idx = pd.date_range(
+            start=last_date + pd.DateOffset(months=1), periods=n_months, freq='MS')
+        fc_df = pd.DataFrame({
+            'ds': future_idx,
+            'yhat': fc_mean.values,
+            'yhat_lower': fc_ci.iloc[:,0].values,
+            'yhat_upper': fc_ci.iloc[:,1].values,
+        })
+        fc_df['yhat']       = fc_df['yhat'].clip(0)
+        fc_df['yhat_lower'] = fc_df['yhat_lower'].clip(0)
+        fc_df['yhat_upper'] = fc_df['yhat_upper'].clip(0)
+
+        # In-sample fit metrics
+        fitted_vals = best_model.fittedvalues
+        common_idx  = ts.index.intersection(fitted_vals.index)
+        yt_is = ts[common_idx].values
+        yp_is = fitted_vals[common_idx].values
+        mape_is = float(np.mean(np.abs((yt_is - yp_is)/(np.abs(yt_is)+1e-9)))*100)
+        r2_is   = float(r2_score(yt_is, yp_is)) if len(yt_is)>1 else 0.0
+
+        return {
+            'forecast': fc_df,
+            'history':  ts.reset_index().rename(columns={target:'y','ds':'ds'}) if target in ts.name else
+                        ts.reset_index().rename(columns={ts.name:'y'}),
+            'config':   best_cfg, 'aic': best_aic,
+            'mape_insample': mape_is, 'r2_insample': r2_is,
+            'fitted_values': fitted_vals, 'ts': ts,
+        }, None
+    except Exception as e:
+        return None, str(e)
 
 
 def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
@@ -1580,9 +1715,9 @@ with tab2:
             unsafe_allow_html=True)
 
         # ── Sub-tabs ──────────────────────────────────────────────────────
-        mtab1, mtab2, mtab3, mtab4 = st.tabs([
+        mtab1, mtab2, mtab3, mtab4, mtab5 = st.tabs([
             "📊 Perbandingan Model", "🎯 Model per Program",
-            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender"
+            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender", "📈 SARIMA"
         ])
 
         # ── Sub-tab 1: Model Comparison ───────────────────────────────────
@@ -1962,6 +2097,172 @@ with tab2:
                     for col in ['Prediksi','Batas Bawah (95%)','Batas Atas (95%)']:
                         fc_show[col] = fc_show[col].apply(lambda x: f"{max(0,x):,.0f}")
                     st.dataframe(fc_show, width='stretch', height=380)
+
+
+        # ── Sub-tab 5: SARIMA ─────────────────────────────────────────────
+        with mtab5:
+            df_raw_m_s = st.session_state.get('raw_monthly', None)
+            if not SARIMA_OK:
+                st.warning("statsmodels tidak terinstall. Jalankan: `pip install statsmodels`")
+            elif df_raw_m_s is None or len(df_raw_m_s) == 0:
+                st.warning("Upload dataset bulanan terlebih dahulu untuk menggunakan SARIMA.")
+            else:
+                st.markdown("""<div class="info-box">
+                📈 <b>SARIMA</b> (Seasonal AutoRegressive Integrated Moving Average) adalah model
+                statistik klasik yang sangat cocok untuk <b>data time-series bulanan</b>.
+                SARIMA dapat menangkap pola musiman (seasonal) seperti lonjakan klaim di awal/akhir tahun,
+                dan lebih <b>interpretable</b> dibanding ML black-box.
+                Order otomatis dipilih berdasarkan AIC terkecil dari beberapa konfigurasi.
+                </div>""", unsafe_allow_html=True)
+
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    target_sarima = st.selectbox("Target", targets, key='sarima_target')
+                with sc2:
+                    cat_sarima = st.selectbox("Program", active_progs, key='sarima_cat')
+                with sc3:
+                    n_months_sarima = st.slider("Prediksi (bulan)", 6, 36, 12, 6, key='sarima_months')
+
+                if st.button("📈 Jalankan SARIMA", type="primary", width='stretch'):
+                    with st.spinner(f"Melatih SARIMA untuk {cat_sarima} — {target_sarima}..."):
+                        s_result, s_err = run_sarima(
+                            df_raw_m_s, target_sarima, cat_sarima, n_months_sarima)
+                    if s_err:
+                        st.error(f"SARIMA Error: {s_err}")
+                    else:
+                        st.session_state['sarima_result'] = s_result
+                        st.session_state['sarima_meta'] = {
+                            'target': target_sarima, 'cat': cat_sarima}
+
+                s_result = st.session_state.get('sarima_result', None)
+                s_meta   = st.session_state.get('sarima_meta', {})
+
+                if s_result and s_meta.get('cat') == cat_sarima and s_meta.get('target') == target_sarima:
+                    ts       = s_result['ts']
+                    fc_df_s  = s_result['forecast']
+                    cfg      = s_result['config']
+                    p,d,q,P,D,Q = cfg
+
+                    # KPI row
+                    ki1, ki2, ki3, ki4 = st.columns(4)
+                    with ki1:
+                        st.markdown(f'''<div class="kpi"><div class="val">SARIMA</div>
+                        <div class="lbl">({p},{d},{q})({P},{D},{Q},12)</div></div>''', unsafe_allow_html=True)
+                    with ki2:
+                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["aic"]:.1f}</div>
+                        <div class="lbl">AIC Score</div></div>''', unsafe_allow_html=True)
+                    with ki3:
+                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["r2_insample"]:.4f}</div>
+                        <div class="lbl">R² In-Sample</div></div>''', unsafe_allow_html=True)
+                    with ki4:
+                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["mape_insample"]:.2f}%</div>
+                        <div class="lbl">MAPE In-Sample</div></div>''', unsafe_allow_html=True)
+
+                    # ── Forecast chart ─────────────────────────────────────
+                    st.markdown(f'<div class="sec">Forecast SARIMA — {cat_sarima} ({target_sarima})</div>',
+                                unsafe_allow_html=True)
+                    fig_s = go.Figure()
+                    # History
+                    fig_s.add_trace(go.Scatter(
+                        x=ts.index, y=ts.values,
+                        name='Aktual', mode='lines+markers',
+                        line=dict(color='#60a5fa', width=2.5), marker=dict(size=6)
+                    ))
+                    # In-sample fitted
+                    fv = s_result['fitted_values']
+                    fig_s.add_trace(go.Scatter(
+                        x=fv.index, y=fv.values.clip(0),
+                        name='Fitted (In-sample)', mode='lines',
+                        line=dict(color='#a78bfa', width=1.5, dash='dot'), opacity=0.8
+                    ))
+                    # Forecast
+                    fig_s.add_trace(go.Scatter(
+                        x=fc_df_s['ds'], y=fc_df_s['yhat'],
+                        name='Prediksi SARIMA', mode='lines+markers',
+                        line=dict(color='#34d399', width=2.5, dash='dash'),
+                        marker=dict(size=7, symbol='diamond')
+                    ))
+                    # CI band
+                    fig_s.add_trace(go.Scatter(
+                        x=pd.concat([fc_df_s['ds'], fc_df_s['ds'][::-1]]),
+                        y=pd.concat([fc_df_s['yhat_upper'], fc_df_s['yhat_lower'][::-1]]),
+                        fill='toself', fillcolor='rgba(52,211,153,0.12)',
+                        line=dict(color='rgba(0,0,0,0)'), name='Interval 95%'
+                    ))
+                    # Holiday markers
+                    for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
+                        if ts.index.min() <= hrow['ds'] <= fc_df_s['ds'].max():
+                            fig_s.add_vline(
+                                x=hrow['ds'].timestamp()*1000,
+                                line_dash='dot', line_color='#fbbf24',
+                                line_width=1, opacity=0.5,
+                                annotation_text=hrow['holiday'],
+                                annotation_font=dict(size=8, color='#fbbf24'),
+                                annotation_position='top left'
+                            )
+                    fig_s.update_layout(
+                        **DARK, height=500, hovermode='x unified',
+                        legend=dict(orientation='h', y=-0.2),
+                        margin=dict(b=80, t=20, l=70, r=20),
+                        xaxis_title='Periode', yaxis_title=target_sarima
+                    )
+                    st.plotly_chart(fig_s, width='stretch')
+
+                    # ── Residual analysis ──────────────────────────────────
+                    st.markdown('<div class="sec">Analisis Residual SARIMA</div>',
+                                unsafe_allow_html=True)
+                    resid = ts.values - s_result['fitted_values'][ts.index.intersection(s_result['fitted_values'].index)].values
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        fig_res_s = px.histogram(x=resid, nbins=20,
+                                                  title='Distribusi Residual',
+                                                  color_discrete_sequence=['#60a5fa'])
+                        fig_res_s.update_layout(**DARK, height=280, margin=dict(t=40,b=20))
+                        st.plotly_chart(fig_res_s, width='stretch')
+                    with rc2:
+                        fig_res_line = go.Figure()
+                        fig_res_line.add_trace(go.Scatter(
+                            x=list(range(len(resid))), y=resid,
+                            mode='lines+markers', name='Residual',
+                            line=dict(color='#f87171', width=1.5)
+                        ))
+                        fig_res_line.add_hline(y=0, line_dash='dash', line_color='#64748b')
+                        fig_res_line.update_layout(**DARK, height=280, title='Residual vs Time',
+                                                   margin=dict(t=40,b=20))
+                        st.plotly_chart(fig_res_line, width='stretch')
+
+                    # ── Forecast table ─────────────────────────────────────
+                    st.markdown('<div class="sec">Tabel Prediksi SARIMA</div>',
+                                unsafe_allow_html=True)
+                    fc_show_s = fc_df_s[['ds','yhat','yhat_lower','yhat_upper']].copy()
+                    fc_show_s.columns = ['Periode','Prediksi','Batas Bawah (95%)','Batas Atas (95%)']
+                    fc_show_s['Periode'] = fc_show_s['Periode'].dt.strftime('%Y-%m')
+                    for col in ['Prediksi','Batas Bawah (95%)','Batas Atas (95%)']:
+                        fc_show_s[col] = fc_show_s[col].apply(lambda x: f"{max(0,x):,.0f}")
+                    st.dataframe(fc_show_s, width='stretch', height=380)
+
+                    # ── SARIMA vs Prophet comparison (if both available) ───
+                    if st.session_state.get('prophet_result') and st.session_state.get('prophet_meta',{}).get('cat') == cat_sarima:
+                        p_res_cmp = st.session_state['prophet_result']
+                        st.markdown('<div class="sec">Perbandingan SARIMA vs Prophet</div>',
+                                    unsafe_allow_html=True)
+                        fig_cmp = go.Figure()
+                        fig_cmp.add_trace(go.Scatter(x=ts.index, y=ts.values,
+                            name='Aktual', mode='lines+markers',
+                            line=dict(color='#60a5fa', width=2)))
+                        fig_cmp.add_trace(go.Scatter(x=fc_df_s['ds'], y=fc_df_s['yhat'],
+                            name='SARIMA', mode='lines',
+                            line=dict(color='#34d399', width=2, dash='dash')))
+                        p_fc_cmp = p_res_cmp['forecast']
+                        p_future_cmp = p_fc_cmp[p_fc_cmp['ds'] > ts.index[-1]]
+                        fig_cmp.add_trace(go.Scatter(x=p_future_cmp['ds'], y=p_future_cmp['yhat'],
+                            name='Prophet', mode='lines',
+                            line=dict(color='#f59e0b', width=2, dash='dot')))
+                        fig_cmp.update_layout(**DARK, height=420, hovermode='x unified',
+                                             legend=dict(orientation='h',y=-0.2),
+                                             margin=dict(b=80,t=20))
+                        st.plotly_chart(fig_cmp, width='stretch')
+
 
     else:
         st.info("Klik **Jalankan Analisis ML** untuk memulai.")
