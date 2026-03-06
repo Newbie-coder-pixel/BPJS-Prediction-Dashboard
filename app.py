@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -410,18 +389,34 @@ def score_model(yt, yp):
 
 def train_best_per_program(df, target, n_lags, test_ratio):
     """
-    Core function: for each program, find the best model independently.
-    Returns per-program best models + global summary metrics.
-    Fast because each program only has a few data points.
+    For each program, find best model using LOO-CV (always), then retrain on full data.
+    For small datasets (≤8 years): prioritize simple interpretable models.
+    Evaluation is LOO-CV across ALL years — no train/test split waste.
     """
+    from collections import Counter
     active  = get_active_programs(df)
     cat_enc = {c: float(i) for i, c in enumerate(active)}
     years   = sorted(df['Tahun'].unique())
     single  = len(years) == 1
 
-    per_prog     = {}   # cat -> {best_model, scaler, metrics, all_metrics}
-    detail_rows  = []   # for heatmap
-    global_rows  = []   # aggregated for global comparison table
+    # For small data: use simpler model set that generalizes better
+    def get_small_data_models():
+        """Models that work well with ≤8 data points."""
+        return {
+            'Linear Regression': LinearRegression(),
+            'Ridge':             Ridge(alpha=1.0),
+            'Lasso':             Lasso(alpha=0.5, max_iter=10000),
+            'ElasticNet':        ElasticNet(alpha=0.5, l1_ratio=0.5, max_iter=10000),
+            'Trend Growth':      LinearRegression(),   # simple lag-1 predictor
+        }
+
+    def get_medium_data_models(n_tr):
+        """Full model set for larger datasets."""
+        return get_fast_models(n_tr)
+
+    per_prog    = {}
+    detail_rows = []
+    global_rows = []
 
     for cat in active:
         sub = (df[df['Kategori'] == cat]
@@ -430,83 +425,76 @@ def train_best_per_program(df, target, n_lags, test_ratio):
             continue
 
         if single or len(sub) < 2:
-            # Fallback: simple growth prediction
             per_prog[cat] = {
-                'best_name': 'Linear Regression',
-                'best_model': LinearRegression(),
-                'scaler': RobustScaler(),
-                'cat_id': cat_enc.get(cat, 0.0),
+                'best_name': 'Trend Growth', 'best_model': None,
+                'scaler': None, 'cat_id': cat_enc.get(cat, 0.0),
                 'history': list(sub),
-                'metrics': {'R2': 0.0, 'MAPE (%)': 0.0, 'MAE': 0.0, 'RMSE': 0.0},
+                'metrics': {'R2': None, 'MAPE (%)': None, 'MAE': None, 'RMSE': None},
                 'single': True,
             }
             continue
 
-        Xc, yc = build_features(sub, n_lags, cat_enc.get(cat, 0.0))
+        # Always use LOO-CV — most reliable for small data
+        # Use lag-1 features only for small datasets (more stable)
+        use_lags = 1 if len(sub) <= 6 else n_lags
+        Xc, yc = build_features(sub, use_lags, cat_enc.get(cat, 0.0))
         n = len(Xc)
 
-        # Split: use LOO if <=4 points, else time split
-        if n <= 4:
-            loo_preds = {m: {'yt': [], 'yp': []} for m in get_fast_models(1).keys()}
-            for leave in range(n):
-                idx_tr = [i for i in range(n) if i != leave]
-                if not idx_tr:
-                    continue
-                Xtr, ytr = Xc[idx_tr], yc[idx_tr]
-                Xte, yte = Xc[[leave]], yc[[leave]]
-                sc_pp   = RobustScaler().fit(Xtr)
-                Xtr_s   = sc_pp.transform(Xtr)
-                Xte_s   = sc_pp.transform(Xte)
-                mods    = get_fast_models(len(ytr))
-                for mname, mdl in mods.items():
-                    try:
-                        mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
-                        yp = float(mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)[0])
-                        loo_preds[mname]['yt'].append(float(yte[0]))
-                        loo_preds[mname]['yp'].append(yp)
-                    except:
-                        pass
-            # Score each model across LOO folds
-            cat_scores = {}
-            for mname, d in loo_preds.items():
-                if len(d['yt']) < 1:
-                    continue
-                yt_a = np.array(d['yt'])
-                yp_a = np.array(d['yp'])
-                sc   = score_model(yt_a, yp_a)
-                cat_scores[mname] = sc
-                detail_rows.append({'Program': cat, 'Model': mname, **{k:v for k,v in sc.items() if k!='_score'}})
-        else:
-            split = max(1, int(n * test_ratio))
-            Xtr, Xte = Xc[:-split], Xc[-split:]
-            ytr, yte = yc[:-split], yc[-split:]
-            sc_pp  = RobustScaler().fit(Xtr)
+        # Choose model set based on data size
+        small_data = (len(sub) <= 8)
+        mods_def = get_small_data_models() if small_data else get_medium_data_models(n - 1)
+
+        # LOO-CV for all cases — gives honest evaluation
+        loo_preds = {m: {'yt': [], 'yp': []} for m in mods_def.keys()}
+        for leave in range(n):
+            idx_tr = [i for i in range(n) if i != leave]
+            if len(idx_tr) < 1:
+                continue
+            Xtr, ytr = Xc[idx_tr], yc[idx_tr]
+            Xte, yte = Xc[[leave]], yc[[leave]]
+            sc_pp  = StandardScaler().fit(Xtr)
             Xtr_s  = sc_pp.transform(Xtr)
             Xte_s  = sc_pp.transform(Xte)
-            mods   = get_fast_models(len(ytr))
-            cat_scores = {}
-            for mname, mdl in mods.items():
+            for mname, mdl_proto in mods_def.items():
                 try:
+                    # Clone model
+                    import copy
+                    mdl = copy.deepcopy(mdl_proto)
                     mdl.fit(Xtr_s if mname in SCALED_MODELS else Xtr, ytr)
-                    yp  = mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)
-                    sc  = score_model(yte, yp)
-                    cat_scores[mname] = sc
-                    detail_rows.append({'Program': cat, 'Model': mname, **{k:v for k,v in sc.items() if k!='_score'}})
+                    yp = float(mdl.predict(Xte_s if mname in SCALED_MODELS else Xte)[0])
+                    loo_preds[mname]['yt'].append(float(yte[0]))
+                    loo_preds[mname]['yp'].append(yp)
                 except:
                     pass
+
+        # Score each model on LOO results
+        cat_scores = {}
+        for mname, d in loo_preds.items():
+            if len(d['yt']) < 2:
+                continue
+            yt_a = np.array(d['yt'])
+            yp_a = np.array(d['yp'])
+            sc_m = score_model(yt_a, yp_a)
+            cat_scores[mname] = sc_m
+            detail_rows.append({
+                'Program': cat, 'Model': mname,
+                **{k: v for k, v in sc_m.items() if k != '_score'}
+            })
 
         if not cat_scores:
             continue
 
-        # Pick best model for this program
-        best_name = max(cat_scores, key=lambda m: cat_scores[m]['_score'])
+        # Best = lowest MAPE among models with R² >= 0; fallback to lowest MAPE overall
+        valid = {m: s for m, s in cat_scores.items() if s['R2'] >= 0}
+        pool  = valid if valid else cat_scores
+        best_name = min(pool, key=lambda m: pool[m]['MAPE (%)'])
         best_sc   = cat_scores[best_name]
 
-        # Retrain best model on ALL data for this program (no split) for forecasting
-        sc_full = RobustScaler().fit(Xc)
+        # Retrain on ALL data (full dataset, no split) for forecasting
+        sc_full = StandardScaler().fit(Xc)
         Xc_s    = sc_full.transform(Xc)
-        mods_full = get_fast_models(len(yc))
-        best_mdl  = mods_full.get(best_name, LinearRegression())
+        import copy
+        best_mdl = copy.deepcopy(mods_def.get(best_name, LinearRegression()))
         try:
             best_mdl.fit(Xc_s if best_name in SCALED_MODELS else Xc, yc)
         except:
@@ -519,70 +507,61 @@ def train_best_per_program(df, target, n_lags, test_ratio):
             'scaler':     sc_full,
             'cat_id':     cat_enc.get(cat, 0.0),
             'history':    list(sub),
+            'n_lags_used': use_lags,
             'metrics':    {k: v for k, v in best_sc.items() if k != '_score'},
             'all_scores': cat_scores,
             'single':     False,
         }
-
         global_rows.append({'Model': best_name, 'Program': cat,
                              **{k: v for k, v in best_sc.items() if k != '_score'}})
 
-    # Build global results_df (summary across all programs)
+    # Build summary tables
+    bpp_rows = []
+    for cat, info in per_prog.items():
+        m = info['metrics']
+        bpp_rows.append({
+            'Program': cat, 'Model': info['best_name'],
+            'R2':       m.get('R2', None),
+            'MAPE (%)': m.get('MAPE (%)', None),
+            'MAE':      m.get('MAE', None),
+            'RMSE':     m.get('RMSE', None),
+        })
+    best_per_prog = pd.DataFrame(bpp_rows)
+
     if global_rows:
         gdf = pd.DataFrame(global_rows)
-        # Weighted average metrics
         summary_rows = []
         for mname in gdf['Model'].unique():
             sub_g = gdf[gdf['Model'] == mname]
             summary_rows.append({
                 'Model': mname,
-                'R2':       sub_g['R2'].mean(),
-                'MAPE (%)': sub_g['MAPE (%)'].mean(),
-                'MAE':      sub_g['MAE'].mean(),
-                'RMSE':     sub_g['RMSE'].mean(),
+                'R2': sub_g['R2'].mean(), 'MAPE (%)': sub_g['MAPE (%)'].mean(),
+                'MAE': sub_g['MAE'].mean(), 'RMSE': sub_g['RMSE'].mean(),
                 'Programs': ', '.join(sub_g['Program'].tolist()),
             })
         results_df = pd.DataFrame(summary_rows).sort_values('R2', ascending=False).reset_index(drop=True)
     else:
         results_df = pd.DataFrame()
 
-    # Best per program table
-    bpp_rows = []
-    for cat, info in per_prog.items():
-        m = info['metrics']
-        bpp_rows.append({'Program': cat, 'Model': info['best_name'],
-                         'R2': m.get('R2', 0), 'MAPE (%)': m.get('MAPE (%)', 0),
-                         'MAE': m.get('MAE', 0), 'RMSE': m.get('RMSE', 0)})
-    best_per_prog = pd.DataFrame(bpp_rows)
-
     detail_df = pd.DataFrame(detail_rows) if detail_rows else pd.DataFrame()
 
-    # Overall best = model used most often
     if bpp_rows:
-        from collections import Counter
         model_counts = Counter(r['Model'] for r in bpp_rows)
         overall_best = model_counts.most_common(1)[0][0]
-        # For backward compat: pick metrics of that model
-        best_metrics_rows = [r for r in bpp_rows if r['Model'] == overall_best]
-        avg_r2   = np.mean([r['R2'] for r in best_metrics_rows])
-        avg_mape = np.mean([r['MAPE (%)'] for r in best_metrics_rows])
-        avg_mae  = np.mean([r['MAE'] for r in best_metrics_rows])
+        valid_bpp = [r for r in bpp_rows if r['R2'] is not None]
+        avg_r2   = float(np.mean([r['R2'] for r in valid_bpp])) if valid_bpp else 0.0
+        avg_mape = float(np.mean([r['MAPE (%)'] for r in valid_bpp])) if valid_bpp else 0.0
+        avg_mae  = float(np.mean([r['MAE'] for r in valid_bpp])) if valid_bpp else 0.0
     else:
         overall_best = 'N/A'; avg_r2 = avg_mape = avg_mae = 0.0
 
     return {
-        'per_prog':     per_prog,
-        'best_per_program': best_per_prog,
-        'detail':       detail_df,
-        'results_df':   results_df,
-        'best_name':    overall_best,
-        'best_r2':      avg_r2,
-        'best_mape':    avg_mape,
-        'best_mae':     avg_mae,
-        'cat_enc':      cat_enc,
-        'single':       single,
-        'n_lags':       n_lags,
-        'target':       target,
+        'per_prog': per_prog, 'best_per_program': best_per_prog,
+        'detail': detail_df, 'results_df': results_df,
+        'best_name': overall_best, 'best_r2': avg_r2,
+        'best_mape': avg_mape, 'best_mae': avg_mae,
+        'cat_enc': cat_enc, 'single': single,
+        'n_lags': n_lags, 'target': target,
         'active_programs': active,
     }, None
 
@@ -867,10 +846,11 @@ def forecast(df, ml, n_years):
         sc      = info['scaler']
         best_nm = info['best_name']
         cat_id  = info['cat_id']
+        nlags_use = info.get('n_lags_used', nlags)  # use lags from training
         last_actual = history[-1]
 
         for fy in range(1, n_years + 1):
-            Xc, _ = build_features(history, nlags, cat_id)
+            Xc, _ = build_features(history, nlags_use, cat_id)
             if len(Xc) == 0:
                 pred = trend_growth_pred(history, 1)
             else:
