@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -65,31 +44,103 @@ st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="�
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
-html,body,[class*="css"]{font-family:'Plus Jakarta Sans',sans-serif;}
-.stApp{background:#080c14;color:#dde3f0;}
-.kpi{background:linear-gradient(135deg,#111827,#0d1525);border:1px solid #1e2d45;
-     border-radius:14px;padding:22px 18px;text-align:center;}
-.kpi .val{font-size:1.9rem;font-weight:800;color:#60a5fa;
-          font-family:'JetBrains Mono',monospace;line-height:1.1;}
-.kpi .lbl{font-size:.72rem;color:#64748b;text-transform:uppercase;
-          letter-spacing:1.2px;margin-top:6px;}
-.badge{background:linear-gradient(90deg,#1e3a5f,#14532d);border:1px solid #3b82f640;
-       border-radius:10px;padding:14px 20px;margin:10px 0;font-size:.95rem;}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+*{box-sizing:border-box;}
+html,body,[class*="css"]{font-family:'Inter',sans-serif;}
+.stApp{background:#05090f;color:#e2e8f0;}
+
+/* ── KPI Cards ── */
+.kpi{
+  background:linear-gradient(145deg,#0d1424 0%,#0a1020 100%);
+  border:1px solid #1a2840;border-radius:16px;padding:24px 20px;
+  text-align:center;position:relative;overflow:hidden;
+  transition:transform .2s,border-color .2s;
+}
+.kpi::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,#3b82f6,#8b5cf6);
+}
+.kpi .val{font-size:2rem;font-weight:800;
+          background:linear-gradient(135deg,#60a5fa,#a78bfa);
+          -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+          font-family:'JetBrains Mono',monospace;line-height:1.2;}
+.kpi .lbl{font-size:.68rem;color:#475569;text-transform:uppercase;
+          letter-spacing:1.5px;margin-top:8px;font-weight:600;}
+.kpi .delta{font-size:.75rem;margin-top:6px;font-weight:500;}
+.delta-pos{color:#34d399;} .delta-neg{color:#f87171;} .delta-neu{color:#94a3b8;}
+
+/* ── Badge ── */
+.badge{
+  background:linear-gradient(135deg,#0f1f35 0%,#0a1a0a 100%);
+  border:1px solid #1e3a5f;border-radius:12px;
+  padding:14px 20px;margin:12px 0;font-size:.9rem;line-height:1.7;
+}
 .badge b{color:#93c5fd;}
-.sec{font-size:.75rem;font-weight:700;color:#475569;text-transform:uppercase;
-     letter-spacing:2px;margin:24px 0 10px;padding-bottom:8px;
-     border-bottom:1px solid #1e2d45;}
-.warn{background:#1c1500;border:1px solid #d9770640;border-radius:10px;
-      padding:14px;color:#fbbf24;font-size:.88rem;margin:8px 0;}
-.info-box{background:#0f1f35;border:1px solid #1e3a5f;border-radius:10px;
-          padding:14px;font-size:.85rem;color:#93c5fd;margin:8px 0;line-height:1.8;}
-.tag-add{display:inline-block;background:#14532d;color:#86efac;
-         border-radius:5px;padding:2px 8px;font-size:.78rem;margin:2px;}
-.tag-rem{display:inline-block;background:#450a0a;color:#fca5a5;
-         border-radius:5px;padding:2px 8px;font-size:.78rem;margin:2px;}
-.tag-stable{display:inline-block;background:#1e3a5f;color:#93c5fd;
-            border-radius:5px;padding:2px 8px;font-size:.78rem;margin:2px;}
+
+/* ── Section header ── */
+.sec{
+  font-size:.68rem;font-weight:700;color:#334155;
+  text-transform:uppercase;letter-spacing:2.5px;
+  margin:28px 0 12px;padding-bottom:8px;
+  border-bottom:1px solid #0f1f35;
+}
+
+/* ── Alerts ── */
+.warn{background:#1a1200;border:1px solid #92400e50;border-radius:12px;
+      padding:14px 18px;color:#fbbf24;font-size:.88rem;margin:10px 0;
+      border-left:3px solid #f59e0b;}
+.info-box{background:#0a1628;border:1px solid #1e3a5f;border-radius:12px;
+          padding:16px 18px;font-size:.84rem;color:#7dd3fc;
+          margin:10px 0;line-height:1.85;border-left:3px solid #3b82f6;}
+.success-box{background:#052e16;border:1px solid #14532d50;border-radius:12px;
+          padding:14px 18px;font-size:.84rem;color:#86efac;
+          margin:10px 0;border-left:3px solid #22c55e;}
+
+/* ── Program tags ── */
+.tag-add{display:inline-block;background:#14532d20;color:#86efac;border:1px solid #14532d;
+         border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
+.tag-rem{display:inline-block;background:#450a0a20;color:#fca5a5;border:1px solid #7f1d1d50;
+         border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
+.tag-stable{display:inline-block;background:#1e3a5f20;color:#93c5fd;border:1px solid #1e3a5f;
+            border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
+
+/* ── Metric pill ── */
+.mpill{display:inline-block;padding:4px 12px;border-radius:20px;
+       font-size:.78rem;font-weight:600;margin:2px;}
+.mpill-green{background:#052e1640;color:#4ade80;border:1px solid #14532d;}
+.mpill-blue{background:#1e3a5f40;color:#60a5fa;border:1px solid #1e3a5f;}
+.mpill-yellow{background:#451a0340;color:#fbbf24;border:1px solid #78350f;}
+.mpill-red{background:#450a0a40;color:#f87171;border:1px solid #7f1d1d;}
+
+/* ── Insight card ── */
+.insight-card{
+  background:linear-gradient(135deg,#0a1628,#0d1f0d);
+  border:1px solid #1e3a5f;border-radius:14px;
+  padding:20px;margin:8px 0;
+}
+.insight-card .ic-title{font-size:.7rem;color:#475569;text-transform:uppercase;
+  letter-spacing:1.5px;font-weight:700;margin-bottom:8px;}
+.insight-card .ic-val{font-size:1.4rem;font-weight:800;color:#e2e8f0;font-family:'JetBrains Mono',monospace;}
+.insight-card .ic-sub{font-size:.8rem;color:#64748b;margin-top:4px;}
+
+/* ── Progress bar ── */
+.prog-bar-wrap{background:#0f1923;border-radius:6px;height:8px;margin:4px 0;}
+.prog-bar-fill{height:8px;border-radius:6px;
+  background:linear-gradient(90deg,#3b82f6,#8b5cf6);}
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"]{background:#030712 !important;}
+section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"]{gap:4px;background:#0a0f1a;
+  border-radius:12px;padding:4px;}
+.stTabs [data-baseweb="tab"]{border-radius:9px;padding:8px 18px;
+  font-size:.85rem;font-weight:500;color:#475569;}
+.stTabs [aria-selected="true"]{background:#1e2d45 !important;color:#e2e8f0 !important;}
+
+/* ── Dataframe ── */
+.stDataFrame{border-radius:10px;overflow:hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,10 +209,33 @@ for k, v in [('active_data', None), ('active_results', {}), ('active_entry_id', 
     if k not in st.session_state:
         st.session_state[k] = v
 
-DARK = dict(template='plotly_dark', paper_bgcolor='#080c14', plot_bgcolor='#080c14',
-            font_color='#dde3f0', font_family='Plus Jakarta Sans')
-COLORS = ['#60a5fa','#34d399','#f87171','#fbbf24','#a78bfa',
-          '#f472b6','#38bdf8','#fb923c','#4ade80','#e879f9']
+DARK = dict(template='plotly_dark', paper_bgcolor='#05090f', plot_bgcolor='#05090f',
+            font_color='#e2e8f0', font_family='Inter',
+            title_font_family='Inter', title_font_color='#e2e8f0')
+COLORS = ['#60a5fa','#34d399','#fb923c','#a78bfa','#f87171',
+          '#fbbf24','#38bdf8','#f472b6','#4ade80','#e879f9']
+COLORS_ALPHA = {c: c for c in COLORS}  # placeholder for rgba conversion
+
+def hex_to_rgba(hex_c, alpha=1.0):
+    h = hex_c.lstrip('#')
+    r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
+    return f'rgba({r},{g},{b},{alpha})'
+
+def styled_chart(fig, height=400, legend_bottom=True, margin_b=80):
+    """Apply consistent styling to all plotly charts."""
+    fig.update_layout(
+        **DARK, height=height,
+        hovermode='x unified',
+        hoverlabel=dict(bgcolor='#0d1f35', font_size=12, bordercolor='#1e3a5f'),
+        legend=dict(orientation='h', y=-0.22, font=dict(size=10.5),
+                    groupclick='toggleitem') if legend_bottom else {},
+        margin=dict(b=margin_b if legend_bottom else 40, t=20, l=60, r=20),
+        xaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
+                   zeroline=False, linecolor='#1e2d45'),
+        yaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
+                   zeroline=False, linecolor='#1e2d45'),
+    )
+    return fig
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA PARSING
@@ -1485,7 +1559,16 @@ def xl_col_to_name(col_idx):
 # ══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown("## 📊 BPJS ML")
+    st.markdown("""
+    <div style="padding:16px 0 8px;text-align:center;">
+      <div style="font-size:1.3rem;font-weight:800;
+        background:linear-gradient(135deg,#60a5fa,#a78bfa);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
+        📊 BPJS ML
+      </div>
+      <div style="font-size:.68rem;color:#334155;letter-spacing:1px;
+        text-transform:uppercase;margin-top:2px;">Prediction Dashboard</div>
+    </div>""", unsafe_allow_html=True)
     st.markdown("---")
     uploaded = st.file_uploader(
         "Upload dataset (nama file tidak harus mengandung tahun)",
@@ -1596,16 +1679,36 @@ if df is None and not uploaded:
 
 if df is None:
     st.markdown("""
-    <div style="text-align:center;padding:100px 0">
-      <div style="font-size:5rem">📂</div>
-      <h2 style="color:#60a5fa">Upload Dataset BPJS Ketenagakerjaan</h2>
-      <p style="color:#64748b;max-width:560px;margin:auto">
-        Upload 1 atau lebih file CSV/Excel.<br>
-        Nama file <b>tidak harus mengandung tahun</b> (contoh: <code>BPJS_jaminan.xlsx</code>).<br><br>
-        Struktur kolom yang didukung:<br>
-        <code>KODE_DETIL | DATE | PROGRAM | NOMINAL | KASUS</code>
-      </p>
+    <div style="text-align:center;padding:80px 0 40px;">
+      <div style="font-size:4rem;margin-bottom:16px;">📊</div>
+      <div style="font-size:2rem;font-weight:800;
+        background:linear-gradient(135deg,#60a5fa,#a78bfa);
+        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        margin-bottom:12px;">
+        Dashboard Prediksi Klaim BPJS Ketenagakerjaan
+      </div>
+      <div style="color:#475569;max-width:600px;margin:auto;font-size:.95rem;line-height:1.8;">
+        Upload file dataset Anda untuk memulai analisis prediktif klaim.
+      </div>
     </div>""", unsafe_allow_html=True)
+
+    f1, f2, f3 = st.columns(3)
+    for col, icon, title, desc in [
+        (f1, "🤖", "Metode Adaptif", "Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
+        (f2, "📅", "Kalender Indonesia", "Prophet + Google Calendar Indonesia. Deteksi efek Ramadhan, Idul Fitri, Idul Adha, dan 29+ hari libur nasional."),
+        (f3, "📥", "Export Excel", "Export prediksi tahunan & bulanan ke Excel dengan chart otomatis, siap untuk presentasi."),
+    ]:
+        with col:
+            st.markdown(f'''<div style="background:#0a1628;border:1px solid #1e2d45;
+            border-radius:14px;padding:24px;text-align:center;height:160px;
+            border-top:3px solid #3b82f6;">
+            <div style="font-size:2rem;margin-bottom:8px;">{icon}</div>
+            <div style="font-weight:700;color:#e2e8f0;margin-bottom:8px;font-size:.95rem;">{title}</div>
+            <div style="color:#475569;font-size:.82rem;line-height:1.6;">{desc}</div>
+            </div>''', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="info-box">📋 <b>Format kolom yang didukung:</b> <code>PROGRAM</code> (nama jaminan) · <code>KASUS</code> (jumlah klaim) · <code>NOMINAL</code> (nilai Rp) · <code>DATE</code> (periode)<br>Upload 1+ file CSV/Excel. Nama file tidak harus mengandung tahun.</div>', unsafe_allow_html=True)
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1663,7 +1766,21 @@ with st.expander("🔍 Info Parsing & Program Aktif (klik untuk cek)", expanded=
 # KPIs
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.markdown("## 📊 Dashboard Prediksi Klaim BPJS Ketenagakerjaan")
+st.markdown("""
+<div style="margin:0 0 16px;padding:24px 28px;
+  background:linear-gradient(135deg,#0a1628 0%,#0d1a0d 100%);
+  border:1px solid #1e2d45;border-radius:16px;
+  border-left:4px solid #3b82f6;">
+  <div style="font-size:1.6rem;font-weight:800;
+    background:linear-gradient(135deg,#60a5fa,#a78bfa);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+    margin-bottom:4px;">
+    📊 Dashboard Prediksi Klaim BPJS Ketenagakerjaan
+  </div>
+  <div style="font-size:.82rem;color:#475569;font-weight:500;">
+    Analisis tren historis & proyeksi menggunakan metode statistik &amp; ML adaptif
+  </div>
+</div>""", unsafe_allow_html=True)
 
 if single_yr:
     st.markdown("""<div class="warn">⚠️ <b>Mode 1 Tahun:</b>
@@ -1683,27 +1800,78 @@ if prog_changes:
         &nbsp;→ Prediksi hanya untuk program aktif tahun {y1}.
         </div>""", unsafe_allow_html=True)
 
-c1, c2, c3, c4 = st.columns(4)
 df_active_only = df[df['Kategori'].isin(active_progs)]
 
+# Compute deltas if multi-year
+kpi_delta_k = kpi_delta_n = kpi_avg_growth = ""
+if len(years) >= 2:
+    yr_kasus = df_active_only.groupby('Tahun')['Kasus'].sum()
+    if yr_kasus.iloc[-1] > 0 and yr_kasus.iloc[-2] > 0:
+        delta_k_pct = (yr_kasus.iloc[-1] / yr_kasus.iloc[-2] - 1) * 100
+        sign_k = "▲" if delta_k_pct >= 0 else "▼"
+        cls_k  = "delta-pos" if delta_k_pct >= 0 else "delta-neg"
+        kpi_delta_k = f'<div class="delta {cls_k}">{sign_k} {abs(delta_k_pct):.1f}% vs {years[-2]}</div>'
+    if has_nom:
+        yr_nom = df_active_only.groupby('Tahun')['Nominal'].sum()
+        if yr_nom.iloc[-1] > 0 and yr_nom.iloc[-2] > 0:
+            delta_n_pct = (yr_nom.iloc[-1] / yr_nom.iloc[-2] - 1) * 100
+            sign_n = "▲" if delta_n_pct >= 0 else "▼"
+            cls_n  = "delta-pos" if delta_n_pct >= 0 else "delta-neg"
+            kpi_delta_n = f'<div class="delta {cls_n}">{sign_n} {abs(delta_n_pct):.1f}% vs {years[-2]}</div>'
+    # Avg yearly growth
+    growths = []
+    for i in range(1, len(years)):
+        k_prev = df_active_only[df_active_only['Tahun']==years[i-1]]['Kasus'].sum()
+        k_curr = df_active_only[df_active_only['Tahun']==years[i]]['Kasus'].sum()
+        if k_prev > 0:
+            growths.append((k_curr/k_prev - 1)*100)
+    avg_g = np.mean(growths) if growths else 0
+    sign_g = "▲" if avg_g >= 0 else "▼"
+    cls_g  = "delta-pos" if avg_g >= 0 else "delta-neg"
+    kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn rata-rata</div>'
+
+tk = int(df_active_only['Kasus'].sum())
+tk_latest = int(df_active_only[df_active_only['Tahun']==latest_year]['Kasus'].sum())
+
+c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
-    st.markdown(f'<div class="kpi"><div class="val">{len(years)}</div>'
-                f'<div class="lbl">Tahun Data</div></div>', unsafe_allow_html=True)
+    st.markdown(f'''<div class="kpi">
+    <div class="val">{len(years)}</div>
+    <div class="lbl">📅 Tahun Data</div>
+    <div class="delta delta-neu">{years[0]} – {years[-1]}</div>
+    </div>''', unsafe_allow_html=True)
 with c2:
-    st.markdown(f'<div class="kpi"><div class="val">{len(active_progs)}</div>'
-                f'<div class="lbl">Program Aktif</div></div>', unsafe_allow_html=True)
+    st.markdown(f'''<div class="kpi">
+    <div class="val">{len(active_progs)}</div>
+    <div class="lbl">🏷️ Program Aktif</div>
+    <div class="delta delta-neu">{", ".join(active_progs)}</div>
+    </div>''', unsafe_allow_html=True)
 with c3:
-    tk = int(df_active_only['Kasus'].sum())
-    st.markdown(f'<div class="kpi"><div class="val">{tk:,}</div>'
-                f'<div class="lbl">Total Kasus</div></div>', unsafe_allow_html=True)
+    st.markdown(f'''<div class="kpi">
+    <div class="val">{tk_latest:,}</div>
+    <div class="lbl">📋 Kasus {latest_year}</div>
+    {kpi_delta_k}
+    </div>''', unsafe_allow_html=True)
 with c4:
     if has_nom:
-        tn = df_active_only['Nominal'].sum() / 1e9
-        st.markdown(f'<div class="kpi"><div class="val">{tn:,.1f}T</div>'
-                    f'<div class="lbl">Total Nominal (Rp)</div></div>', unsafe_allow_html=True)
+        tn = df_active_only[df_active_only['Tahun']==latest_year]['Nominal'].sum()/1e9
+        st.markdown(f'''<div class="kpi">
+        <div class="val">Rp{tn:,.1f}B</div>
+        <div class="lbl">💰 Nominal {latest_year}</div>
+        {kpi_delta_n}
+        </div>''', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="kpi"><div class="val">{latest_year}</div>'
-                    f'<div class="lbl">Tahun Terbaru</div></div>', unsafe_allow_html=True)
+        st.markdown(f'''<div class="kpi">
+        <div class="val">{latest_year}</div>
+        <div class="lbl">📅 Tahun Terbaru</div>
+        </div>''', unsafe_allow_html=True)
+with c5:
+    total_all = f"{tk:,}"
+    st.markdown(f'''<div class="kpi">
+    <div class="val">{total_all}</div>
+    <div class="lbl">📊 Total Kasus (semua)</div>
+    {kpi_avg_growth}
+    </div>''', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1717,63 +1885,144 @@ tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Pre
 with tab1:
     df_lat = df_plot[df_plot['Tahun'] == latest_year]
 
+    # ── Insight Summary Row ───────────────────────────────────────────────
+    if not single_yr:
+        top_prog = df_lat.groupby('Kategori')['Kasus'].sum().idxmax()
+        top_val  = int(df_lat.groupby('Kategori')['Kasus'].sum().max())
+        # Fastest growing program
+        growth_by_prog = {}
+        for cp in active_progs:
+            cd = df_plot[df_plot['Kategori']==cp].sort_values('Tahun')
+            if len(cd) >= 2 and cd['Kasus'].iloc[-2] > 0:
+                growth_by_prog[cp] = (cd['Kasus'].iloc[-1]/cd['Kasus'].iloc[-2]-1)*100
+        fastest = max(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
+        fastest_g = growth_by_prog.get(fastest, 0)
+        slowest = min(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
+        slowest_g = growth_by_prog.get(slowest, 0)
+        total_latest = int(df_lat['Kasus'].sum())
+
+        ia, ib, ic, id_ = st.columns(4)
+        with ia:
+            st.markdown(f'''<div class="insight-card">
+            <div class="ic-title">🏆 Program Terbesar</div>
+            <div class="ic-val">{top_prog}</div>
+            <div class="ic-sub">{top_val:,} kasus di {latest_year}</div>
+            </div>''', unsafe_allow_html=True)
+        with ib:
+            st.markdown(f'''<div class="insight-card">
+            <div class="ic-title">📈 Pertumbuhan Tertinggi</div>
+            <div class="ic-val" style="color:#34d399">{fastest}</div>
+            <div class="ic-sub">+{fastest_g:.1f}% vs tahun lalu</div>
+            </div>''', unsafe_allow_html=True)
+        with ic:
+            st.markdown(f'''<div class="insight-card">
+            <div class="ic-title">📉 Pertumbuhan Terendah</div>
+            <div class="ic-val" style="color:#f87171">{slowest}</div>
+            <div class="ic-sub">{slowest_g:+.1f}% vs tahun lalu</div>
+            </div>''', unsafe_allow_html=True)
+        with id_:
+            st.markdown(f'''<div class="insight-card">
+            <div class="ic-title">📋 Total Kasus {latest_year}</div>
+            <div class="ic-val">{total_latest:,}</div>
+            <div class="ic-sub">{len(active_progs)} program aktif</div>
+            </div>''', unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
     r1, r2 = st.columns(2)
     with r1:
         st.markdown('<div class="sec">Distribusi Kasus — Semua Tahun (Program Aktif)</div>',
                     unsafe_allow_html=True)
         pie_d = df_plot.groupby('Kategori')['Kasus'].sum().reset_index()
-        fig = px.pie(pie_d, names='Kategori', values='Kasus', hole=0.42,
-                     color_discrete_sequence=COLORS)
-        fig.update_traces(textinfo='label+percent', textposition='outside')
-        fig.update_layout(**DARK, showlegend=False, height=400,
-                          margin=dict(t=10, b=10, l=10, r=10))
+        pie_d['pct'] = pie_d['Kasus'] / pie_d['Kasus'].sum() * 100
+        fig = px.pie(pie_d, names='Kategori', values='Kasus', hole=0.5,
+                     color_discrete_sequence=COLORS,
+                     custom_data=['pct'])
+        fig.update_traces(
+            textinfo='label+percent', textposition='outside',
+            hovertemplate='<b>%{label}</b><br>Kasus: %{value:,}<br>%{percent}<extra></extra>',
+            textfont_size=11)
+        fig.update_layout(**DARK, showlegend=True, height=400,
+                          legend=dict(orientation='h', y=-0.1, font=dict(size=10)),
+                          margin=dict(t=10, b=60, l=10, r=10))
+        # Center annotation
+        total_kasus = int(pie_d['Kasus'].sum())
+        fig.add_annotation(text=f"<b>{total_kasus:,}</b><br><span style='font-size:10px'>Total</span>",
+            showarrow=False, font=dict(size=13, color='#e2e8f0'), align='center')
         st.plotly_chart(fig, width='stretch')
 
     with r2:
-        st.markdown(f'<div class="sec">Kasus per Program — Tahun {latest_year}</div>',
+        st.markdown(f'<div class="sec">Market Share per Program — {latest_year}</div>',
                     unsafe_allow_html=True)
         bar_d = (df_lat.groupby('Kategori')['Kasus'].sum()
                  .sort_values(ascending=True).reset_index())
-        fig2 = px.bar(bar_d, x='Kasus', y='Kategori', orientation='h',
-                      color='Kasus', color_continuous_scale='Blues', text='Kasus')
-        fig2.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-        fig2.update_layout(**DARK, height=400, showlegend=False,
-                           coloraxis_showscale=False,
-                           margin=dict(t=10, b=10, l=10, r=90))
+        total_bar = bar_d['Kasus'].sum()
+        bar_d['Share'] = (bar_d['Kasus']/total_bar*100).round(1)
+        
+        fig2 = go.Figure()
+        for i, row in bar_d.iterrows():
+            col_c = COLORS[i % len(COLORS)]
+            fig2.add_trace(go.Bar(
+                x=[row['Kasus']], y=[row['Kategori']], orientation='h',
+                name=row['Kategori'],
+                marker_color=col_c,
+                marker_line_width=0,
+                text=f"{row['Kasus']:,} ({row['Share']}%)",
+                textposition='outside',
+                textfont=dict(size=11),
+                showlegend=False,
+                hovertemplate=f"<b>{row['Kategori']}</b><br>{row['Kasus']:,} kasus ({row['Share']}%)<extra></extra>"
+            ))
+        fig2.update_layout(**DARK, height=400, showlegend=False, barmode='overlay',
+                           margin=dict(t=10, b=10, l=10, r=120),
+                           xaxis=dict(showgrid=True, gridcolor='#0f1923'))
         st.plotly_chart(fig2, width='stretch')
 
     if not single_yr:
-        st.markdown('<div class="sec">Tren Kasus per Tahun</div>', unsafe_allow_html=True)
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
-        fig3 = px.line(trend, x='Tahun', y='Kasus', color='Kategori',
-                       markers=True, color_discrete_sequence=COLORS)
-        fig3.update_layout(**DARK, height=380,
-                           legend=dict(orientation='h', y=-0.25),
-                           margin=dict(b=90, t=10))
+
+        st.markdown('<div class="sec">Tren Kasus per Tahun</div>', unsafe_allow_html=True)
+        fig3 = go.Figure()
+        for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
+            cd = trend[trend['Kategori']==cat].sort_values('Tahun')
+            col_c = COLORS[i % len(COLORS)]
+            fig3.add_trace(go.Scatter(
+                x=cd['Tahun'], y=cd['Kasus'],
+                name=cat, mode='lines+markers',
+                line=dict(color=col_c, width=2.5),
+                marker=dict(size=9, color=col_c,
+                    line=dict(color='#05090f', width=2)),
+                fill='tozeroy', fillcolor=hex_to_rgba(col_c, 0.05),
+                hovertemplate=f"<b>{cat}</b><br>Tahun: %{{x}}<br>Kasus: %{{y:,}}<extra></extra>"
+            ))
+        styled_chart(fig3, height=400)
+        fig3.update_layout(xaxis=dict(dtick=1, showgrid=True, gridcolor='#0f1923'))
         st.plotly_chart(fig3, width='stretch')
 
-        st.markdown('<div class="sec">Komposisi Stacked per Tahun</div>', unsafe_allow_html=True)
-        fig4 = px.bar(trend, x='Tahun', y='Kasus', color='Kategori',
-                      barmode='stack', color_discrete_sequence=COLORS)
-        fig4.update_layout(**DARK, height=370,
-                           legend=dict(orientation='h', y=-0.25),
-                           margin=dict(b=90, t=10))
-        st.plotly_chart(fig4, width='stretch')
+        t3l, t3r = st.columns(2)
+        with t3l:
+            st.markdown('<div class="sec">Komposisi Stacked per Tahun</div>', unsafe_allow_html=True)
+            fig4 = px.bar(trend, x='Tahun', y='Kasus', color='Kategori',
+                          barmode='stack', color_discrete_sequence=COLORS)
+            fig4.update_traces(marker_line_width=0)
+            styled_chart(fig4, height=360)
+            fig4.update_layout(xaxis=dict(dtick=1))
+            st.plotly_chart(fig4, width='stretch')
 
-        st.markdown('<div class="sec">Heatmap Kasus (Program × Tahun)</div>',
-                    unsafe_allow_html=True)
-        hm_p = (df_plot.groupby(['Kategori', 'Tahun'])['Kasus'].sum()
-                .reset_index()
-                .pivot(index='Kategori', columns='Tahun', values='Kasus')
-                .fillna(0))
-        fig5 = px.imshow(hm_p, color_continuous_scale='Blues',
-                         aspect='auto', text_auto=True)
-        fig5.update_layout(**DARK,
-                           height=max(280, len(active_progs) * 48 + 80),
-                           margin=dict(t=10, b=10))
-        st.plotly_chart(fig5, width='stretch')
+        with t3r:
+            st.markdown('<div class="sec">Heatmap Kasus (Program × Tahun)</div>',
+                        unsafe_allow_html=True)
+            hm_p = (df_plot.groupby(['Kategori', 'Tahun'])['Kasus'].sum()
+                    .reset_index()
+                    .pivot(index='Kategori', columns='Tahun', values='Kasus')
+                    .fillna(0))
+            fig5 = px.imshow(hm_p, color_continuous_scale='Blues',
+                             aspect='auto', text_auto=',')
+            fig5.update_layout(**DARK, height=360, margin=dict(t=10,b=10,l=10,r=10))
+            fig5.update_traces(textfont_size=11)
+            st.plotly_chart(fig5, width='stretch')
 
-        st.markdown('<div class="sec">Year-over-Year Growth Kasus (%)</div>',
+        # YoY growth + CAGR
+        st.markdown('<div class="sec">Year-over-Year Growth & CAGR per Program</div>',
                     unsafe_allow_html=True)
         yoy = []
         for cat in active_progs:
@@ -1781,57 +2030,105 @@ with tab1:
             for i in range(1, len(cd)):
                 prev = cd.iloc[i-1]['Kasus']
                 curr = cd.iloc[i]['Kasus']
-                yoy.append({
-                    'Kategori': cat,
+                yoy.append({'Kategori': cat,
                     'Tahun': int(cd.iloc[i]['Tahun']),
-                    'Growth (%)': round((curr / (prev + 1e-9) - 1) * 100, 2)
-                })
+                    'Growth (%)': round((curr/(prev+1e-9)-1)*100, 2)})
         if yoy:
             ydf = pd.DataFrame(yoy)
             fig_y = px.bar(ydf, x='Tahun', y='Growth (%)', color='Kategori',
-                           barmode='group', color_discrete_sequence=COLORS)
-            fig_y.add_hline(y=0, line_color='#475569')
-            fig_y.update_layout(**DARK, height=360,
-                                legend=dict(orientation='h', y=-0.25),
-                                margin=dict(b=80, t=10))
+                           barmode='group', color_discrete_sequence=COLORS,
+                           text='Growth (%)')
+            fig_y.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
+                                textfont_size=9, marker_line_width=0)
+            fig_y.add_hline(y=0, line_color='#334155', line_width=1.5)
+            styled_chart(fig_y, height=360)
+            fig_y.update_layout(xaxis=dict(dtick=1))
             st.plotly_chart(fig_y, width='stretch')
 
+        # Box plot per program — spread/variability
+        if len(years) >= 3:
+            st.markdown('<div class="sec">Distribusi & Variabilitas Kasus per Program</div>',
+                        unsafe_allow_html=True)
+            fig_box = go.Figure()
+            for i, cat in enumerate(sorted(active_progs)):
+                cd = df_plot[df_plot['Kategori']==cat]['Kasus'].values
+                col_c = COLORS[i % len(COLORS)]
+                fig_box.add_trace(go.Box(
+                    y=cd, name=cat,
+                    marker_color=col_c,
+                    line_color=col_c,
+                    fillcolor=hex_to_rgba(col_c, 0.15),
+                    boxmean='sd',
+                    hovertemplate=f"<b>{cat}</b><br>%{{y:,}}<extra></extra>"
+                ))
+            styled_chart(fig_box, height=340, legend_bottom=False)
+            fig_box.update_layout(showlegend=False,
+                yaxis_title='Kasus', margin=dict(t=20,b=20,l=60,r=20))
+            st.plotly_chart(fig_box, width='stretch')
+
     if has_nom:
+        st.markdown('<div class="sec">Analisis Nominal (Rp)</div>', unsafe_allow_html=True)
         nc1, nc2 = st.columns(2)
         with nc1:
-            st.markdown('<div class="sec">Distribusi Nominal</div>', unsafe_allow_html=True)
             np_d = df_plot.groupby('Kategori')['Nominal'].sum().reset_index()
-            fp = px.pie(np_d, names='Kategori', values='Nominal', hole=0.42,
+            np_d['Nominal_B'] = np_d['Nominal']/1e9
+            total_nom = np_d['Nominal_B'].sum()
+            fp = px.pie(np_d, names='Kategori', values='Nominal', hole=0.5,
                         color_discrete_sequence=COLORS)
-            fp.update_traces(textinfo='label+percent', textposition='outside')
-            fp.update_layout(**DARK, showlegend=False, height=340,
+            fp.update_traces(textinfo='label+percent', textposition='outside', textfont_size=11)
+            fp.update_layout(**DARK, showlegend=False, height=360,
                              margin=dict(t=10, b=10, l=10, r=10))
+            fp.add_annotation(text=f"<b>Rp{total_nom:,.1f}B</b><br><span style='font-size:9px'>Total</span>",
+                showarrow=False, font=dict(size=12, color='#e2e8f0'), align='center')
             st.plotly_chart(fp, width='stretch')
         with nc2:
             if not single_yr:
-                st.markdown('<div class="sec">Tren Nominal (Rp Miliar)</div>',
-                            unsafe_allow_html=True)
                 nt = df_plot.groupby(['Tahun', 'Kategori'])['Nominal'].sum().reset_index()
-                nt['Nominal_B'] = nt['Nominal'] / 1e9
-                fn = px.area(nt, x='Tahun', y='Nominal_B', color='Kategori',
-                             color_discrete_sequence=COLORS)
-                fn.update_layout(**DARK, height=340,
-                                 legend=dict(orientation='h', y=-0.3),
-                                 margin=dict(b=80, t=10))
+                nt['Nominal_B'] = nt['Nominal']/1e9
+                fn = go.Figure()
+                for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
+                    cd = nt[nt['Kategori']==cat].sort_values('Tahun')
+                    col_c = COLORS[i % len(COLORS)]
+                    fn.add_trace(go.Scatter(
+                        x=cd['Tahun'], y=cd['Nominal_B'], name=cat,
+                        mode='lines+markers', stackgroup='one',
+                        line=dict(color=col_c, width=1.5),
+                        fillcolor=hex_to_rgba(col_c, 0.3),
+                        hovertemplate=f"<b>{cat}</b><br>Rp%{{y:,.1f}}B<extra></extra>"
+                    ))
+                styled_chart(fn, height=360)
+                fn.update_layout(xaxis=dict(dtick=1), yaxis_title='Rp Miliar')
                 st.plotly_chart(fn, width='stretch')
             else:
-                st.markdown('<div class="sec">Nominal per Program (Rp Miliar)</div>',
-                            unsafe_allow_html=True)
                 nb = df_plot.groupby('Kategori')['Nominal'].sum().reset_index()
-                nb['Nominal_B'] = nb['Nominal'] / 1e9
-                fn = px.bar(nb.sort_values('Nominal_B', ascending=True),
-                            x='Nominal_B', y='Kategori', orientation='h',
-                            color='Nominal_B', color_continuous_scale='Greens',
-                            text='Nominal_B')
-                fn.update_traces(texttemplate='%{text:,.1f}B', textposition='outside')
-                fn.update_layout(**DARK, height=340, coloraxis_showscale=False,
-                                 margin=dict(t=10, b=10, l=10, r=90))
+                nb['Nominal_B'] = nb['Nominal']/1e9
+                fn = go.Figure()
+                for i, (_, row) in enumerate(nb.sort_values('Nominal_B',ascending=True).iterrows()):
+                    fn.add_trace(go.Bar(
+                        x=[row['Nominal_B']], y=[row['Kategori']], orientation='h',
+                        name=row['Kategori'], showlegend=False,
+                        marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                        text=f"Rp{row['Nominal_B']:,.1f}B", textposition='outside',
+                        hovertemplate=f"<b>{row['Kategori']}</b><br>Rp{row['Nominal_B']:,.1f}B<extra></extra>"
+                    ))
+                styled_chart(fn, height=360, legend_bottom=False)
+                fn.update_layout(margin=dict(t=10,b=10,l=10,r=100))
                 st.plotly_chart(fn, width='stretch')
+
+        # Kasus vs Nominal correlation scatter
+        if not single_yr and has_nom:
+            st.markdown('<div class="sec">Korelasi Kasus vs Nominal per Program</div>',
+                        unsafe_allow_html=True)
+            corr_data = df_plot.groupby(['Kategori','Tahun']).agg(
+                Kasus=('Kasus','sum'), Nominal=('Nominal','sum')).reset_index()
+            corr_data['Nominal_B'] = corr_data['Nominal']/1e9
+            fig_sc = px.scatter(corr_data, x='Kasus', y='Nominal_B',
+                color='Kategori', size='Kasus', text='Tahun',
+                color_discrete_sequence=COLORS,
+                labels={'Nominal_B':'Nominal (Rp Miliar)','Kasus':'Jumlah Kasus'})
+            fig_sc.update_traces(textposition='top center', textfont_size=9)
+            styled_chart(fig_sc, height=380, legend_bottom=True)
+            st.plotly_chart(fig_sc, width='stretch')
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2: ML ANALYSIS
@@ -1846,7 +2143,7 @@ with tab2:
     ml_res = results_cache.get(ck)
 
     if run_btn:
-        with st.spinner(f"Melatih 8 model ML untuk {len(active_progs)} program aktif..."):
+        with st.spinner(f"Melatih model untuk {len(active_progs)} program (Holt, SES, WMA + ML jika ≥8 tahun)..."):
             ml_res, err = run_ml(df, target_ml, n_lags, test_pct / 100)
         if err:
             st.error(f"Error: {err}"); ml_res = None
@@ -1920,24 +2217,46 @@ with tab2:
                        .format({'R2':'{:.4f}','MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}),
                     width='stretch', height=260)
 
-                # Bar chart R² per program
-                fig_bpp_r2 = px.bar(bpp, x='Program', y='R2', color='Model',
-                                    text='Model', color_discrete_sequence=COLORS,
-                                    title='R² Model Terbaik per Program')
-                fig_bpp_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
-                                     annotation_text='Target R²=0.8')
-                fig_bpp_r2.update_traces(textposition='outside')
-                fig_bpp_r2.update_layout(**DARK, height=380, margin=dict(t=50,b=40))
-                st.plotly_chart(fig_bpp_r2, width='stretch')
+                ml_ta, ml_tb = st.columns(2)
+                with ml_ta:
+                    # MAPE per program — primary metric
+                    if not bpp.empty and 'MAPE (%)' in bpp.columns:
+                        bpp_sorted = bpp.sort_values('MAPE (%)')
+                        fig_bpp_mp = go.Figure()
+                        for i, (_, row) in enumerate(bpp_sorted.iterrows()):
+                            mape_v = row['MAPE (%)']
+                            col_c  = ('#34d399' if mape_v < 10 else '#60a5fa' if mape_v < 20
+                                      else '#fbbf24' if mape_v < 50 else '#f87171')
+                            fig_bpp_mp.add_trace(go.Bar(
+                                x=[mape_v], y=[row['Program']], orientation='h',
+                                name=row['Program'], showlegend=False,
+                                marker_color=col_c, marker_line_width=0,
+                                text=f"{mape_v:.1f}% ({row['Model']})",
+                                textposition='outside', textfont_size=10,
+                                hovertemplate=f"<b>{row['Program']}</b><br>MAPE: {mape_v:.2f}%<br>Model: {row['Model']}<extra></extra>"
+                            ))
+                        fig_bpp_mp.add_vline(x=20, line_dash='dash',
+                            line_color='rgba(251,191,36,0.6)', line_width=1.5,
+                            annotation_text='Target <20%', annotation_font_color='#fbbf24',
+                            annotation_font_size=10)
+                        fig_bpp_mp.update_layout(**DARK, height=360, showlegend=False,
+                            title='MAPE per Program (lebih rendah = lebih baik)',
+                            xaxis_title='MAPE (%)', margin=dict(t=50,b=20,l=20,r=120))
+                        st.plotly_chart(fig_bpp_mp, width='stretch')
 
-                # MAPE per program
-                fig_bpp_mp = px.bar(bpp, x='Program', y='MAPE (%)', color='Model',
-                                    color_discrete_sequence=COLORS,
-                                    title='MAPE % Model Terbaik per Program (lebih rendah = lebih baik)')
-                fig_bpp_mp.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
-                                     annotation_text='Threshold 20%')
-                fig_bpp_mp.update_layout(**DARK, height=360, margin=dict(t=50,b=40))
-                st.plotly_chart(fig_bpp_mp, width='stretch')
+                with ml_tb:
+                    # Model type distribution pie
+                    if not bpp.empty:
+                        type_counts = bpp['Model'].value_counts().reset_index()
+                        type_counts.columns = ['Model', 'Count']
+                        fig_mt = px.pie(type_counts, names='Model', values='Count',
+                            hole=0.5, color_discrete_sequence=COLORS,
+                            title='Distribusi Model Terbaik')
+                        fig_mt.update_traces(textinfo='label+percent', textposition='outside',
+                            textfont_size=10)
+                        fig_mt.update_layout(**DARK, height=360, showlegend=False,
+                            margin=dict(t=50,b=20,l=20,r=20))
+                        st.plotly_chart(fig_mt, width='stretch')
             else:
                 st.info("Jalankan Analisis ML untuk melihat hasil.")
 
@@ -2076,51 +2395,84 @@ with tab2:
         with mtab3:
             conclusions = build_conclusion(ml_res, ml_res, df, target_ml, n_future)
             if conclusions:
-                st.markdown('<div class="sec">Kesimpulan Otomatis Analisis ML</div>',
+                st.markdown('<div class="sec">Kesimpulan & Rekomendasi Otomatis</div>',
                             unsafe_allow_html=True)
-                for icon, title, text in conclusions:
+
+                # Auto-insight banner
+                if not bpp.empty and 'MAPE (%)' in bpp.columns:
+                    best_prog  = bpp.loc[bpp['MAPE (%)'].idxmin(), 'Program']
+                    best_mape  = bpp['MAPE (%)'].min()
+                    worst_prog = bpp.loc[bpp['MAPE (%)'].idxmax(), 'Program']
+                    worst_mape = bpp['MAPE (%)'].max()
+                    avg_m = bpp['MAPE (%)'].mean()
+                    overall_grade = ("🟢 Sangat Baik" if avg_m < 10 else
+                                     "🔵 Baik" if avg_m < 20 else
+                                     "🟡 Cukup" if avg_m < 50 else "🔴 Perlu Data Lebih Banyak")
+                    data_note = (f"Catatan: {n_yrs} tahun data → metode statistik digunakan (Holt/SES/WMA). "
+                                 if n_yrs < 8 else f"Data {n_yrs} tahun → ML tersedia. ")
                     st.markdown(f"""
-                    <div style="background:#0f1f35;border:1px solid #1e3a5f;border-radius:12px;
-                                padding:16px 20px;margin:10px 0;">
-                        <div style="font-size:.7rem;font-weight:700;color:#475569;
-                                    text-transform:uppercase;letter-spacing:1.5px;
-                                    margin-bottom:6px;">{icon} {title}</div>
-                        <div style="color:#dde3f0;font-size:.92rem;line-height:1.7;">{text}</div>
+                    <div class="success-box">
+                    🔍 <b>Auto-Insight:</b> Kualitas prediksi keseluruhan: <b>{overall_grade}</b> (Avg MAPE {avg_m:.1f}%). 
+                    Terbaik: <b>{best_prog}</b> ({best_mape:.1f}%) · Perlu perhatian: <b>{worst_prog}</b> ({worst_mape:.1f}%). 
+                    {data_note}
+                    Gunakan <b>Tab Prediksi</b> untuk proyeksi tahunan dan <b>Prophet + Kalender</b> untuk analisis bulanan musiman.
                     </div>""", unsafe_allow_html=True)
 
-                # Radar chart — use bpp (per program data)
+                for icon, title, text in conclusions:
+                    st.markdown(f"""
+                    <div style="background:linear-gradient(135deg,#0a1628,#0d1a0d);
+                                border:1px solid #1e3a5f;border-radius:14px;
+                                padding:18px 22px;margin:10px 0;
+                                border-left:3px solid #3b82f6;">
+                        <div style="font-size:.65rem;font-weight:700;color:#334155;
+                                    text-transform:uppercase;letter-spacing:2px;
+                                    margin-bottom:8px;">{icon} {title}</div>
+                        <div style="color:#e2e8f0;font-size:.9rem;line-height:1.75;">{text}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                # Radar chart — MAPE-focused, reliable for small data
                 st.markdown('<div class="sec">Radar Chart — Profil Kualitas per Program</div>',
                             unsafe_allow_html=True)
-                if not bpp.empty and 'R2' in bpp.columns:
-                    rdf_r = bpp.dropna(subset=['R2','MAPE (%)','MAE','RMSE']).copy()
-                    rdf_r['R2_n']   = rdf_r['R2'].clip(0, 1)
-                    rdf_r['MAPE_n'] = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
-                    rdf_r['MAE_n']  = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
-                    rdf_r['RMSE_n'] = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
-                    cats_radar = ['R² Score', 'Akurasi (1-MAPE)', 'Presisi (1-MAE)', 'Konsistensi (1-RMSE)']
+                if not bpp.empty and 'MAPE (%)' in bpp.columns:
+                    rdf_r = bpp.dropna(subset=['MAPE (%)','MAE','RMSE']).copy()
+                    # Normalize: 0=worst, 1=best
+                    rdf_r['MAPE_n']  = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
+                    rdf_r['MAE_n']   = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
+                    rdf_r['RMSE_n']  = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
+                    # Stability: how close MAPE is to median (0=outlier, 1=on-par)
+                    mape_med = rdf_r['MAPE (%)'].median()
+                    rdf_r['STAB_n'] = 1 - np.abs(rdf_r['MAPE (%)'] - mape_med) / (mape_med + 1e-9)
+                    rdf_r['STAB_n'] = rdf_r['STAB_n'].clip(0, 1)
+
+                    cats_radar = ['Akurasi\n(1−MAPE)', 'Presisi\n(1−MAE)',
+                                  'Konsistensi\n(1−RMSE)', 'Stabilitas']
                     fig_radar = go.Figure()
                     for i, row in rdf_r.iterrows():
-                        vals   = [row['R2_n'], row['MAPE_n'], row['MAE_n'], row['RMSE_n']]
-                        vals  += [vals[0]]
-                        cats_r = cats_radar + [cats_radar[0]]
-                        label  = f"{row['Program']} ({row['Model']})"
+                        vals  = [row['MAPE_n'], row['MAE_n'], row['RMSE_n'], row['STAB_n']]
+                        vals += [vals[0]]
+                        col_c = COLORS[i % len(COLORS)]
+                        label = f"{row['Program']} ({row['Model']})"
                         fig_radar.add_trace(go.Scatterpolar(
-                            r=vals, theta=cats_r, fill='toself',
-                            name=label, opacity=0.7,
-                            line=dict(color=COLORS[i % len(COLORS)])
+                            r=vals, theta=cats_radar+[cats_radar[0]],
+                            fill='toself', name=label, opacity=0.65,
+                            line=dict(color=col_c, width=2),
+                            fillcolor=hex_to_rgba(col_c, 0.15)
                         ))
                     fig_radar.update_layout(
                         **DARK, height=500,
                         polar=dict(
                             radialaxis=dict(visible=True, range=[0,1],
-                                            gridcolor='#1e2d45', tickfont=dict(color='#64748b')),
-                            angularaxis=dict(gridcolor='#1e2d45'),
-                            bgcolor='#080c14',
+                                gridcolor='#1e2d45', tickfont=dict(color='#475569', size=9),
+                                tickvals=[0.2,0.4,0.6,0.8,1.0]),
+                            angularaxis=dict(gridcolor='#1e2d45', tickfont=dict(size=11)),
+                            bgcolor='#05090f',
                         ),
-                        legend=dict(orientation='h', y=-0.15),
-                        margin=dict(t=30, b=60)
+                        legend=dict(orientation='h', y=-0.15, font=dict(size=11)),
+                        margin=dict(t=30, b=80)
                     )
                     st.plotly_chart(fig_radar, width='stretch')
+                    if n_yrs < 8:
+                        st.markdown('<div class="info-box">ℹ️ R² dihilangkan dari radar chart karena tidak bermakna secara statistik dengan data < 8 tahun. Axis yang ditampilkan berbasis MAPE, MAE, RMSE, dan Stabilitas — semua lebih reliable untuk data kecil.</div>', unsafe_allow_html=True)
                 else:
                     st.info("Data tidak cukup untuk radar chart.")
 
@@ -2502,31 +2854,50 @@ with tab3:
 
             fig_main.add_vrect(
                 x0=latest_year + 0.3, x1=future_yrs[-1] + 0.7,
-                fillcolor='rgba(96,165,250,0.07)',
+                fillcolor=hex_to_rgba('#3b82f6', 0.05),
                 line_width=0,
-                annotation_text="Zona Prediksi",
+                annotation_text="▶ Zona Prediksi",
                 annotation_position="top left",
-                annotation_font=dict(color='#60a5fa', size=11),
+                annotation_font=dict(color='#60a5fa', size=11, family='Inter'),
             )
             fig_main.add_vline(
                 x=latest_year + 0.5,
-                line_dash='dot', line_color='#60a5fa', line_width=1.5,
+                line_dash='dot', line_color=hex_to_rgba('#60a5fa', 0.6), line_width=1.5,
+                annotation_text=f"← {latest_year} | {future_yrs[0]} →",
+                annotation_font=dict(color='#475569', size=9),
+                annotation_position="bottom right"
             )
 
+            styled_chart(fig_main, height=540, legend_bottom=True, margin_b=140)
             fig_main.update_layout(
-                **DARK, height=520,
-                hovermode='x unified',
-                legend=dict(
-                    orientation='h', y=-0.28,
-                    groupclick='toggleitem',
-                    font=dict(size=11),
-                ),
-                margin=dict(b=130, t=20, l=70, r=20),
-                yaxis_title=target_pred,
-                xaxis_title='Tahun',
-                xaxis=dict(dtick=1),
-            )
+                xaxis=dict(dtick=1, showgrid=True, gridcolor='#0f1923'),
+                yaxis_title=target_pred, xaxis_title='Tahun',
+                hoverlabel=dict(bgcolor='#0d1f35', font_size=12))
             st.plotly_chart(fig_main, width='stretch')
+
+            # Per-program model info cards
+            per_prog_inf = ml_pred.get('per_prog', {})
+            if per_prog_inf:
+                cards_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">'
+                mape_grade = lambda m: (
+                    'mpill-green' if m < 10 else 'mpill-blue' if m < 20
+                    else 'mpill-yellow' if m < 50 else 'mpill-red')
+                for cat, info in per_prog_inf.items():
+                    mape_v = info.get('metrics', {}).get('MAPE (%)', None)
+                    pill_cls = mape_grade(mape_v) if mape_v is not None else 'mpill-blue'
+                    mape_txt = f"MAPE: {mape_v:.1f}%" if mape_v is not None else ""
+                    cards_html += (
+                        f'<div style="background:#0d1f35;border:1px solid #1e3a5f;'
+                        f'border-radius:10px;padding:10px 14px;min-width:120px;">' 
+                        f'<div style="font-size:.65rem;color:#475569;font-weight:700;'
+                        f'text-transform:uppercase;letter-spacing:1px;">{cat}</div>'
+                        f'<div style="font-size:.9rem;font-weight:600;color:#e2e8f0;margin:4px 0;">'
+                        f'{info["best_name"]}</div>'
+                        f'<span class="mpill {pill_cls}">{mape_txt}</span>'
+                        f'</div>'
+                    )
+                cards_html += '</div>'
+                st.markdown(cards_html, unsafe_allow_html=True)
 
             st.markdown('<div class="sec">Nilai Prediksi per Tahun per Program</div>',
                         unsafe_allow_html=True)
@@ -2535,12 +2906,35 @@ with tab3:
                 barmode='group', color_discrete_sequence=COLORS,
                 text=target_pred,
             )
-            fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-            fig_bar.update_layout(**DARK, height=400,
-                                  legend=dict(orientation='h', y=-0.25),
-                                  margin=dict(b=80, t=10),
-                                  xaxis=dict(dtick=1))
+            fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='outside',
+                marker_line_width=0, textfont_size=9)
+            styled_chart(fig_bar, height=400)
+            fig_bar.update_layout(xaxis=dict(dtick=1))
             st.plotly_chart(fig_bar, width='stretch')
+
+            # Waterfall chart: total per year
+            if len(future_yrs) >= 2:
+                st.markdown('<div class="sec">Total Klaim Prediksi — Waterfall per Tahun</div>',
+                            unsafe_allow_html=True)
+                tot_by_yr = fut.groupby('Tahun')[target_pred].sum().reset_index()
+                tot_by_yr['delta'] = tot_by_yr[target_pred].diff().fillna(0)
+                measures = ['absolute'] + ['relative'] * (len(tot_by_yr)-1)
+                wf_y_vals = [tot_by_yr[target_pred].iloc[0]] + tot_by_yr['delta'].iloc[1:].tolist()
+                fig_wf = go.Figure(go.Waterfall(
+                    orientation='v',
+                    measure=measures,
+                    x=[str(y) for y in tot_by_yr['Tahun'].tolist()],
+                    y=wf_y_vals,
+                    textposition='outside',
+                    text=[f"{v:+,.0f}" if i > 0 else f"{v:,.0f}" for i, v in enumerate(wf_y_vals)],
+                    connector=dict(line=dict(color='#1e3a5f', width=1.5)),
+                    increasing=dict(marker_color='#34d399'),
+                    decreasing=dict(marker_color='#f87171'),
+                    totals=dict(marker_color='#60a5fa')
+                ))
+                fig_wf.update_layout(**DARK, height=340, margin=dict(t=20,b=40,l=60,r=20),
+                    showlegend=False, yaxis_title=target_pred)
+                st.plotly_chart(fig_wf, width='stretch')
 
             st.markdown('<div class="sec">Distribusi per Tahun Prediksi</div>',
                         unsafe_allow_html=True)
