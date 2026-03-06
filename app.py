@@ -25,7 +25,7 @@ def check_password():
         st.markdown("## 🔒 BPJS ML Dashboard — Login")
         password = st.text_input("Masukkan password:", type="password")
         if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
+            if password == "bpjstest2026":   # ← ganti password di sini
                 st.session_state.authenticated = True
                 st.rerun()
             else:
