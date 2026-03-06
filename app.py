@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -49,14 +28,6 @@ try:
     LGBM_OK = True
 except ImportError:
     LGBM_OK = False
-
-# SARIMA
-try:
-    from statsmodels.tsa.statespace.sarimax import SARIMAX
-    from statsmodels.tsa.stattools import adfuller
-    SARIMA_OK = True
-except ImportError:
-    SARIMA_OK = False
 
 # Prophet (optional)
 try:
@@ -664,7 +635,7 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
     elif r2_val >= 0.6:
         rec = "⚠️ Model cukup untuk proyeksi kasar. Validasi manual disarankan sebelum keputusan strategis."
     else:
-        rec = "❌ Akurasi belum optimal. Tambah data historis minimal 5 tahun, atau gunakan Prophet/SARIMA untuk data bulanan."
+        rec = "❌ Akurasi belum optimal. Tambah data historis minimal 5 tahun, atau gunakan Prophet untuk data bulanan."
     lines.append(('💡', 'Rekomendasi', rec))
     return lines
 
@@ -673,114 +644,105 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 # PROPHET — with Indonesian Islamic calendar
 # ══════════════════════════════════════════════════════════════════════════════
 
-INDONESIAN_HOLIDAYS = pd.DataFrame([
-    {'holiday':'Idul Fitri', 'ds':'2021-05-13','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Fitri', 'ds':'2022-05-02','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Fitri', 'ds':'2023-04-22','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Fitri', 'ds':'2024-04-10','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Fitri', 'ds':'2025-03-31','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Fitri', 'ds':'2026-03-20','lower_window':-7,'upper_window':7},
-    {'holiday':'Idul Adha',  'ds':'2021-07-20','lower_window':-3,'upper_window':3},
-    {'holiday':'Idul Adha',  'ds':'2022-07-09','lower_window':-3,'upper_window':3},
-    {'holiday':'Idul Adha',  'ds':'2023-06-29','lower_window':-3,'upper_window':3},
-    {'holiday':'Idul Adha',  'ds':'2024-06-17','lower_window':-3,'upper_window':3},
-    {'holiday':'Idul Adha',  'ds':'2025-06-07','lower_window':-3,'upper_window':3},
-    {'holiday':'Idul Adha',  'ds':'2026-05-27','lower_window':-3,'upper_window':3},
-    {'holiday':'Ramadhan',   'ds':'2021-04-13','lower_window':0, 'upper_window':30},
-    {'holiday':'Ramadhan',   'ds':'2022-04-02','lower_window':0, 'upper_window':30},
-    {'holiday':'Ramadhan',   'ds':'2023-03-23','lower_window':0, 'upper_window':30},
-    {'holiday':'Ramadhan',   'ds':'2024-03-11','lower_window':0, 'upper_window':30},
-    {'holiday':'Ramadhan',   'ds':'2025-03-01','lower_window':0, 'upper_window':30},
-    {'holiday':'Natal',      'ds':'2021-12-25','lower_window':-1,'upper_window':1},
-    {'holiday':'Natal',      'ds':'2022-12-25','lower_window':-1,'upper_window':1},
-    {'holiday':'Natal',      'ds':'2023-12-25','lower_window':-1,'upper_window':1},
-    {'holiday':'Natal',      'ds':'2024-12-25','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2021-01-01','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2022-01-01','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2023-01-01','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2024-01-01','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2025-01-01','lower_window':-1,'upper_window':1},
-    {'holiday':'Tahun Baru', 'ds':'2026-01-01','lower_window':-1,'upper_window':1},
-])
-INDONESIAN_HOLIDAYS['ds'] = pd.to_datetime(INDONESIAN_HOLIDAYS['ds'])
+# ══════════════════════════════════════════════════════════════════════════════
+# GOOGLE CALENDAR — fetch Indonesian public holidays
+# ══════════════════════════════════════════════════════════════════════════════
 
+GCAL_ID = "en.indonesian%23holiday%40group.v.calendar.google.com"
+GCAL_API = "https://www.googleapis.com/calendar/v3/calendars/{cal}/events"
+GCAL_KEY = "AIzaSyB_0c0J3bNSELmXK1WcwNOWTbTNzl4EXBE"  # public demo key, read-only
 
-
-
-def run_sarima(df_monthly_raw, target, cat, n_months):
-    """Run SARIMA(p,d,q)(P,D,Q,12) on monthly data for a single program."""
-    if not SARIMA_OK:
-        return None, "statsmodels tidak terinstall."
-    cat_df = df_monthly_raw[df_monthly_raw['Kategori'] == cat].copy()
-    if len(cat_df) < 12:
-        return None, f"Data {cat} kurang dari 12 bulan untuk SARIMA."
-    cat_df = cat_df.sort_values(['Tahun','Bulan'])
-    cat_df['ds'] = pd.to_datetime(
-        cat_df['Tahun'].astype(str) + '-' + cat_df['Bulan'].astype(str).str.zfill(2) + '-01')
-    ts = cat_df.groupby('ds')[target].sum().sort_index()
-    ts = ts[ts > 0]
-    if len(ts) < 12:
-        return None, "Data terlalu sedikit setelah filtering."
-
-    # Auto-select order: try common configurations
-    best_aic = np.inf
-    best_cfg = (1,1,1,0,1,1)
-    configs = [
-        (1,1,1,0,1,1), (1,1,0,0,1,1), (0,1,1,0,1,1),
-        (2,1,1,0,1,1), (1,1,2,0,1,1), (1,0,1,0,1,1),
-    ]
-    best_model = None
-    for p,d,q,P,D,Q in configs:
+@st.cache_data(ttl=86400)
+def fetch_google_holidays(year_start=2021, year_end=2027):
+    """Fetch Indonesian national holidays from Google Calendar public API."""
+    import urllib.request, json
+    rows = []
+    for year in range(year_start, year_end + 1):
+        url = (
+            f"{GCAL_API.format(cal=GCAL_ID)}"
+            f"?key={GCAL_KEY}"
+            f"&timeMin={year}-01-01T00:00:00Z"
+            f"&timeMax={year}-12-31T23:59:59Z"
+            f"&maxResults=50&singleEvents=true"
+        )
         try:
-            m = SARIMAX(ts, order=(p,d,q), seasonal_order=(P,D,Q,12),
-                        enforce_stationarity=False, enforce_invertibility=False)
-            res = m.fit(disp=False, maxiter=200)
-            if res.aic < best_aic:
-                best_aic = res.aic
-                best_cfg = (p,d,q,P,D,Q)
-                best_model = res
-        except:
-            pass
+            with urllib.request.urlopen(url, timeout=5) as r:
+                data = json.loads(r.read())
+            for item in data.get('items', []):
+                start = item.get('start', {}).get('date', '')
+                name  = item.get('summary', '')
+                if start and name:
+                    rows.append({'ds': pd.Timestamp(start), 'holiday': name,
+                                 'lower_window': -1, 'upper_window': 1})
+        except Exception:
+            pass  # fallback to static if API fails
+    return rows
 
-    if best_model is None:
-        return None, "Semua konfigurasi SARIMA gagal."
 
-    try:
-        forecast_obj = best_model.get_forecast(steps=n_months)
-        fc_mean = forecast_obj.predicted_mean
-        fc_ci   = forecast_obj.conf_int(alpha=0.05)
-        last_date = ts.index[-1]
-        future_idx = pd.date_range(
-            start=last_date + pd.DateOffset(months=1), periods=n_months, freq='MS')
-        fc_df = pd.DataFrame({
-            'ds': future_idx,
-            'yhat': fc_mean.values,
-            'yhat_lower': fc_ci.iloc[:,0].values,
-            'yhat_upper': fc_ci.iloc[:,1].values,
-        })
-        fc_df['yhat']       = fc_df['yhat'].clip(0)
-        fc_df['yhat_lower'] = fc_df['yhat_lower'].clip(0)
-        fc_df['yhat_upper'] = fc_df['yhat_upper'].clip(0)
+def build_holiday_df(year_start=2021, year_end=2027):
+    """Build holidays DataFrame combining Google Calendar + static Islamic calendar."""
+    # Static Islamic holidays (dates vary each year, Google Calendar may miss some)
+    static = [
+        {'holiday':'Idul Fitri',  'ds':'2021-05-13','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Fitri',  'ds':'2022-05-02','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Fitri',  'ds':'2023-04-22','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Fitri',  'ds':'2024-04-10','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Fitri',  'ds':'2025-03-31','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Fitri',  'ds':'2026-03-20','lower_window':-7,'upper_window':7},
+        {'holiday':'Idul Adha',   'ds':'2021-07-20','lower_window':-3,'upper_window':3},
+        {'holiday':'Idul Adha',   'ds':'2022-07-09','lower_window':-3,'upper_window':3},
+        {'holiday':'Idul Adha',   'ds':'2023-06-29','lower_window':-3,'upper_window':3},
+        {'holiday':'Idul Adha',   'ds':'2024-06-17','lower_window':-3,'upper_window':3},
+        {'holiday':'Idul Adha',   'ds':'2025-06-07','lower_window':-3,'upper_window':3},
+        {'holiday':'Idul Adha',   'ds':'2026-05-27','lower_window':-3,'upper_window':3},
+        {'holiday':'Ramadhan',    'ds':'2021-04-13','lower_window':0, 'upper_window':30},
+        {'holiday':'Ramadhan',    'ds':'2022-04-02','lower_window':0, 'upper_window':30},
+        {'holiday':'Ramadhan',    'ds':'2023-03-23','lower_window':0, 'upper_window':30},
+        {'holiday':'Ramadhan',    'ds':'2024-03-11','lower_window':0, 'upper_window':30},
+        {'holiday':'Ramadhan',    'ds':'2025-03-01','lower_window':0, 'upper_window':30},
+        {'holiday':'Natal',       'ds':'2021-12-25','lower_window':-1,'upper_window':1},
+        {'holiday':'Natal',       'ds':'2022-12-25','lower_window':-1,'upper_window':1},
+        {'holiday':'Natal',       'ds':'2023-12-25','lower_window':-1,'upper_window':1},
+        {'holiday':'Natal',       'ds':'2024-12-25','lower_window':-1,'upper_window':1},
+        {'holiday':'Natal',       'ds':'2025-12-25','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2021-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2022-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2023-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2024-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2025-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2026-01-01','lower_window':-1,'upper_window':1},
+        {'holiday':'Tahun Baru',  'ds':'2027-01-01','lower_window':-1,'upper_window':1},
+    ]
+    static_df = pd.DataFrame(static)
+    static_df['ds'] = pd.to_datetime(static_df['ds'])
 
-        # In-sample fit metrics
-        fitted_vals = best_model.fittedvalues
-        common_idx  = ts.index.intersection(fitted_vals.index)
-        yt_is = ts[common_idx].values
-        yp_is = fitted_vals[common_idx].values
-        mape_is = float(np.mean(np.abs((yt_is - yp_is)/(np.abs(yt_is)+1e-9)))*100)
-        r2_is   = float(r2_score(yt_is, yp_is)) if len(yt_is)>1 else 0.0
+    # Try Google Calendar
+    gcal_rows = fetch_google_holidays(year_start, year_end)
+    if gcal_rows:
+        gcal_df = pd.DataFrame(gcal_rows)
+        # Remove duplicates with static (keep static for Islamic holidays)
+        static_names = set(static_df['holiday'].unique())
+        gcal_df = gcal_df[~gcal_df['holiday'].isin(static_names)]
+        combined = pd.concat([static_df, gcal_df], ignore_index=True)
+    else:
+        combined = static_df
 
-        return {
-            'forecast': fc_df,
-            'history':  ts.reset_index().rename(columns={target:'y','ds':'ds'}) if target in ts.name else
-                        ts.reset_index().rename(columns={ts.name:'y'}),
-            'config':   best_cfg, 'aic': best_aic,
-            'mape_insample': mape_is, 'r2_insample': r2_is,
-            'fitted_values': fitted_vals, 'ts': ts,
-        }, None
-    except Exception as e:
-        return None, str(e)
+    combined = combined.drop_duplicates(subset=['ds','holiday']).sort_values('ds').reset_index(drop=True)
+    return combined
 
+
+# Build at startup (cached)
+INDONESIAN_HOLIDAYS = build_holiday_df()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROPHET — time-series forecasting with Indonesian calendar
+# Why Prophet over SARIMA:
+#   - Handles holiday effects explicitly (Ramadhan, Lebaran, etc.)
+#   - Works well with yearly data aggregated to monthly
+#   - More interpretable trend + seasonality components
+#   - No stationarity requirement
+# ══════════════════════════════════════════════════════════════════════════════
 
 def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
     if not PROPHET_OK:
@@ -794,21 +756,41 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
     cat_df = cat_df.groupby('ds')[target].sum().reset_index()
     cat_df.columns = ['ds', 'y']
     cat_df = cat_df[cat_df['y'] > 0].sort_values('ds').reset_index(drop=True)
+
+    holidays_df = INDONESIAN_HOLIDAYS if use_holidays else None
+
     try:
         m = Prophet(
             yearly_seasonality=True,
             weekly_seasonality=False,
             daily_seasonality=False,
-            holidays=INDONESIAN_HOLIDAYS if use_holidays else None,
+            holidays=holidays_df,
             seasonality_mode='multiplicative',
             interval_width=0.95,
+            changepoint_prior_scale=0.1,
         )
         m.fit(cat_df)
         future = m.make_future_dataframe(periods=n_months, freq='MS')
         fc = m.predict(future)
-        return {'model': m, 'forecast': fc, 'history': cat_df}, None
+
+        # In-sample metrics
+        hist_pred = fc[fc['ds'].isin(cat_df['ds'])]
+        if len(hist_pred) > 0:
+            yt = cat_df.set_index('ds').loc[hist_pred['ds'], 'y'].values
+            yp = hist_pred['yhat'].values
+            r2_is   = float(r2_score(yt, yp)) if len(yt) > 1 else 0.0
+            mape_is = float(np.mean(np.abs((yt - yp)/(np.abs(yt)+1e-9)))*100)
+        else:
+            r2_is = mape_is = 0.0
+
+        n_holidays = len(holidays_df) if holidays_df is not None else 0
+        return {'model': m, 'forecast': fc, 'history': cat_df,
+                'r2_insample': r2_is, 'mape_insample': mape_is,
+                'n_holidays': n_holidays,
+                'gcal_used': len(fetch_google_holidays()) > 0}, None
     except Exception as e:
         return None, str(e)
+
 
 
 def forecast(df, ml, n_years):
@@ -1811,9 +1793,9 @@ with tab2:
             unsafe_allow_html=True)
 
         # ── Sub-tabs ──────────────────────────────────────────────────────
-        mtab1, mtab2, mtab3, mtab4, mtab5 = st.tabs([
+        mtab1, mtab2, mtab3, mtab4 = st.tabs([
             "📊 Perbandingan Model", "🎯 Model per Program",
-            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender", "📈 SARIMA"
+            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender"
         ])
 
         # ── Sub-tab 1: Model per Program Summary ─────────────────────────
@@ -2065,10 +2047,17 @@ with tab2:
             elif df_raw_m_p is None or len(df_raw_m_p) == 0:
                 st.warning("Upload dataset dengan data bulanan terlebih dahulu untuk menggunakan Prophet.")
             else:
-                st.markdown("""<div class="info-box">
-                🔮 <b>Prophet</b> adalah model time-series dari Meta yang mampu mendeteksi
-                <b>pola musiman</b> (tahunan, bulanan) dan <b>efek hari libur</b> seperti
-                Ramadhan, Idul Fitri, dan Idul Adha pada pola klaim BPJS.
+                n_holidays = len(INDONESIAN_HOLIDAYS)
+                gcal_count = len(INDONESIAN_HOLIDAYS[~INDONESIAN_HOLIDAYS['holiday'].isin(
+                    ['Idul Fitri','Idul Adha','Ramadhan','Natal','Tahun Baru'])])
+                st.markdown(f"""<div class="info-box">
+                🔮 <b>Prophet</b> dipilih karena lebih cocok dari SARIMA untuk data BPJS:<br>
+                • Menangani <b>efek hari libur secara eksplisit</b> (Ramadhan naik/turun, Lebaran, dll)<br>
+                • Tidak perlu data stasioner — cocok untuk klaim yang terus tumbuh<br>
+                • Trend + Seasonality + Holiday dipisah secara interpretable<br><br>
+                📅 <b>Kalender hari libur:</b> {n_holidays} hari libur dimuat
+                (<b>{gcal_count} dari Google Calendar Indonesia</b> + Islamic calendar statis).
+                Data Google Calendar diambil otomatis setiap 24 jam.
                 </div>""", unsafe_allow_html=True)
 
                 pc1, pc2, pc3 = st.columns(3)
@@ -2079,7 +2068,9 @@ with tab2:
                 with pc3:
                     n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
 
-                use_holidays = st.checkbox("Gunakan Kalender Islam Indonesia (Ramadhan, Idul Fitri, dll)", value=True)
+                use_holidays = st.checkbox(
+                    f"Gunakan kalender libur Indonesia ({n_holidays} hari libur dari Google Calendar + Islamic)",
+                    value=True)
 
                 if st.button("🔮 Jalankan Prophet", type="primary", width='stretch'):
                     with st.spinner(f"Melatih Prophet untuk {cat_prophet} — {target_prophet}..."):
@@ -2229,169 +2220,6 @@ with tab2:
                     st.dataframe(fc_show, width='stretch', height=380)
 
 
-        # ── Sub-tab 5: SARIMA ─────────────────────────────────────────────
-        with mtab5:
-            df_raw_m_s = st.session_state.get('raw_monthly', None)
-            if not SARIMA_OK:
-                st.warning("statsmodels tidak terinstall. Jalankan: `pip install statsmodels`")
-            elif df_raw_m_s is None or len(df_raw_m_s) == 0:
-                st.warning("Upload dataset bulanan terlebih dahulu untuk menggunakan SARIMA.")
-            else:
-                st.markdown("""<div class="info-box">
-                📈 <b>SARIMA</b> (Seasonal AutoRegressive Integrated Moving Average) adalah model
-                statistik klasik yang sangat cocok untuk <b>data time-series bulanan</b>.
-                SARIMA dapat menangkap pola musiman (seasonal) seperti lonjakan klaim di awal/akhir tahun,
-                dan lebih <b>interpretable</b> dibanding ML black-box.
-                Order otomatis dipilih berdasarkan AIC terkecil dari beberapa konfigurasi.
-                </div>""", unsafe_allow_html=True)
-
-                sc1, sc2, sc3 = st.columns(3)
-                with sc1:
-                    target_sarima = st.selectbox("Target", targets, key='sarima_target')
-                with sc2:
-                    cat_sarima = st.selectbox("Program", active_progs, key='sarima_cat')
-                with sc3:
-                    n_months_sarima = st.slider("Prediksi (bulan)", 6, 36, 12, 6, key='sarima_months')
-
-                if st.button("📈 Jalankan SARIMA", type="primary", width='stretch'):
-                    with st.spinner(f"Melatih SARIMA untuk {cat_sarima} — {target_sarima}..."):
-                        s_result, s_err = run_sarima(
-                            df_raw_m_s, target_sarima, cat_sarima, n_months_sarima)
-                    if s_err:
-                        st.error(f"SARIMA Error: {s_err}")
-                    else:
-                        st.session_state['sarima_result'] = s_result
-                        st.session_state['sarima_meta'] = {
-                            'target': target_sarima, 'cat': cat_sarima}
-
-                s_result = st.session_state.get('sarima_result', None)
-                s_meta   = st.session_state.get('sarima_meta', {})
-
-                if s_result and s_meta.get('cat') == cat_sarima and s_meta.get('target') == target_sarima:
-                    ts       = s_result['ts']
-                    fc_df_s  = s_result['forecast']
-                    cfg      = s_result['config']
-                    p,d,q,P,D,Q = cfg
-
-                    # KPI row
-                    ki1, ki2, ki3, ki4 = st.columns(4)
-                    with ki1:
-                        st.markdown(f'''<div class="kpi"><div class="val">SARIMA</div>
-                        <div class="lbl">({p},{d},{q})({P},{D},{Q},12)</div></div>''', unsafe_allow_html=True)
-                    with ki2:
-                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["aic"]:.1f}</div>
-                        <div class="lbl">AIC Score</div></div>''', unsafe_allow_html=True)
-                    with ki3:
-                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["r2_insample"]:.4f}</div>
-                        <div class="lbl">R² In-Sample</div></div>''', unsafe_allow_html=True)
-                    with ki4:
-                        st.markdown(f'''<div class="kpi"><div class="val">{s_result["mape_insample"]:.2f}%</div>
-                        <div class="lbl">MAPE In-Sample</div></div>''', unsafe_allow_html=True)
-
-                    # ── Forecast chart ─────────────────────────────────────
-                    st.markdown(f'<div class="sec">Forecast SARIMA — {cat_sarima} ({target_sarima})</div>',
-                                unsafe_allow_html=True)
-                    fig_s = go.Figure()
-                    # History
-                    fig_s.add_trace(go.Scatter(
-                        x=ts.index, y=ts.values,
-                        name='Aktual', mode='lines+markers',
-                        line=dict(color='#60a5fa', width=2.5), marker=dict(size=6)
-                    ))
-                    # In-sample fitted
-                    fv = s_result['fitted_values']
-                    fig_s.add_trace(go.Scatter(
-                        x=fv.index, y=fv.values.clip(0),
-                        name='Fitted (In-sample)', mode='lines',
-                        line=dict(color='#a78bfa', width=1.5, dash='dot'), opacity=0.8
-                    ))
-                    # Forecast
-                    fig_s.add_trace(go.Scatter(
-                        x=fc_df_s['ds'], y=fc_df_s['yhat'],
-                        name='Prediksi SARIMA', mode='lines+markers',
-                        line=dict(color='#34d399', width=2.5, dash='dash'),
-                        marker=dict(size=7, symbol='diamond')
-                    ))
-                    # CI band
-                    fig_s.add_trace(go.Scatter(
-                        x=pd.concat([fc_df_s['ds'], fc_df_s['ds'][::-1]]),
-                        y=pd.concat([fc_df_s['yhat_upper'], fc_df_s['yhat_lower'][::-1]]),
-                        fill='toself', fillcolor='rgba(52,211,153,0.12)',
-                        line=dict(color='rgba(0,0,0,0)'), name='Interval 95%'
-                    ))
-                    # Holiday markers
-                    for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
-                        if ts.index.min() <= hrow['ds'] <= fc_df_s['ds'].max():
-                            fig_s.add_vline(
-                                x=hrow['ds'].timestamp()*1000,
-                                line_dash='dot', line_color='#fbbf24',
-                                line_width=1, opacity=0.5,
-                                annotation_text=hrow['holiday'],
-                                annotation_font=dict(size=8, color='#fbbf24'),
-                                annotation_position='top left'
-                            )
-                    fig_s.update_layout(
-                        **DARK, height=500, hovermode='x unified',
-                        legend=dict(orientation='h', y=-0.2),
-                        margin=dict(b=80, t=20, l=70, r=20),
-                        xaxis_title='Periode', yaxis_title=target_sarima
-                    )
-                    st.plotly_chart(fig_s, width='stretch')
-
-                    # ── Residual analysis ──────────────────────────────────
-                    st.markdown('<div class="sec">Analisis Residual SARIMA</div>',
-                                unsafe_allow_html=True)
-                    resid = ts.values - s_result['fitted_values'][ts.index.intersection(s_result['fitted_values'].index)].values
-                    rc1, rc2 = st.columns(2)
-                    with rc1:
-                        fig_res_s = px.histogram(x=resid, nbins=20,
-                                                  title='Distribusi Residual',
-                                                  color_discrete_sequence=['#60a5fa'])
-                        fig_res_s.update_layout(**DARK, height=280, margin=dict(t=40,b=20))
-                        st.plotly_chart(fig_res_s, width='stretch')
-                    with rc2:
-                        fig_res_line = go.Figure()
-                        fig_res_line.add_trace(go.Scatter(
-                            x=list(range(len(resid))), y=resid,
-                            mode='lines+markers', name='Residual',
-                            line=dict(color='#f87171', width=1.5)
-                        ))
-                        fig_res_line.add_hline(y=0, line_dash='dash', line_color='#64748b')
-                        fig_res_line.update_layout(**DARK, height=280, title='Residual vs Time',
-                                                   margin=dict(t=40,b=20))
-                        st.plotly_chart(fig_res_line, width='stretch')
-
-                    # ── Forecast table ─────────────────────────────────────
-                    st.markdown('<div class="sec">Tabel Prediksi SARIMA</div>',
-                                unsafe_allow_html=True)
-                    fc_show_s = fc_df_s[['ds','yhat','yhat_lower','yhat_upper']].copy()
-                    fc_show_s.columns = ['Periode','Prediksi','Batas Bawah (95%)','Batas Atas (95%)']
-                    fc_show_s['Periode'] = fc_show_s['Periode'].dt.strftime('%Y-%m')
-                    for col in ['Prediksi','Batas Bawah (95%)','Batas Atas (95%)']:
-                        fc_show_s[col] = fc_show_s[col].apply(lambda x: f"{max(0,x):,.0f}")
-                    st.dataframe(fc_show_s, width='stretch', height=380)
-
-                    # ── SARIMA vs Prophet comparison (if both available) ───
-                    if st.session_state.get('prophet_result') and st.session_state.get('prophet_meta',{}).get('cat') == cat_sarima:
-                        p_res_cmp = st.session_state['prophet_result']
-                        st.markdown('<div class="sec">Perbandingan SARIMA vs Prophet</div>',
-                                    unsafe_allow_html=True)
-                        fig_cmp = go.Figure()
-                        fig_cmp.add_trace(go.Scatter(x=ts.index, y=ts.values,
-                            name='Aktual', mode='lines+markers',
-                            line=dict(color='#60a5fa', width=2)))
-                        fig_cmp.add_trace(go.Scatter(x=fc_df_s['ds'], y=fc_df_s['yhat'],
-                            name='SARIMA', mode='lines',
-                            line=dict(color='#34d399', width=2, dash='dash')))
-                        p_fc_cmp = p_res_cmp['forecast']
-                        p_future_cmp = p_fc_cmp[p_fc_cmp['ds'] > ts.index[-1]]
-                        fig_cmp.add_trace(go.Scatter(x=p_future_cmp['ds'], y=p_future_cmp['yhat'],
-                            name='Prophet', mode='lines',
-                            line=dict(color='#f59e0b', width=2, dash='dot')))
-                        fig_cmp.update_layout(**DARK, height=420, hovermode='x unified',
-                                             legend=dict(orientation='h',y=-0.2),
-                                             margin=dict(b=80,t=20))
-                        st.plotly_chart(fig_cmp, width='stretch')
 
 
     else:

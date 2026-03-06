@@ -6,6 +6,5 @@ scikit-learn
 openpyxl
 xlsxwriter
 prophet
-statsmodels
 xgboost
 lightgbm
