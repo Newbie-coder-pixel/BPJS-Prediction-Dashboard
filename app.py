@@ -70,18 +70,49 @@ st.markdown("""
 html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:#05090f;color:#e2e8f0;}
 
-/* ── Sembunyikan elemen UI bawaan Streamlit ── */
+/* ══════════════════════════════════════════════
+   SEMBUNYIKAN SEMUA UI BAWAAN STREAMLIT
+   ══════════════════════════════════════════════ */
+
+/* Toolbar kanan atas (⋮ menu, share, star) */
+[data-testid="stToolbar"]{display:none !important;}
+[data-testid="stToolbarActions"]{display:none !important;}
+#MainMenu{display:none !important;}
+[data-testid="stShareButton"]{display:none !important;}
+
+/* Header bar tipis di atas */
+[data-testid="stHeader"]{display:none !important;}
+header[data-testid="stHeader"]{display:none !important;}
+
+/* Footer "Made with Streamlit" */
+footer{display:none !important;}
+footer a{display:none !important;}
+
+/* Tombol "Manage app" kanan bawah */
 [data-testid="manage-app-button"]{display:none !important;}
 .stAppDeployButton{display:none !important;}
-[data-testid="stToolbar"]{display:none !important;}
-#MainMenu{display:none !important;}
-footer{display:none !important;}
-[data-testid="stHeader"]{display:none !important;}
+[data-testid="stAppDeployButton"]{display:none !important;}
+
+/* Status widget (running/stop indicator) */
 [data-testid="stStatusWidget"]{display:none !important;}
-[data-testid="stShareButton"]{display:none !important;}
+
+/* ── BADGE STREAMLIT KANAN BAWAH (logo merah) ── */
+/* Ini yang membuka share.streamlit.io/user/... */
 .viewerBadge_container__1QSob{display:none !important;}
 .viewerBadge_link__1S137{display:none !important;}
 #stDecoration{display:none !important;}
+[data-testid="stDecoration"]{display:none !important;}
+/* Badge baru Streamlit (class berubah-ubah, pakai wildcard) */
+a[href*="streamlit.io"]{pointer-events:none !important;
+  display:none !important;}
+/* Container pojok kanan bawah yang wrap badge */
+.css-1dp5vir{display:none !important;}
+.css-14xtw13{display:none !important;}
+.e8zbici0{display:none !important;}
+.e1fqkh3o0{display:none !important;}
+/* Selector universal — semua elemen fixed di pojok kanan bawah */
+div[style*="position: fixed"][style*="bottom"][style*="right"]{
+  display:none !important;}
 
 /* ── KPI Cards ── */
 .kpi{
@@ -176,6 +207,36 @@ section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
 /* ── Dataframe ── */
 .stDataFrame{border-radius:10px;overflow:hidden;}
 </style>
+""", unsafe_allow_html=True)
+
+# Inject JS: block semua link ke streamlit.io agar badge tidak bisa diklik
+st.markdown("""
+<script>
+(function() {
+  function blockStreamlitLinks() {
+    // Hapus semua elemen yang link ke streamlit.io
+    document.querySelectorAll('a[href*="streamlit.io"]').forEach(function(el) {
+      el.style.display = 'none';
+      el.style.pointerEvents = 'none';
+      el.removeAttribute('href');
+    });
+    // Hapus elemen fixed di pojok kanan bawah (badge container)
+    document.querySelectorAll('div').forEach(function(el) {
+      var style = window.getComputedStyle(el);
+      if (style.position === 'fixed' &&
+          parseInt(style.bottom) < 80 &&
+          parseInt(style.right) < 80) {
+        var hasLink = el.querySelector('a[href*="streamlit"]');
+        if (hasLink) el.style.display = 'none';
+      }
+    });
+  }
+  // Jalankan sekarang dan saat DOM berubah
+  blockStreamlitLinks();
+  var obs = new MutationObserver(blockStreamlitLinks);
+  obs.observe(document.body, {childList: true, subtree: true});
+})();
+</script>
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
