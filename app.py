@@ -387,21 +387,21 @@ def get_models(n_train):
         'ElasticNet':        ElasticNet(alpha=0.1, l1_ratio=0.5, max_iter=10000),
         'Huber':             HuberRegressor(max_iter=500),
         'Decision Tree':     DecisionTreeRegressor(max_depth=4, random_state=42),
-        'Random Forest':     RandomForestRegressor(n_estimators=200, max_depth=6,
-                                                    min_samples_leaf=1, random_state=42),
-        'Extra Trees':       ExtraTreesRegressor(n_estimators=200, max_depth=6, random_state=42),
-        'Gradient Boosting': GradientBoostingRegressor(n_estimators=200, max_depth=3,
-                                                        learning_rate=0.05, random_state=42),
+        'Random Forest':     RandomForestRegressor(n_estimators=100, max_depth=5, n_jobs=-1,
+                                                    min_samples_leaf=2, random_state=42),
+        'Extra Trees':       ExtraTreesRegressor(n_estimators=100, max_depth=5, n_jobs=-1, random_state=42),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=3,
+                                                        learning_rate=0.1, random_state=42),
         'SVR':               SVR(kernel='rbf', C=100, gamma='scale', epsilon=0.1),
         'KNN':               KNeighborsRegressor(n_neighbors=k, weights='distance'),
     }
     if XGBOOST_OK:
-        models['XGBoost'] = XGBRegressor(n_estimators=200, max_depth=4, learning_rate=0.05,
+        models['XGBoost'] = XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.1,
                                           subsample=0.8, colsample_bytree=0.8,
-                                          random_state=42, verbosity=0)
+                                          n_jobs=-1, random_state=42, verbosity=0)
     if LGBM_OK:
-        models['LightGBM'] = LGBMRegressor(n_estimators=200, max_depth=4, learning_rate=0.05,
-                                             subsample=0.8, random_state=42, verbose=-1)
+        models['LightGBM'] = LGBMRegressor(n_estimators=100, max_depth=4, learning_rate=0.1,
+                                             subsample=0.8, n_jobs=-1, random_state=42, verbose=-1)
     return models
 
 
@@ -778,7 +778,6 @@ def forecast(df, ml, n_years):
     nlags   = ml['n_lags']
     single  = ml['single']
     active  = ml['active_programs']
-    scaled  = {'SVR', 'KNN', 'Ridge', 'Lasso'}
     base_yr = int(df['Tahun'].max())
     rows    = []
 
@@ -793,19 +792,15 @@ def forecast(df, ml, n_years):
             if single:
                 pred = history[0] * (1.05 ** fy)
             else:
-                pad  = history[:]
-                while len(pad) <= nlags:
-                    pad.insert(0, pad[0])
-                win  = pad[-3:]
-                lags = [pad[-l] for l in range(1, nlags + 1)]
-                feat = np.array(lags + [
-                    np.mean(win),
-                    np.std(win) if len(win) > 1 else 0.0,
-                    pad[-1] - pad[-2] if len(pad) >= 2 else 0.0,
-                    cat_id
-                ]).reshape(1, -1)
-                if best in scaled: feat = sc.transform(feat)
-                pred = float(mdl.predict(feat)[0])
+                # Use build_features to ensure consistent feature count
+                Xc, _ = build_features(history, nlags, cat_id)
+                if len(Xc) == 0:
+                    pred = history[-1]
+                else:
+                    feat = Xc[-1].reshape(1, -1)
+                    if best in SCALED_MODELS:
+                        feat = sc.transform(feat)
+                    pred = float(mdl.predict(feat)[0])
 
             pred = max(0.0, pred)
             rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
