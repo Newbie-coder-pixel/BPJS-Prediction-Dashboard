@@ -34,6 +34,7 @@ def check_password():
 
 check_password()
 
+# === sisa kode app.py di bawah sini ===
 
 # XGBoost (optional)
 try:
@@ -2821,121 +2822,200 @@ with tab2:
                         else:
                             programs_list = sorted(heff_grp['Program'].unique())
 
-                            # ── CHART: Per-program line+dot chart ─────────
-                            # Satu chart per program, semua holiday di x-axis
-                            # Jauh lebih mudah dibaca daripada grouped bar
+                            # ── Cek apakah ada efek yang benar-benar signifikan ──
+                            max_abs_effect = heff_grp['Efek'].abs().max()
+                            has_meaningful = max_abs_effect > 0.001
 
-                            # Sort categories by average absolute effect
+                            if not has_meaningful:
+                                # Semua efek mendekati nol → Prophet tidak punya cukup data bulanan
+                                st.markdown("""<div class="warn">
+                                ⚠️ <b>Efek hari libur mendekati nol untuk semua program.</b><br>
+                                Ini berarti Prophet tidak mendeteksi pengaruh signifikan hari libur terhadap klaim —
+                                kemungkinan karena <b>data bulanan terlalu sedikit</b> (&lt;24 bulan) atau
+                                pola klaim tidak berkorelasi kuat dengan kalender libur.<br>
+                                Tetap ditampilkan sebagai referensi di bawah, namun nilai-nilai kecil ini
+                                <b>tidak bermakna secara statistik</b>.
+                                </div>""", unsafe_allow_html=True)
+
+                            # ── Sort categories by absolute effect ────────────
                             cat_order = (heff_grp.groupby('Kategori')['Efek']
                                          .apply(lambda x: x.abs().mean())
                                          .sort_values(ascending=False)
                                          .index.tolist())
 
-                            fig_dot = go.Figure()
+                            # ── LOLLIPOP CHART — jauh lebih bersih dari dot/bar ──
+                            # Satu baris per (program × holiday), dibuat per-program
+                            # dengan facet/subplot horizontal
 
-                            # Zero reference line (invisible bar to create symmetric x-range)
-                            for i, prog in enumerate(programs_list):
+                            n_prog = len(programs_list)
+                            from plotly.subplots import make_subplots
+
+                            fig_lol = make_subplots(
+                                rows=1, cols=n_prog,
+                                subplot_titles=programs_list,
+                                shared_yaxes=True,
+                                horizontal_spacing=0.03,
+                            )
+
+                            # Compute symmetric x-range across all programs
+                            x_max = max(0.05, max_abs_effect * 1.3)
+
+                            for pi, prog in enumerate(programs_list):
                                 pdata = (heff_grp[heff_grp['Program'] == prog]
                                          .set_index('Kategori')['Efek'])
-                                col_c = COLORS[i % len(COLORS)]
+                                col_c = COLORS[pi % len(COLORS)]
 
-                                y_vals  = [pdata.get(c, 0) for c in cat_order]
-                                colors_ = ['#34d399' if v >= 0 else '#f87171' for v in y_vals]
-                                sizes_  = [max(12, min(50, abs(v) * 200 + 12)) for v in y_vals]
+                                for ci, cat in enumerate(cat_order):
+                                    v = float(pdata.get(cat, 0.0))
+                                    bar_col = '#34d399' if v >= 0 else '#f87171'
 
-                                # Line connecting dots (horizontal per program)
-                                fig_dot.add_trace(go.Scatter(
-                                    x=y_vals,
-                                    y=cat_order,
-                                    mode='markers+text',
-                                    name=prog,
-                                    marker=dict(
-                                        color=colors_,
-                                        size=sizes_,
-                                        line=dict(color=col_c, width=2),
-                                        opacity=0.85,
-                                    ),
-                                    text=[f'{v:+.2f}' for v in y_vals],
-                                    textposition='middle right',
-                                    textfont=dict(size=10, color='#e2e8f0'),
-                                    hovertemplate=(
-                                        f'<b>{prog}</b><br>'
-                                        '%{y}<br>'
-                                        'Efek: %{x:+.3f}<extra></extra>'
-                                    ),
-                                    visible=True,
-                                ))
+                                    # Stem (line from 0 to value)
+                                    fig_lol.add_trace(go.Scatter(
+                                        x=[0, v], y=[cat, cat],
+                                        mode='lines',
+                                        line=dict(color=bar_col, width=2.5),
+                                        showlegend=False,
+                                        hoverinfo='skip',
+                                    ), row=1, col=pi+1)
 
-                            fig_dot.add_vline(
-                                x=0,
-                                line_color='rgba(255,255,255,0.25)',
-                                line_width=1.5,
-                                line_dash='solid')
+                                    # Dot at tip
+                                    fig_lol.add_trace(go.Scatter(
+                                        x=[v], y=[cat],
+                                        mode='markers+text',
+                                        marker=dict(
+                                            color=bar_col,
+                                            size=10,
+                                            line=dict(color='#05090f', width=1.5)),
+                                        text=[f'{v:+.3f}'],
+                                        textposition='middle right' if v >= 0 else 'middle left',
+                                        textfont=dict(size=9, color='#94a3b8'),
+                                        name=prog if ci == 0 else '',
+                                        showlegend=False,
+                                        hovertemplate=f'<b>{prog} — {cat}</b><br>Efek: {v:+.4f}<extra></extra>',
+                                    ), row=1, col=pi+1)
 
-                            n_cats_shown = len(cat_order)
-                            fig_dot.update_layout(
-                                **DARK,
-                                title=dict(
-                                    text='Efek Hari Libur terhadap Klaim — per Program',
-                                    font=dict(size=14, color='#e2e8f0'), x=0),
-                                height=max(420, n_cats_shown * 52 + 140),
-                                showlegend=True,
-                                legend=dict(
-                                    orientation='h', y=-0.10,
-                                    font=dict(size=11),
-                                    title=dict(text='Program ', font=dict(size=11, color='#94a3b8'))),
-                                margin=dict(t=50, b=90, l=160, r=100),
-                                xaxis=dict(
-                                    title='Efek rata-rata  (🟢 positif = klaim naik  |  🔴 negatif = klaim turun)',
+                                # Zero line per subplot
+                                fig_lol.add_vline(
+                                    x=0,
+                                    line_color='rgba(255,255,255,0.2)',
+                                    line_width=1,
+                                    row=1, col=pi+1)
+
+                                # X-axis range symmetric
+                                fig_lol.update_xaxes(
+                                    range=[-x_max, x_max],
                                     showgrid=True, gridcolor='#0f1923',
                                     zeroline=False,
-                                    tickfont=dict(size=11)),
-                                yaxis=dict(
-                                    tickfont=dict(size=12, color='#e2e8f0'),
-                                    categoryorder='array',
-                                    categoryarray=cat_order[::-1]),  # biggest effect on top
-                            )
-                            st.plotly_chart(fig_dot, use_container_width=True)
+                                    tickfont=dict(size=9, color='#64748b'),
+                                    row=1, col=pi+1)
 
-                            # ── SCORECARD CARDS: per program, top 3 naik & turun ──
+                            # Y-axis (shared) — holiday categories
+                            fig_lol.update_yaxes(
+                                categoryorder='array',
+                                categoryarray=cat_order[::-1],
+                                tickfont=dict(size=11, color='#e2e8f0'),
+                                showgrid=True, gridcolor='#0f1923',
+                                col=1)
+
+                            # Subplot titles styling
+                            for ann in fig_lol.layout.annotations:
+                                ann.font = dict(size=12, color='#93c5fd')
+                                ann.y    = ann.y + 0.02
+
+                            fig_lol.update_layout(
+                                **DARK,
+                                height=max(400, len(cat_order) * 44 + 120),
+                                showlegend=False,
+                                margin=dict(t=60, b=60, l=150, r=40),
+                                title=dict(
+                                    text='Efek Hari Libur per Program — Lollipop Chart',
+                                    font=dict(size=14, color='#e2e8f0'), x=0),
+                            )
+                            st.plotly_chart(fig_lol, use_container_width=True)
+
+                            # ── SCORECARD CARDS ────────────────────────────
                             st.markdown('<div class="sec">Ringkasan Efek per Program</div>',
                                         unsafe_allow_html=True)
-                            card_cols = st.columns(len(programs_list))
+                            card_cols = st.columns(n_prog)
                             for ci, prog in enumerate(programs_list):
                                 pdata = (heff_grp[heff_grp['Program'] == prog]
-                                         .set_index('Kategori')['Efek']
-                                         .sort_values())
+                                         .set_index('Kategori')['Efek'])
                                 col_c = COLORS[ci % len(COLORS)]
-                                top_up   = pdata.nlargest(3)
-                                top_down = pdata.nsmallest(3)
-                                up_html   = ''.join(
-                                    f'<div style="margin:3px 0;font-size:.82rem;">'
-                                    f'<span style="color:#34d399">▲</span> '
-                                    f'<b>{k}</b> <span style="color:#34d399;float:right">{v:+.2f}</span></div>'
-                                    for k, v in top_up.items() if abs(v) > 0.001)
+
+                                # Sort by actual value (not abs) so up/down are clear
+                                sorted_asc  = pdata.sort_values(ascending=True)
+                                sorted_desc = pdata.sort_values(ascending=False)
+
+                                # Top 3 positif & negatif — NO filter on threshold
+                                # Always show the top 3 even if near-zero
+                                top_up   = sorted_desc.head(3)
+                                top_down = sorted_asc.head(3)
+
+                                def _effect_pill(v):
+                                    """Return colored value string with intensity indicator."""
+                                    if abs(v) < 0.001:
+                                        return f'<span style="color:#475569">{v:+.4f} <span style="font-size:.7rem">≈ 0</span></span>'
+                                    elif v > 0:
+                                        return f'<span style="color:#34d399;font-weight:600">{v:+.3f}</span>'
+                                    else:
+                                        return f'<span style="color:#f87171;font-weight:600">{v:+.3f}</span>'
+
+                                up_html = ''.join(
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'align-items:center;margin:5px 0;font-size:.82rem;">'
+                                    f'<span><span style="color:#34d399;margin-right:5px">▲</span>'
+                                    f'<span style="color:#e2e8f0">{k}</span></span>'
+                                    f'{_effect_pill(v)}</div>'
+                                    for k, v in top_up.items())
+
                                 down_html = ''.join(
-                                    f'<div style="margin:3px 0;font-size:.82rem;">'
-                                    f'<span style="color:#f87171">▼</span> '
-                                    f'<b>{k}</b> <span style="color:#f87171;float:right">{v:+.2f}</span></div>'
-                                    for k, v in top_down.items() if abs(v) > 0.001)
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'align-items:center;margin:5px 0;font-size:.82rem;">'
+                                    f'<span><span style="color:#f87171;margin-right:5px">▼</span>'
+                                    f'<span style="color:#e2e8f0">{k}</span></span>'
+                                    f'{_effect_pill(v)}</div>'
+                                    for k, v in top_down.items())
+
+                                # Overall status badge
+                                net_effect = float(pdata.sum())
+                                if abs(net_effect) < 0.01:
+                                    badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem;">Efek Netral</span>'
+                                elif net_effect > 0:
+                                    badge = '<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem;">Net Positif</span>'
+                                else:
+                                    badge = '<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem;">Net Negatif</span>'
+
                                 with card_cols[ci]:
                                     st.markdown(f'''
                                     <div style="background:#0a1628;border:1px solid {col_c}40;
-                                    border-top:3px solid {col_c};border-radius:12px;padding:16px;">
-                                    <div style="font-size:.72rem;color:#475569;font-weight:700;
-                                    text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;">
-                                    {prog}</div>
-                                    {up_html if up_html else '<div style="color:#475569;font-size:.8rem">—</div>'}
-                                    <div style="border-top:1px solid #1e2d45;margin:8px 0"></div>
-                                    {down_html if down_html else '<div style="color:#475569;font-size:.8rem">—</div>'}
+                                    border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;
+                                    height:100%;">
+                                      <div style="display:flex;justify-content:space-between;
+                                      align-items:center;margin-bottom:12px;">
+                                        <span style="font-size:.75rem;color:#94a3b8;font-weight:700;
+                                        text-transform:uppercase;letter-spacing:1.5px;">{prog}</span>
+                                        {badge}
+                                      </div>
+                                      <div style="font-size:.68rem;color:#334155;
+                                      text-transform:uppercase;letter-spacing:1px;
+                                      margin-bottom:6px;">📈 Paling Naik</div>
+                                      {up_html}
+                                      <div style="border-top:1px solid #1e2d45;margin:10px 0;"></div>
+                                      <div style="font-size:.68rem;color:#334155;
+                                      text-transform:uppercase;letter-spacing:1px;
+                                      margin-bottom:6px;">📉 Paling Turun</div>
+                                      {down_html}
                                     </div>''', unsafe_allow_html=True)
 
+                            # Legend & explanation
                             st.markdown("""<div class="info-box" style="margin-top:16px">
                             📊 <b>Cara membaca:</b>
                             <span style="color:#34d399">▲ Positif</span> = klaim <b>naik</b> saat hari libur itu &nbsp;|&nbsp;
-                            <span style="color:#f87171">▼ Negatif</span> = klaim <b>turun</b>
-                            (contoh: JKK naik saat Ramadhan karena aktivitas kerja berkurang, JHT turun saat Idul Fitri karena lebih banyak klaim pesangon).
-                            Ukuran titik = besar efek.
+                            <span style="color:#f87171">▼ Negatif</span> = klaim <b>turun</b>.
+                            Nilai <b>≈ 0</b> berarti hari libur tersebut tidak mempengaruhi klaim secara signifikan —
+                            biasanya karena data bulanan belum cukup banyak (&lt;24 bulan) untuk Prophet
+                            mendeteksi pola musiman yang kuat.
+                            Badge <b>Net Positif/Negatif</b> = jumlah total efek semua holiday untuk program tersebut.
                             </div>""", unsafe_allow_html=True)
                     else:
                         st.info("Efek holiday akan muncul jika Prophet berhasil mendeteksi pola pada data bulanan.")
