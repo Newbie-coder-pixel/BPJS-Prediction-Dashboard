@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -1937,25 +1916,28 @@ with tab2:
             else:
                 st.info("Jalankan Analisis ML untuk melihat hasil.")
 
-            mc1, mc2 = st.columns(2)
-            with mc1:
-                fig_r2 = px.bar(rdf, x='Model', y='R2', color='R2',
-                                color_continuous_scale='Blues',
-                                title='R² Score (lebih tinggi = lebih baik)')
-                fig_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
-                                 annotation_text='Target 0.8')
-                fig_r2.update_layout(**DARK, height=360, xaxis_tickangle=-30,
-                                     coloraxis_showscale=False, margin=dict(b=90, t=40))
-                st.plotly_chart(fig_r2, width='stretch')
-            with mc2:
-                fig_mp = px.bar(rdf, x='Model', y='MAPE (%)', color='MAPE (%)',
-                                color_continuous_scale='Reds_r',
-                                title='MAPE % (lebih rendah = lebih baik)')
-                fig_mp.add_hline(y=20, line_dash='dash', line_color='#34d399',
-                                 annotation_text='Threshold 20%')
-                fig_mp.update_layout(**DARK, height=360, xaxis_tickangle=-30,
-                                     coloraxis_showscale=False, margin=dict(b=90, t=40))
-                st.plotly_chart(fig_mp, width='stretch')
+            # Use bpp (best per program) for charts since results_df is now empty
+            if not bpp.empty and 'R2' in bpp.columns:
+                mc1, mc2 = st.columns(2)
+                bpp_plot = bpp.dropna(subset=['R2','MAPE (%)'])
+                with mc1:
+                    if not bpp_plot.empty:
+                        fig_r2 = px.bar(bpp_plot, x='Program', y='R2', color='Model',
+                                        color_discrete_sequence=COLORS,
+                                        title='R² per Program (LOO-CV)')
+                        fig_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
+                                         annotation_text='Target 0.8')
+                        fig_r2.update_layout(**DARK, height=360, margin=dict(b=60, t=40))
+                        st.plotly_chart(fig_r2, width='stretch')
+                with mc2:
+                    if not bpp_plot.empty:
+                        fig_mp = px.bar(bpp_plot, x='Program', y='MAPE (%)', color='Model',
+                                        color_discrete_sequence=COLORS,
+                                        title='MAPE % per Program (lebih rendah = lebih baik)')
+                        fig_mp.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
+                                         annotation_text='Threshold 20%')
+                        fig_mp.update_layout(**DARK, height=360, margin=dict(b=60, t=40))
+                        st.plotly_chart(fig_mp, width='stretch')
 
             # Trend historis per program
             if not single_yr and per_prog:
