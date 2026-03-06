@@ -13,26 +13,17 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
-import streamlit as st
 
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "BPJSTesting2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
+# Prophet (optional — graceful fallback if not installed)
+try:
+    from prophet import Prophet
+    PROPHET_OK = True
+except ImportError:
+    try:
+        from fbprophet import Prophet
+        PROPHET_OK = True
+    except ImportError:
+        PROPHET_OK = False
 
 st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
 
@@ -417,6 +408,189 @@ def run_ml(df, target, n_lags, test_ratio):
         'active_programs': active,
         'X_train': X_train, 'X_test': X_test,
     }, None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PER-PROGRAM MODEL COMPARISON
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_ml_per_program(df, target, n_lags, test_ratio):
+    active = get_active_programs(df)
+    models_def = {
+        'Linear Regression': lambda: LinearRegression(),
+        'Ridge':             lambda: Ridge(alpha=1.0),
+        'Lasso':             lambda: Lasso(alpha=0.1, max_iter=5000),
+        'Decision Tree':     lambda: DecisionTreeRegressor(max_depth=4, random_state=42),
+        'Random Forest':     lambda: RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42),
+        'Gradient Boosting': lambda: GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=42),
+        'SVR':               lambda: SVR(kernel='rbf', C=100, gamma='scale'),
+        'KNN':               lambda: KNeighborsRegressor(n_neighbors=3),
+    }
+    scaled = {'SVR', 'KNN', 'Ridge', 'Lasso'}
+    rows = []
+    for cat in active:
+        sub = (df[df['Kategori'] == cat]
+               .sort_values('Tahun')[target].dropna().values.astype(float))
+        if len(sub) < 3:
+            continue
+        pad = list(sub)
+        while len(pad) <= n_lags:
+            pad.insert(0, pad[0])
+        X_all, y_all = [], []
+        for i in range(n_lags, len(pad)):
+            win  = pad[max(0, i-3):i]
+            lags = [pad[i - l] for l in range(1, n_lags + 1)]
+            X_all.append(lags + [np.mean(win),
+                                  np.std(win) if len(win) > 1 else 0.0,
+                                  pad[i-1] - pad[i-2] if i >= 2 else 0.0, 0.0])
+            y_all.append(pad[i])
+        X, y = np.array(X_all), np.array(y_all)
+        if len(X) < 2:
+            continue
+        split = max(1, int(len(X) * test_ratio))
+        Xtr, Xte = X[:-split], X[-split:]
+        ytr, yte = y[:-split], y[-split:]
+        if len(Xtr) == 0:
+            Xtr, ytr, Xte, yte = X, y, X, y
+        sc_pp = StandardScaler().fit(Xtr)
+        Xtr_s, Xte_s = sc_pp.transform(Xtr), sc_pp.transform(Xte)
+        for mname, mfunc in models_def.items():
+            try:
+                mdl = mfunc()
+                mdl.fit(Xtr_s if mname in scaled else Xtr,
+                        ytr)
+                yp  = mdl.predict(Xte_s if mname in scaled else Xte)
+                rows.append({'Program': cat, 'Model': mname,
+                             'R2':       float(r2_score(yte, yp)),
+                             'MAPE (%)': float(np.mean(np.abs((yte - yp)/(np.abs(yte)+1e-9)))*100),
+                             'MAE':      float(mean_absolute_error(yte, yp)),
+                             'RMSE':     float(np.sqrt(mean_squared_error(yte, yp)))})
+            except:
+                pass
+    if not rows:
+        return None
+    res_df = pd.DataFrame(rows)
+    best_per_prog = (res_df.sort_values('R2', ascending=False)
+                     .groupby('Program').first().reset_index()
+                     [['Program','Model','R2','MAPE (%)','MAE','RMSE']])
+    return {'detail': res_df, 'best_per_program': best_per_prog}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONCLUSION METRICS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def build_conclusion(ml_result, per_prog_result, df, target, n_future):
+    lines = []
+    if ml_result is None:
+        return lines
+    rdf  = ml_result['results_df']
+    best = ml_result['best_name']
+    br   = rdf[rdf['Model'] == best].iloc[0]
+    r2_val, mape_val = br['R2'], br['MAPE (%)']
+    r2_grade   = ("Sangat Baik (>0.9)" if r2_val > 0.9 else
+                  "Baik (0.8–0.9)"     if r2_val > 0.8 else
+                  "Cukup (0.6–0.8)"    if r2_val > 0.6 else "Lemah (<0.6)")
+    mape_grade = ("Sangat Akurat (<10%)" if mape_val < 10 else
+                  "Akurat (10–20%)"      if mape_val < 20 else
+                  "Cukup (20–50%)"       if mape_val < 50 else "Tidak Akurat (>50%)")
+    lines.append(('🏆', 'Model Terbaik Global',
+        f"**{best}** dipilih sebagai model terbaik dengan R² = **{r2_val:.4f}** ({r2_grade}) "
+        f"dan MAPE = **{mape_val:.2f}%** ({mape_grade})."))
+    if per_prog_result is not None:
+        bpp = per_prog_result['best_per_program']
+        prog_str = ', '.join(f"{r['Program']} → **{r['Model']}**" for _, r in bpp.iterrows())
+        lines.append(('📊', 'Model Terbaik per Program', prog_str))
+        worst  = bpp.sort_values('R2').iloc[0]
+        best_p = bpp.sort_values('R2', ascending=False).iloc[0]
+        lines.append(('🔍', 'Akurasi per Program',
+            f"Program **{best_p['Program']}** paling mudah diprediksi (R²={best_p['R2']:.3f}). "
+            f"Program **{worst['Program']}** paling sulit (R²={worst['R2']:.3f}) — "
+            "perlu data lebih banyak atau fitur eksternal."))
+    base_yr = int(df['Tahun'].max())
+    lines.append(('📅', 'Horizon Prediksi',
+        f"Model dilatih pada data s/d **{base_yr}** dan mampu memproyeksikan hingga "
+        f"**{base_yr + n_future}** ({n_future} tahun ke depan). "
+        "Akurasi menurun semakin jauh horizon waktu."))
+    yrs = sorted(df['Tahun'].unique())
+    lines.append(('📁', 'Kualitas Data',
+        f"Dataset mencakup **{len(yrs)} tahun** ({yrs[0]}–{yrs[-1]}) "
+        f"dengan **{len(get_active_programs(df))} program aktif**. "
+        + ("Jumlah tahun cukup untuk ML multi-lag." if len(yrs) >= 4
+           else "Tambah data historis untuk meningkatkan akurasi.")))
+    if r2_val >= 0.8 and mape_val <= 20:
+        rec = "✅ Model layak digunakan untuk perencanaan anggaran dan proyeksi klaim."
+    elif r2_val >= 0.6:
+        rec = "⚠️ Model cukup untuk proyeksi kasar, namun perlu validasi tambahan."
+    else:
+        rec = "❌ Model belum cukup akurat. Tambah data historis atau fitur tambahan."
+    lines.append(('💡', 'Rekomendasi', rec))
+    return lines
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROPHET — with Indonesian Islamic calendar
+# ══════════════════════════════════════════════════════════════════════════════
+
+INDONESIAN_HOLIDAYS = pd.DataFrame([
+    {'holiday':'Idul Fitri', 'ds':'2021-05-13','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Fitri', 'ds':'2022-05-02','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Fitri', 'ds':'2023-04-22','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Fitri', 'ds':'2024-04-10','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Fitri', 'ds':'2025-03-31','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Fitri', 'ds':'2026-03-20','lower_window':-7,'upper_window':7},
+    {'holiday':'Idul Adha',  'ds':'2021-07-20','lower_window':-3,'upper_window':3},
+    {'holiday':'Idul Adha',  'ds':'2022-07-09','lower_window':-3,'upper_window':3},
+    {'holiday':'Idul Adha',  'ds':'2023-06-29','lower_window':-3,'upper_window':3},
+    {'holiday':'Idul Adha',  'ds':'2024-06-17','lower_window':-3,'upper_window':3},
+    {'holiday':'Idul Adha',  'ds':'2025-06-07','lower_window':-3,'upper_window':3},
+    {'holiday':'Idul Adha',  'ds':'2026-05-27','lower_window':-3,'upper_window':3},
+    {'holiday':'Ramadhan',   'ds':'2021-04-13','lower_window':0, 'upper_window':30},
+    {'holiday':'Ramadhan',   'ds':'2022-04-02','lower_window':0, 'upper_window':30},
+    {'holiday':'Ramadhan',   'ds':'2023-03-23','lower_window':0, 'upper_window':30},
+    {'holiday':'Ramadhan',   'ds':'2024-03-11','lower_window':0, 'upper_window':30},
+    {'holiday':'Ramadhan',   'ds':'2025-03-01','lower_window':0, 'upper_window':30},
+    {'holiday':'Natal',      'ds':'2021-12-25','lower_window':-1,'upper_window':1},
+    {'holiday':'Natal',      'ds':'2022-12-25','lower_window':-1,'upper_window':1},
+    {'holiday':'Natal',      'ds':'2023-12-25','lower_window':-1,'upper_window':1},
+    {'holiday':'Natal',      'ds':'2024-12-25','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2021-01-01','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2022-01-01','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2023-01-01','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2024-01-01','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2025-01-01','lower_window':-1,'upper_window':1},
+    {'holiday':'Tahun Baru', 'ds':'2026-01-01','lower_window':-1,'upper_window':1},
+])
+INDONESIAN_HOLIDAYS['ds'] = pd.to_datetime(INDONESIAN_HOLIDAYS['ds'])
+
+
+def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
+    if not PROPHET_OK:
+        return None, "Prophet tidak terinstall. Tambahkan 'prophet' ke requirements.txt."
+    cat_df = df_monthly_raw[df_monthly_raw['Kategori'] == cat].copy()
+    if len(cat_df) < 6:
+        return None, f"Data {cat} kurang dari 6 bulan."
+    cat_df = cat_df.sort_values(['Tahun','Bulan'])
+    cat_df['ds'] = pd.to_datetime(
+        cat_df['Tahun'].astype(str) + '-' + cat_df['Bulan'].astype(str).str.zfill(2) + '-01')
+    cat_df = cat_df.groupby('ds')[target].sum().reset_index()
+    cat_df.columns = ['ds', 'y']
+    cat_df = cat_df[cat_df['y'] > 0].sort_values('ds').reset_index(drop=True)
+    try:
+        m = Prophet(
+            yearly_seasonality=True,
+            weekly_seasonality=False,
+            daily_seasonality=False,
+            holidays=INDONESIAN_HOLIDAYS if use_holidays else None,
+            seasonality_mode='multiplicative',
+            interval_width=0.95,
+        )
+        m.fit(cat_df)
+        future = m.make_future_dataframe(periods=n_months, freq='MS')
+        fc = m.predict(future)
+        return {'model': m, 'forecast': fc, 'history': cat_df}, None
+    except Exception as e:
+        return None, str(e)
+
 
 def forecast(df, ml, n_years):
     target  = ml['target']
@@ -1334,8 +1508,7 @@ with tab2:
     col_s, _ = st.columns([1, 3])
     with col_s:
         target_ml = st.selectbox("Target Prediksi", targets, key='ml_target')
-        run_btn   = st.button("🚀 Jalankan Analisis ML", type="primary",
-                              width='stretch')
+        run_btn   = st.button("🚀 Jalankan Analisis ML", type="primary", width='stretch')
 
     ck     = f"{target_ml}_lags{n_lags}_test{test_pct}"
     ml_res = results_cache.get(ck)
@@ -1348,6 +1521,10 @@ with tab2:
         else:
             results_cache[ck] = ml_res
             st.session_state.active_results = results_cache
+            # Per-program analysis
+            with st.spinner("Menganalisis model per program..."):
+                pp_res = run_ml_per_program(df, target_ml, n_lags, test_pct / 100)
+                st.session_state[f'per_prog_{target_ml}'] = pp_res
             data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
             eid   = f"{data_hash}_{target_ml}_L{n_lags}_T{test_pct}"
             label = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
@@ -1368,6 +1545,7 @@ with tab2:
         rdf      = ml_res['results_df']
         best     = ml_res['best_name']
         best_row = rdf[rdf['Model'] == best].iloc[0]
+        pp_res   = st.session_state.get(f'per_prog_{target_ml}', None)
 
         st.markdown(f"""<div class="badge">
         🏆 <b>Model Terbaik (Auto-Selected):</b> {best}
@@ -1378,78 +1556,390 @@ with tab2:
         {'&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''}
         </div>""", unsafe_allow_html=True)
 
-        st.markdown('<div class="sec">Perbandingan Semua Model</div>',
-                    unsafe_allow_html=True)
-        st.dataframe(
-            rdf.style
-               .highlight_max(subset=['R2'], color='#1e3a5f')
-               .highlight_min(subset=['MAE', 'RMSE', 'MAPE (%)'], color='#14532d')
-               .format({'MAE': '{:,.0f}', 'RMSE': '{:,.0f}',
-                        'R2': '{:.4f}', 'MAPE (%)': '{:.2f}'}),
-            width='stretch', height=320)
+        # ── Sub-tabs ──────────────────────────────────────────────────────
+        mtab1, mtab2, mtab3, mtab4 = st.tabs([
+            "📊 Perbandingan Model", "🎯 Model per Program",
+            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender"
+        ])
 
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            fig_r2 = px.bar(rdf, x='Model', y='R2', color='R2',
-                            color_continuous_scale='Blues',
-                            title='R² Score (lebih tinggi = lebih baik)')
-            fig_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
-                             annotation_text='Target 0.8')
-            fig_r2.update_layout(**DARK, height=360, xaxis_tickangle=-30,
-                                 coloraxis_showscale=False, margin=dict(b=90, t=40))
-            st.plotly_chart(fig_r2, width='stretch')
-        with mc2:
-            fig_mp = px.bar(rdf, x='Model', y='MAPE (%)', color='MAPE (%)',
-                            color_continuous_scale='Reds_r',
-                            title='MAPE % (lebih rendah = lebih baik)')
-            fig_mp.add_hline(y=20, line_dash='dash', line_color='#34d399',
-                             annotation_text='Threshold 20%')
-            fig_mp.update_layout(**DARK, height=360, xaxis_tickangle=-30,
-                                 coloraxis_showscale=False, margin=dict(b=90, t=40))
-            st.plotly_chart(fig_mp, width='stretch')
-
-        if not single_yr and len(ml_res['y_test']) > 0:
-            st.markdown(f'<div class="sec">Aktual vs Prediksi — {best}</div>',
+        # ── Sub-tab 1: Model Comparison ───────────────────────────────────
+        with mtab1:
+            st.markdown('<div class="sec">Perbandingan Semua Model</div>',
                         unsafe_allow_html=True)
-            yt = ml_res['y_test']
-            yp = ml_res['preds'].get(best, yt)
-            n  = min(len(yt), len(yp))
-            fav = go.Figure()
-            fav.add_trace(go.Scatter(y=yt[:n], name='Aktual',
-                                     line=dict(color='#60a5fa', width=2.5),
-                                     mode='lines+markers'))
-            fav.add_trace(go.Scatter(y=yp[:n], name='Prediksi',
-                                     line=dict(color='#34d399', width=2.5, dash='dash'),
-                                     mode='lines+markers'))
-            fav.update_layout(**DARK, height=360, hovermode='x unified',
-                              legend=dict(orientation='h'), margin=dict(t=20, b=40))
-            st.plotly_chart(fav, width='stretch')
+            st.dataframe(
+                rdf.style
+                   .highlight_max(subset=['R2'], color='#1e3a5f')
+                   .highlight_min(subset=['MAE', 'RMSE', 'MAPE (%)'], color='#14532d')
+                   .format({'MAE': '{:,.0f}', 'RMSE': '{:,.0f}',
+                            'R2': '{:.4f}', 'MAPE (%)': '{:.2f}'}),
+                width='stretch', height=320)
 
-            res = yt[:n] - yp[:n]
-            fig_res = px.histogram(x=res, nbins=min(20, n),
-                                   title='Distribusi Residual',
-                                   color_discrete_sequence=['#60a5fa'])
-            fig_res.update_layout(**DARK, height=280, margin=dict(t=40, b=20))
-            st.plotly_chart(fig_res, width='stretch')
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                fig_r2 = px.bar(rdf, x='Model', y='R2', color='R2',
+                                color_continuous_scale='Blues',
+                                title='R² Score (lebih tinggi = lebih baik)')
+                fig_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
+                                 annotation_text='Target 0.8')
+                fig_r2.update_layout(**DARK, height=360, xaxis_tickangle=-30,
+                                     coloraxis_showscale=False, margin=dict(b=90, t=40))
+                st.plotly_chart(fig_r2, width='stretch')
+            with mc2:
+                fig_mp = px.bar(rdf, x='Model', y='MAPE (%)', color='MAPE (%)',
+                                color_continuous_scale='Reds_r',
+                                title='MAPE % (lebih rendah = lebih baik)')
+                fig_mp.add_hline(y=20, line_dash='dash', line_color='#34d399',
+                                 annotation_text='Threshold 20%')
+                fig_mp.update_layout(**DARK, height=360, xaxis_tickangle=-30,
+                                     coloraxis_showscale=False, margin=dict(b=90, t=40))
+                st.plotly_chart(fig_mp, width='stretch')
 
-        if best in ('Random Forest', 'Gradient Boosting', 'Decision Tree'):
-            m_obj  = ml_res['fitted'][best]
-            nf     = ml_res['X_train'].shape[1]
-            lnames = [f'Lag_{i}' for i in range(1, n_lags + 1)]
-            extras = ['MA3', 'Std3', 'Trend', 'cat_id']
-            fnames = (lnames + extras)[:nf]
-            while len(fnames) < nf:
-                fnames.append(f'feat_{len(fnames)}')
-            fi = pd.DataFrame({'Feature': fnames,
-                               'Importance': m_obj.feature_importances_})\
-                   .sort_values('Importance', ascending=False)
-            fig_fi = px.bar(fi, x='Importance', y='Feature', orientation='h',
-                            color='Importance', color_continuous_scale='Viridis',
-                            title='Feature Importance')
-            fig_fi.update_layout(**DARK, height=max(300, nf * 32 + 80),
-                                 coloraxis_showscale=False,
-                                 margin=dict(l=100, t=40))
-            st.plotly_chart(fig_fi, width='stretch')
+            if not single_yr and len(ml_res['y_test']) > 0:
+                st.markdown(f'<div class="sec">Aktual vs Prediksi — {best}</div>',
+                            unsafe_allow_html=True)
+                yt = ml_res['y_test']
+                yp = ml_res['preds'].get(best, yt)
+                n  = min(len(yt), len(yp))
+                fav = go.Figure()
+                fav.add_trace(go.Scatter(y=yt[:n], name='Aktual',
+                                         line=dict(color='#60a5fa', width=2.5),
+                                         mode='lines+markers'))
+                fav.add_trace(go.Scatter(y=yp[:n], name='Prediksi',
+                                         line=dict(color='#34d399', width=2.5, dash='dash'),
+                                         mode='lines+markers'))
+                fav.update_layout(**DARK, height=360, hovermode='x unified',
+                                  legend=dict(orientation='h'), margin=dict(t=20, b=40))
+                st.plotly_chart(fav, width='stretch')
+
+                res_plot = yt[:n] - yp[:n]
+                fig_res = px.histogram(x=res_plot, nbins=min(20, n),
+                                       title='Distribusi Residual',
+                                       color_discrete_sequence=['#60a5fa'])
+                fig_res.update_layout(**DARK, height=280, margin=dict(t=40, b=20))
+                st.plotly_chart(fig_res, width='stretch')
+
+            if best in ('Random Forest', 'Gradient Boosting', 'Decision Tree'):
+                m_obj  = ml_res['fitted'][best]
+                nf     = ml_res['X_train'].shape[1]
+                lnames = [f'Lag_{i}' for i in range(1, n_lags + 1)]
+                extras = ['MA3', 'Std3', 'Trend', 'cat_id']
+                fnames = (lnames + extras)[:nf]
+                while len(fnames) < nf:
+                    fnames.append(f'feat_{len(fnames)}')
+                fi = pd.DataFrame({'Feature': fnames,
+                                   'Importance': m_obj.feature_importances_})\
+                       .sort_values('Importance', ascending=False)
+                fig_fi = px.bar(fi, x='Importance', y='Feature', orientation='h',
+                                color='Importance', color_continuous_scale='Viridis',
+                                title='Feature Importance')
+                fig_fi.update_layout(**DARK, height=max(300, nf * 32 + 80),
+                                     coloraxis_showscale=False, margin=dict(l=100, t=40))
+                st.plotly_chart(fig_fi, width='stretch')
+
+        # ── Sub-tab 2: Per-Program Model Comparison ───────────────────────
+        with mtab2:
+            if pp_res is None:
+                st.info("Klik **Jalankan Analisis ML** untuk melihat model terbaik per program.")
+            else:
+                bpp = pp_res['best_per_program']
+                det = pp_res['detail']
+
+                st.markdown('<div class="sec">Model Terbaik per Program</div>',
+                            unsafe_allow_html=True)
+                # Color-coded table
+                st.dataframe(
+                    bpp.style
+                       .highlight_max(subset=['R2'], color='#14532d')
+                       .highlight_min(subset=['MAPE (%)'], color='#14532d')
+                       .format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
+                                'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
+                    width='stretch', height=260)
+
+                # Heatmap: R² tiap model × program
+                st.markdown('<div class="sec">Heatmap R² — Semua Model × Semua Program</div>',
+                            unsafe_allow_html=True)
+                heat = det.pivot_table(index='Model', columns='Program',
+                                       values='R2', aggfunc='mean').fillna(0)
+                fig_heat = px.imshow(heat, color_continuous_scale='Blues',
+                                     aspect='auto', text_auto='.3f',
+                                     title='R² per Model per Program (lebih biru = lebih baik)')
+                fig_heat.update_layout(**DARK, height=400, margin=dict(t=50, b=20))
+                st.plotly_chart(fig_heat, width='stretch')
+
+                # Bar: best model per program
+                st.markdown('<div class="sec">R² Model Terbaik per Program</div>',
+                            unsafe_allow_html=True)
+                fig_bpp = px.bar(bpp, x='Program', y='R2', color='Model',
+                                 text='Model', color_discrete_sequence=COLORS,
+                                 title='Model Terbaik & R² per Program')
+                fig_bpp.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
+                                  annotation_text='Target R²=0.8')
+                fig_bpp.update_traces(textposition='outside')
+                fig_bpp.update_layout(**DARK, height=400, margin=dict(t=50, b=40))
+                st.plotly_chart(fig_bpp, width='stretch')
+
+                # MAPE comparison
+                st.markdown('<div class="sec">MAPE % Model Terbaik per Program</div>',
+                            unsafe_allow_html=True)
+                fig_mape = px.bar(bpp, x='Program', y='MAPE (%)', color='Model',
+                                  color_discrete_sequence=COLORS,
+                                  title='MAPE % per Program (lebih rendah = lebih baik)')
+                fig_mape.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
+                                   annotation_text='Threshold 20%')
+                fig_mape.update_layout(**DARK, height=380, margin=dict(t=50, b=40))
+                st.plotly_chart(fig_mape, width='stretch')
+
+                # Detailed table all models all programs
+                with st.expander("📋 Tabel Detail Semua Model × Semua Program"):
+                    st.dataframe(
+                        det.sort_values(['Program','R2'], ascending=[True,False])
+                           .style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
+                                          'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
+                        width='stretch', height=400)
+
+        # ── Sub-tab 3: Conclusion & Metrics ───────────────────────────────
+        with mtab3:
+            conclusions = build_conclusion(ml_res, pp_res, df, target_ml, n_future)
+            if conclusions:
+                st.markdown('<div class="sec">Kesimpulan Otomatis Analisis ML</div>',
+                            unsafe_allow_html=True)
+                for icon, title, text in conclusions:
+                    st.markdown(f"""
+                    <div style="background:#0f1f35;border:1px solid #1e3a5f;border-radius:12px;
+                                padding:16px 20px;margin:10px 0;">
+                        <div style="font-size:.7rem;font-weight:700;color:#475569;
+                                    text-transform:uppercase;letter-spacing:1.5px;
+                                    margin-bottom:6px;">{icon} {title}</div>
+                        <div style="color:#dde3f0;font-size:.92rem;line-height:1.7;">{text}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                # Radar chart all models
+                st.markdown('<div class="sec">Radar Chart — Profil Kualitas Model</div>',
+                            unsafe_allow_html=True)
+                # Normalize metrics for radar
+                rdf_r = ml_res['results_df'].copy()
+                rdf_r['R2_n']      = rdf_r['R2'].clip(0, 1)
+                rdf_r['MAPE_n']    = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
+                rdf_r['MAE_n']     = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
+                rdf_r['RMSE_n']    = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
+                cats_radar = ['R² Score', 'Akurasi (1-MAPE)', 'Presisi (1-MAE)', 'Konsistensi (1-RMSE)']
+                fig_radar = go.Figure()
+                for i, row in rdf_r.iterrows():
+                    vals = [row['R2_n'], row['MAPE_n'], row['MAE_n'], row['RMSE_n']]
+                    vals += [vals[0]]
+                    cats_r = cats_radar + [cats_radar[0]]
+                    fig_radar.add_trace(go.Scatterpolar(
+                        r=vals, theta=cats_r, fill='toself',
+                        name=row['Model'], opacity=0.7,
+                        line=dict(color=COLORS[i % len(COLORS)])
+                    ))
+                fig_radar.update_layout(
+                    **DARK, height=500,
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 1],
+                                        gridcolor='#1e2d45', tickfont=dict(color='#64748b')),
+                        angularaxis=dict(gridcolor='#1e2d45'),
+                        bgcolor='#080c14',
+                    ),
+                    legend=dict(orientation='h', y=-0.15),
+                    margin=dict(t=30, b=60)
+                )
+                st.plotly_chart(fig_radar, width='stretch')
+
+                # Summary table with grades
+                st.markdown('<div class="sec">Scorecard Semua Model</div>',
+                            unsafe_allow_html=True)
+                def grade_r2(v):
+                    return "🟢 Sangat Baik" if v>0.9 else "🔵 Baik" if v>0.8 else "🟡 Cukup" if v>0.6 else "🔴 Lemah"
+                def grade_mape(v):
+                    return "🟢 <10%" if v<10 else "🔵 10-20%" if v<20 else "🟡 20-50%" if v<50 else "🔴 >50%"
+                sc_df = ml_res['results_df'].copy()
+                sc_df['Grade R²']   = sc_df['R2'].apply(grade_r2)
+                sc_df['Grade MAPE'] = sc_df['MAPE (%)'].apply(grade_mape)
+                sc_df['Best?']      = sc_df['Model'].apply(lambda m: '🏆' if m == best else '')
+                st.dataframe(
+                    sc_df[['Model','R2','MAPE (%)','MAE','RMSE','Grade R²','Grade MAPE','Best?']]
+                    .style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
+                                   'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
+                    width='stretch', height=320)
+
+        # ── Sub-tab 4: Prophet + Indonesian Calendar ──────────────────────
+        with mtab4:
+            df_raw_m_p = st.session_state.get('raw_monthly', None)
+            if not PROPHET_OK:
+                st.warning("""
+                **Prophet belum terinstall.** Tambahkan ke `requirements.txt`:
+                ```
+                prophet
+                ```
+                Lalu push ke GitHub dan tunggu Streamlit Cloud redeploy.
+                """)
+            elif df_raw_m_p is None or len(df_raw_m_p) == 0:
+                st.warning("Upload dataset dengan data bulanan terlebih dahulu untuk menggunakan Prophet.")
+            else:
+                st.markdown("""<div class="info-box">
+                🔮 <b>Prophet</b> adalah model time-series dari Meta yang mampu mendeteksi
+                <b>pola musiman</b> (tahunan, bulanan) dan <b>efek hari libur</b> seperti
+                Ramadhan, Idul Fitri, dan Idul Adha pada pola klaim BPJS.
+                </div>""", unsafe_allow_html=True)
+
+                pc1, pc2, pc3 = st.columns(3)
+                with pc1:
+                    target_prophet = st.selectbox("Target", targets, key='prophet_target')
+                with pc2:
+                    cat_prophet = st.selectbox("Program", active_progs, key='prophet_cat')
+                with pc3:
+                    n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
+
+                use_holidays = st.checkbox("Gunakan Kalender Islam Indonesia (Ramadhan, Idul Fitri, dll)", value=True)
+
+                if st.button("🔮 Jalankan Prophet", type="primary", width='stretch'):
+                    with st.spinner(f"Melatih Prophet untuk {cat_prophet} — {target_prophet}..."):
+                        p_result, p_err = run_prophet(
+                            df_raw_m_p, target_prophet, cat_prophet,
+                            n_months_prophet, use_holidays
+                        )
+                    if p_err:
+                        st.error(f"Prophet Error: {p_err}")
+                    else:
+                        st.session_state['prophet_result'] = p_result
+                        st.session_state['prophet_meta'] = {
+                            'target': target_prophet, 'cat': cat_prophet,
+                            'use_holidays': use_holidays
+                        }
+
+                p_result = st.session_state.get('prophet_result', None)
+                p_meta   = st.session_state.get('prophet_meta', {})
+
+                if p_result and p_meta.get('cat') == cat_prophet and p_meta.get('target') == target_prophet:
+                    fc_df   = p_result['forecast']
+                    hist_df = p_result['history']
+                    m_obj   = p_result['model']
+
+                    # ── Main forecast plot ────────────────────────────────
+                    st.markdown(f'<div class="sec">Forecast Prophet — {cat_prophet} ({target_prophet})</div>',
+                                unsafe_allow_html=True)
+                    fig_p = go.Figure()
+                    # History
+                    fig_p.add_trace(go.Scatter(
+                        x=hist_df['ds'], y=hist_df['y'],
+                        name='Aktual', mode='lines+markers',
+                        line=dict(color='#60a5fa', width=2.5),
+                        marker=dict(size=6)
+                    ))
+                    # Forecast
+                    fc_future = fc_df[fc_df['ds'] > hist_df['ds'].max()]
+                    fig_p.add_trace(go.Scatter(
+                        x=fc_future['ds'], y=fc_future['yhat'],
+                        name='Prediksi Prophet', mode='lines+markers',
+                        line=dict(color='#34d399', width=2.5, dash='dash'),
+                        marker=dict(size=7, symbol='diamond')
+                    ))
+                    # Confidence interval
+                    fig_p.add_trace(go.Scatter(
+                        x=pd.concat([fc_future['ds'], fc_future['ds'][::-1]]),
+                        y=pd.concat([fc_future['yhat_upper'], fc_future['yhat_lower'][::-1]]),
+                        fill='toself', fillcolor='rgba(52,211,153,0.1)',
+                        line=dict(color='rgba(0,0,0,0)'),
+                        name='Interval 95%', showlegend=True
+                    ))
+                    # Holiday markers
+                    if use_holidays:
+                        for _, hrow in INDONESIAN_HOLIDAYS.iterrows():
+                            if hist_df['ds'].min() <= hrow['ds'] <= fc_future['ds'].max():
+                                fig_p.add_vline(
+                                    x=hrow['ds'].timestamp() * 1000,
+                                    line_dash='dot', line_color='#fbbf24',
+                                    line_width=1, opacity=0.6,
+                                    annotation_text=hrow['holiday'],
+                                    annotation_font=dict(size=9, color='#fbbf24'),
+                                    annotation_position='top left'
+                                )
+                    fig_p.update_layout(
+                        **DARK, height=500, hovermode='x unified',
+                        legend=dict(orientation='h', y=-0.2),
+                        margin=dict(b=80, t=20, l=70, r=20),
+                        xaxis_title='Periode', yaxis_title=target_prophet
+                    )
+                    st.plotly_chart(fig_p, width='stretch')
+
+                    # ── Components plot ───────────────────────────────────
+                    st.markdown('<div class="sec">Komponen Pola (Trend + Seasonality + Holiday)</div>',
+                                unsafe_allow_html=True)
+                    comp_cols = st.columns(2)
+                    # Trend
+                    with comp_cols[0]:
+                        fig_tr = go.Figure()
+                        fig_tr.add_trace(go.Scatter(
+                            x=fc_df['ds'], y=fc_df['trend'],
+                            mode='lines', line=dict(color='#60a5fa', width=2),
+                            name='Trend'
+                        ))
+                        fig_tr.update_layout(**DARK, height=280, title='Trend',
+                                             margin=dict(t=40, b=20))
+                        st.plotly_chart(fig_tr, width='stretch')
+                    # Yearly seasonality
+                    with comp_cols[1]:
+                        if 'yearly' in fc_df.columns:
+                            fig_yr = go.Figure()
+                            yr_data = fc_df[['ds','yearly']].copy()
+                            yr_data['month'] = yr_data['ds'].dt.month
+                            yr_avg = yr_data.groupby('month')['yearly'].mean().reset_index()
+                            yr_avg['Bulan'] = yr_avg['month'].apply(
+                                lambda m: ['Jan','Feb','Mar','Apr','Mei','Jun',
+                                           'Jul','Agt','Sep','Okt','Nov','Des'][m-1])
+                            fig_yr.add_trace(go.Bar(
+                                x=yr_avg['Bulan'], y=yr_avg['yearly'],
+                                marker_color=COLORS[1], name='Efek Musiman'
+                            ))
+                            fig_yr.update_layout(**DARK, height=280,
+                                                 title='Pola Musiman Tahunan',
+                                                 margin=dict(t=40, b=20))
+                            st.plotly_chart(fig_yr, width='stretch')
+
+                    # Holiday effects
+                    if use_holidays:
+                        st.markdown('<div class="sec">Efek Hari Libur pada Klaim</div>',
+                                    unsafe_allow_html=True)
+                        holiday_cols = [c for c in fc_df.columns
+                                        if c in ['Idul Fitri','Idul Adha','Ramadhan',
+                                                 'Natal','Tahun Baru']]
+                        if holiday_cols:
+                            heff_rows = []
+                            for hc in holiday_cols:
+                                heff_rows.append({'Hari Libur': hc,
+                                                  'Efek Rata-rata': fc_df[hc].mean(),
+                                                  'Efek Max': fc_df[hc].max(),
+                                                  'Efek Min': fc_df[hc].min()})
+                            heff_df = pd.DataFrame(heff_rows).sort_values('Efek Rata-rata', ascending=False)
+                            fig_heff = px.bar(heff_df, x='Hari Libur', y='Efek Rata-rata',
+                                              color='Efek Rata-rata',
+                                              color_continuous_scale='RdYlGn',
+                                              title='Dampak Hari Libur terhadap Volume Klaim',
+                                              text='Efek Rata-rata')
+                            fig_heff.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+                            fig_heff.update_layout(**DARK, height=360, coloraxis_showscale=False,
+                                                   margin=dict(t=50, b=40))
+                            st.plotly_chart(fig_heff, width='stretch')
+                            st.markdown("""<div class="info-box">
+                            <b>Interpretasi Efek Holiday:</b><br>
+                            • <b>Positif</b> = klaim cenderung <b>naik</b> saat periode tersebut<br>
+                            • <b>Negatif</b> = klaim cenderung <b>turun</b> (misal: libur panjang, kantor tutup)<br>
+                            • Ramadhan sering menunjukkan penurunan JKK (kecelakaan kerja) karena aktivitas lebih sedikit
+                            </div>""", unsafe_allow_html=True)
+                        else:
+                            st.info("Efek holiday akan muncul setelah Prophet selesai dilatih dengan data yang cukup.")
+
+                    # Prophet forecast table
+                    st.markdown('<div class="sec">Tabel Prediksi Prophet</div>',
+                                unsafe_allow_html=True)
+                    fc_show = fc_future[['ds','yhat','yhat_lower','yhat_upper']].copy()
+                    fc_show.columns = ['Periode','Prediksi','Batas Bawah (95%)','Batas Atas (95%)']
+                    fc_show['Periode'] = fc_show['Periode'].dt.strftime('%Y-%m')
+                    for col in ['Prediksi','Batas Bawah (95%)','Batas Atas (95%)']:
+                        fc_show[col] = fc_show[col].apply(lambda x: f"{max(0,x):,.0f}")
+                    st.dataframe(fc_show, width='stretch', height=380)
+
     else:
         st.info("Klik **Jalankan Analisis ML** untuk memulai.")
 
