@@ -2934,7 +2934,7 @@ with tab2:
                             📊 <b>Cara membaca:</b>
                             <span style="color:#34d399">▲ Positif</span> = klaim <b>naik</b> saat hari libur itu &nbsp;|&nbsp;
                             <span style="color:#f87171">▼ Negatif</span> = klaim <b>turun</b>
-                            (contoh: JKK turun saat Ramadhan karena aktivitas kerja berkurang, JHT naik saat Idul Fitri karena lebih banyak klaim pesangon).
+                            (contoh: JKK naik saat Ramadhan karena aktivitas kerja berkurang, JHT turun saat Idul Fitri karena lebih banyak klaim pesangon).
                             Ukuran titik = besar efek.
                             </div>""", unsafe_allow_html=True)
                     else:
