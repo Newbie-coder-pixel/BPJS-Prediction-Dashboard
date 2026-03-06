@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjstest2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -2014,15 +1993,15 @@ with tab2:
                     return "🟢 Sangat Baik" if v>0.9 else "🔵 Baik" if v>0.8 else "🟡 Cukup" if v>0.6 else "🔴 Lemah"
                 def grade_mape(v):
                     return "🟢 <10%" if v<10 else "🔵 10-20%" if v<20 else "🟡 20-50%" if v<50 else "🔴 >50%"
-                sc_df = ml_res['results_df'].copy()
-                sc_df['Grade R²']   = sc_df['R2'].apply(grade_r2)
-                sc_df['Grade MAPE'] = sc_df['MAPE (%)'].apply(grade_mape)
-                sc_df['Best?']      = sc_df['Model'].apply(lambda m: '🏆' if m == best else '')
-                st.dataframe(
-                    sc_df[['Model','R2','MAPE (%)','MAE','RMSE','Grade R²','Grade MAPE','Best?']]
-                    .style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
-                                   'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
-                    width='stretch', height=320)
+                sc_df = bpp.copy() if not bpp.empty else pd.DataFrame()
+                if not sc_df.empty:
+                    sc_df['Grade R²']   = sc_df['R2'].apply(grade_r2)
+                    sc_df['Grade MAPE'] = sc_df['MAPE (%)'].apply(grade_mape)
+                    sc_df = sc_df.rename(columns={'Program': 'Program', 'Model': 'Model Terbaik'})
+                    st.dataframe(
+                        sc_df.style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
+                                           'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
+                        width='stretch', height=320)
 
         # ── Sub-tab 4: Prophet + Indonesian Calendar ──────────────────────
         with mtab4:
