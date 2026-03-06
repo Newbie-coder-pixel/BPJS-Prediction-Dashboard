@@ -15,6 +15,27 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
+import streamlit as st
+
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.markdown("## 🔒 BPJS ML Dashboard — Login")
+        password = st.text_input("Masukkan password:", type="password")
+        if st.button("Login"):
+            if password == "bpjs2026":   # ← ganti password di sini
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Password salah!")
+        st.stop()
+
+check_password()
+
+# === sisa kode app.py di bawah sini ===
+
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -1829,47 +1850,53 @@ with tab2:
                                      coloraxis_showscale=False, margin=dict(b=90, t=40))
                 st.plotly_chart(fig_mp, width='stretch')
 
-            if not single_yr and len(ml_res['y_test']) > 0:
-                st.markdown(f'<div class="sec">Aktual vs Prediksi — {best}</div>',
+            # Trend historis per program
+            if not single_yr and per_prog:
+                st.markdown('<div class="sec">Trend Historis per Program</div>',
                             unsafe_allow_html=True)
-                yt = ml_res['y_test']
-                yp = ml_res['preds'].get(best, yt)
-                n  = min(len(yt), len(yp))
-                fav = go.Figure()
-                fav.add_trace(go.Scatter(y=yt[:n], name='Aktual',
-                                         line=dict(color='#60a5fa', width=2.5),
-                                         mode='lines+markers'))
-                fav.add_trace(go.Scatter(y=yp[:n], name='Prediksi',
-                                         line=dict(color='#34d399', width=2.5, dash='dash'),
-                                         mode='lines+markers'))
-                fav.update_layout(**DARK, height=360, hovermode='x unified',
-                                  legend=dict(orientation='h'), margin=dict(t=20, b=40))
-                st.plotly_chart(fav, width='stretch')
+                fig_av = go.Figure()
+                for i, (cat, info) in enumerate(per_prog.items()):
+                    hist = info.get('history', [])
+                    if len(hist) < 2:
+                        continue
+                    fig_av.add_trace(go.Scatter(
+                        y=hist, name=cat, mode='lines+markers',
+                        line=dict(color=COLORS[i % len(COLORS)], width=2),
+                        marker=dict(size=6)
+                    ))
+                fig_av.update_layout(**DARK, height=360, hovermode='x unified',
+                                     legend=dict(orientation='h', y=-0.25),
+                                     margin=dict(t=20, b=100),
+                                     yaxis_title=target_ml, xaxis_title='Index Tahun')
+                st.plotly_chart(fig_av, width='stretch')
 
-                res_plot = yt[:n] - yp[:n]
-                fig_res = px.histogram(x=res_plot, nbins=min(20, n),
-                                       title='Distribusi Residual',
-                                       color_discrete_sequence=['#60a5fa'])
-                fig_res.update_layout(**DARK, height=280, margin=dict(t=40, b=20))
-                st.plotly_chart(fig_res, width='stretch')
-
-            if best in ('Random Forest', 'Gradient Boosting', 'Decision Tree'):
-                m_obj  = ml_res['fitted'][best]
-                nf     = ml_res['X_train'].shape[1]
-                lnames = [f'Lag_{i}' for i in range(1, n_lags + 1)]
-                extras = ['MA3', 'Std3', 'Trend', 'cat_id']
-                fnames = (lnames + extras)[:nf]
-                while len(fnames) < nf:
-                    fnames.append(f'feat_{len(fnames)}')
-                fi = pd.DataFrame({'Feature': fnames,
-                                   'Importance': m_obj.feature_importances_})\
-                       .sort_values('Importance', ascending=False)
-                fig_fi = px.bar(fi, x='Importance', y='Feature', orientation='h',
-                                color='Importance', color_continuous_scale='Viridis',
-                                title='Feature Importance')
-                fig_fi.update_layout(**DARK, height=max(300, nf * 32 + 80),
-                                     coloraxis_showscale=False, margin=dict(l=100, t=40))
-                st.plotly_chart(fig_fi, width='stretch')
+                # Feature importance untuk tree/boosting models
+                tree_models = ('Random Forest','Gradient Boosting','Decision Tree',
+                               'Extra Trees','XGBoost','LightGBM')
+                lnames = [f'Lag_{j}' for j in range(1, n_lags+1)]
+                extras = ['MA3','Std3','MA6','Std6','Trend','Trend2','Min6','Max6','cat_id']
+                for i, (cat, info) in enumerate(per_prog.items()):
+                    mdl_name = info.get('best_name','')
+                    mdl_obj  = info.get('best_model', None)
+                    if mdl_name in tree_models and mdl_obj is not None:
+                        try:
+                            fi_vals = mdl_obj.feature_importances_
+                            nf = len(fi_vals)
+                            fnames = (lnames + extras)[:nf]
+                            while len(fnames) < nf:
+                                fnames.append(f'feat_{len(fnames)}')
+                            fi_df = pd.DataFrame({'Feature': fnames, 'Importance': fi_vals})\
+                                      .sort_values('Importance', ascending=False).head(8)
+                            fig_fi = px.bar(fi_df, x='Importance', y='Feature',
+                                            orientation='h', color='Importance',
+                                            color_continuous_scale='Viridis',
+                                            title=f'Feature Importance — {cat} ({mdl_name})')
+                            fig_fi.update_layout(**DARK, height=300,
+                                                 coloraxis_showscale=False,
+                                                 margin=dict(l=100,t=40,b=20))
+                            st.plotly_chart(fig_fi, width='stretch')
+                        except:
+                            pass
 
         # ── Sub-tab 2: Per-Program Model Comparison ───────────────────────
         with mtab2:
