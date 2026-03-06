@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -813,13 +792,28 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
 
 def forecast(df, ml, n_years):
     """Forecast using each program's own best model."""
-    target  = ml['target']
-    nlags   = ml['n_lags']
-    single  = ml['single']
-    active  = ml['active_programs']
+    target   = ml['target']
+    nlags    = ml['n_lags']
+    single   = ml['single']
+    active   = ml['active_programs']
     per_prog = ml.get('per_prog', {})
-    base_yr = int(df['Tahun'].max())
-    rows    = []
+    base_yr  = int(df['Tahun'].max())
+    rows     = []
+
+    def trend_growth_pred(history, fy):
+        """Predict using average growth rate of last 2-3 years (never go below last value)."""
+        if len(history) >= 3:
+            # Average YoY growth rate from last 3 years
+            growths = [(history[i] - history[i-1]) / (abs(history[i-1]) + 1e-9)
+                       for i in range(-2, 0)]
+            avg_growth = np.clip(np.mean(growths), -0.3, 0.5)  # cap at -30% to +50%
+        elif len(history) >= 2:
+            avg_growth = np.clip((history[-1] - history[-2]) / (abs(history[-2]) + 1e-9), -0.3, 0.5)
+        else:
+            avg_growth = 0.05  # default 5% growth
+        # Predict: last value * (1 + growth)^fy, but never below last actual
+        pred = history[-1] * ((1 + avg_growth) ** fy)
+        return max(pred, history[-1] * 0.95)  # floor at 95% of last value
 
     for cat in active:
         info    = per_prog.get(cat, None)
@@ -828,32 +822,44 @@ def forecast(df, ml, n_years):
                        .dropna().values.astype(float))
         if not history: continue
 
-        if info is None or info.get('single', True):
-            # Fallback: simple 5% growth
+        # Check if model is reliable (R² >= 0 and MAPE reasonable)
+        model_reliable = False
+        if info and not info.get('single', True):
+            r2_val   = info.get('metrics', {}).get('R2', -999)
+            mape_val = info.get('metrics', {}).get('MAPE (%)', 999)
+            model_reliable = (r2_val >= 0.0 and mape_val < 100)
+
+        if info is None or info.get('single', True) or not model_reliable:
+            # Smart trend growth fallback
             for fy in range(1, n_years + 1):
-                pred = history[0] * (1.05 ** fy)
+                pred = trend_growth_pred(history, fy)
                 pred = max(0.0, pred)
                 rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
-                             target: pred, 'Type': 'Prediksi'})
+                             target: pred, 'Type': 'Prediksi (Trend)'})
                 history.append(pred)
             continue
 
-        mdl      = info['best_model']
-        sc       = info['scaler']
-        best_nm  = info['best_name']
-        cat_id   = info['cat_id']
+        mdl     = info['best_model']
+        sc      = info['scaler']
+        best_nm = info['best_name']
+        cat_id  = info['cat_id']
+        last_actual = history[-1]
 
         for fy in range(1, n_years + 1):
             Xc, _ = build_features(history, nlags, cat_id)
             if len(Xc) == 0:
-                pred = history[-1]
+                pred = trend_growth_pred(history, 1)
             else:
                 feat = Xc[-1].reshape(1, -1)
                 try:
                     feat_use = sc.transform(feat) if best_nm in SCALED_MODELS else feat
                     pred = float(mdl.predict(feat_use)[0])
+                    # Sanity check: if pred drops more than 40% from last actual, use trend instead
+                    if pred < last_actual * 0.6:
+                        pred_trend = trend_growth_pred(history, 1)
+                        pred = (pred + pred_trend) / 2  # blend model + trend
                 except:
-                    pred = history[-1]
+                    pred = trend_growth_pred(history, 1)
             pred = max(0.0, pred)
             rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
                          target: pred, 'Type': 'Prediksi'})
