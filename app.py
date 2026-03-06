@@ -843,7 +843,7 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 # ══════════════════════════════════════════════════════════════════════════════
 
 GCAL_ID = "en.indonesian%23holiday%40group.v.calendar.google.com"
-GCAL_API = "https://www.googleapis.com/calendar/v3/calendars/{cal}/events"
+GCAL_API = "https://calendar.google.com/calendar/u/0/r/{cal}/events"
 GCAL_KEY = "AIzaSyB_0c0J3bNSELmXK1WcwNOWTbTNzl4EXBE"  # public demo key, read-only
 
 @st.cache_data(ttl=86400)
