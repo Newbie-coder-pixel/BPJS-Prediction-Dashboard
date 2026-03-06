@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -835,98 +814,133 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PROPHET — with Indonesian Islamic calendar
+# INDONESIAN HOLIDAYS — 100% dari Google Calendar API (no hardcoded)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GOOGLE CALENDAR — fetch Indonesian public holidays
-# ══════════════════════════════════════════════════════════════════════════════
+GCAL_ID  = "en.indonesian%23holiday%40group.v.calendar.google.com"
+GCAL_KEY = "AIzaSyD1gERwlm6R_mnm6Jd1sap3dFuPz0hpBfQ"
 
-GCAL_ID = "en.indonesian%23holiday%40group.v.calendar.google.com"
-GCAL_API = "https://calendar.google.com/calendar/u/0/r/{cal}/events"
-GCAL_KEY = "AIzaSyB_0c0J3bNSELmXK1WcwNOWTbTNzl4EXBE"  # public demo key, read-only
+# Window overrides: hari libur tertentu punya dampak lebih luas pada klaim BPJS
+_WINDOW_RULES = {
+    # keyword (lowercase) → (lower_window, upper_window)
+    'idul fitri'          : (-7,  7),   # Lebaran — dampak 2 minggu
+    'lebaran'             : (-7,  7),
+    'ramadan'             : ( 0, 29),   # Ramadhan — 1 bulan penuh
+    'ramadhan'            : ( 0, 29),
+    'puasa'               : ( 0, 29),
+    'idul adha'           : (-3,  3),   # Kurban — 1 minggu
+    'natal'               : (-2,  2),   # Natal — H-2 s/d H+2
+    'christmas'           : (-2,  2),
+    'tahun baru'          : (-1,  2),   # New Year
+    'new year'            : (-1,  2),
+    'cuti bersama'        : (-1,  1),
+    'default'             : (-1,  1),   # semua holiday lainnya
+}
 
-@st.cache_data(ttl=86400)
-def fetch_google_holidays(year_start=2021, year_end=2027):
-    """Fetch Indonesian national holidays from Google Calendar public API."""
-    import urllib.request, json
-    rows = []
+def _get_window(name: str):
+    """Tentukan lower/upper window berdasarkan nama hari libur."""
+    nl = name.lower()
+    for keyword, (lo, hi) in _WINDOW_RULES.items():
+        if keyword != 'default' and keyword in nl:
+            return lo, hi
+    return _WINDOW_RULES['default']
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_google_holidays(year_start: int = 2019, year_end: int = 2028) -> list:
+    """
+    Ambil semua hari libur Indonesia dari Google Calendar API.
+    - Mengambil data per tahun (year_start s/d year_end)
+    - Pagination otomatis (nextPageToken) agar tidak ada yang terlewat
+    - Window dampak disesuaikan otomatis per jenis hari libur
+    - Return [] jika API error (graceful fallback)
+    """
+    import urllib.request, urllib.parse, json
+
+    base_url = f"https://www.googleapis.com/calendar/v3/calendars/{GCAL_ID}/events"
+    all_rows  = []
+    seen_keys = set()   # deduplikasi ds+holiday
+
     for year in range(year_start, year_end + 1):
-        url = (
-            f"{GCAL_API.format(cal=GCAL_ID)}"
-            f"?key={GCAL_KEY}"
-            f"&timeMin={year}-01-01T00:00:00Z"
-            f"&timeMax={year}-12-31T23:59:59Z"
-            f"&maxResults=50&singleEvents=true"
-        )
-        try:
-            with urllib.request.urlopen(url, timeout=5) as r:
-                data = json.loads(r.read())
+        page_token = None
+        while True:
+            params = {
+                'key'          : GCAL_KEY,
+                'timeMin'      : f'{year}-01-01T00:00:00Z',
+                'timeMax'      : f'{year}-12-31T23:59:59Z',
+                'maxResults'   : '2500',          # max allowed by API
+                'singleEvents' : 'true',
+                'orderBy'      : 'startTime',
+            }
+            if page_token:
+                params['pageToken'] = page_token
+
+            url = base_url + '?' + urllib.parse.urlencode(params)
+            try:
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    data = json.loads(r.read().decode('utf-8'))
+            except Exception:
+                break   # network error — skip year, try next
+
+            # Cek error dari API
+            if 'error' in data:
+                return []   # key invalid / quota habis — return kosong
+
             for item in data.get('items', []):
-                start = item.get('start', {}).get('date', '')
-                name  = item.get('summary', '')
-                if start and name:
-                    rows.append({'ds': pd.Timestamp(start), 'holiday': name,
-                                 'lower_window': -1, 'upper_window': 1})
-        except Exception:
-            pass  # fallback to static if API fails
-    return rows
+                # Ambil tanggal (all-day event: pakai 'date', bukan 'dateTime')
+                start_raw = (item.get('start', {}).get('date')
+                             or item.get('start', {}).get('dateTime', '')[:10])
+                name = item.get('summary', '').strip()
+                if not start_raw or not name:
+                    continue
+
+                try:
+                    ds = pd.Timestamp(start_raw)
+                except Exception:
+                    continue
+
+                key = (str(ds.date()), name)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+
+                lo, hi = _get_window(name)
+                all_rows.append({
+                    'ds'           : ds,
+                    'holiday'      : name,
+                    'lower_window' : lo,
+                    'upper_window' : hi,
+                })
+
+            # Pagination
+            page_token = data.get('nextPageToken')
+            if not page_token:
+                break   # semua halaman sudah diambil
+
+    return all_rows
 
 
-def build_holiday_df(year_start=2021, year_end=2027):
-    """Build holidays DataFrame combining Google Calendar + static Islamic calendar."""
-    # Static Islamic holidays (dates vary each year, Google Calendar may miss some)
-    static = [
-        {'holiday':'Idul Fitri',  'ds':'2021-05-13','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Fitri',  'ds':'2022-05-02','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Fitri',  'ds':'2023-04-22','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Fitri',  'ds':'2024-04-10','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Fitri',  'ds':'2025-03-31','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Fitri',  'ds':'2026-03-20','lower_window':-7,'upper_window':7},
-        {'holiday':'Idul Adha',   'ds':'2021-07-20','lower_window':-3,'upper_window':3},
-        {'holiday':'Idul Adha',   'ds':'2022-07-09','lower_window':-3,'upper_window':3},
-        {'holiday':'Idul Adha',   'ds':'2023-06-29','lower_window':-3,'upper_window':3},
-        {'holiday':'Idul Adha',   'ds':'2024-06-17','lower_window':-3,'upper_window':3},
-        {'holiday':'Idul Adha',   'ds':'2025-06-07','lower_window':-3,'upper_window':3},
-        {'holiday':'Idul Adha',   'ds':'2026-05-27','lower_window':-3,'upper_window':3},
-        {'holiday':'Ramadhan',    'ds':'2021-04-13','lower_window':0, 'upper_window':30},
-        {'holiday':'Ramadhan',    'ds':'2022-04-02','lower_window':0, 'upper_window':30},
-        {'holiday':'Ramadhan',    'ds':'2023-03-23','lower_window':0, 'upper_window':30},
-        {'holiday':'Ramadhan',    'ds':'2024-03-11','lower_window':0, 'upper_window':30},
-        {'holiday':'Ramadhan',    'ds':'2025-03-01','lower_window':0, 'upper_window':30},
-        {'holiday':'Natal',       'ds':'2021-12-25','lower_window':-1,'upper_window':1},
-        {'holiday':'Natal',       'ds':'2022-12-25','lower_window':-1,'upper_window':1},
-        {'holiday':'Natal',       'ds':'2023-12-25','lower_window':-1,'upper_window':1},
-        {'holiday':'Natal',       'ds':'2024-12-25','lower_window':-1,'upper_window':1},
-        {'holiday':'Natal',       'ds':'2025-12-25','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2021-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2022-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2023-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2024-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2025-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2026-01-01','lower_window':-1,'upper_window':1},
-        {'holiday':'Tahun Baru',  'ds':'2027-01-01','lower_window':-1,'upper_window':1},
-    ]
-    static_df = pd.DataFrame(static)
-    static_df['ds'] = pd.to_datetime(static_df['ds'])
+def build_holiday_df() -> pd.DataFrame:
+    """
+    Build DataFrame hari libur dari Google Calendar API murni.
+    Jika API gagal, kembalikan DataFrame kosong (Prophet tetap jalan tanpa holiday).
+    """
+    rows = fetch_google_holidays()
+    if not rows:
+        return pd.DataFrame(columns=['ds', 'holiday', 'lower_window', 'upper_window'])
 
-    # Try Google Calendar
-    gcal_rows = fetch_google_holidays(year_start, year_end)
-    if gcal_rows:
-        gcal_df = pd.DataFrame(gcal_rows)
-        # Remove duplicates with static (keep static for Islamic holidays)
-        static_names = set(static_df['holiday'].unique())
-        gcal_df = gcal_df[~gcal_df['holiday'].isin(static_names)]
-        combined = pd.concat([static_df, gcal_df], ignore_index=True)
-    else:
-        combined = static_df
-
-    combined = combined.drop_duplicates(subset=['ds','holiday']).sort_values('ds').reset_index(drop=True)
-    return combined
+    df_h = pd.DataFrame(rows)
+    df_h['ds'] = pd.to_datetime(df_h['ds'])
+    df_h = (df_h
+            .drop_duplicates(subset=['ds', 'holiday'])
+            .sort_values('ds')
+            .reset_index(drop=True))
+    return df_h
 
 
-# Build at startup (cached)
+# Build at startup — pure Google Calendar, cached 24 jam
 INDONESIAN_HOLIDAYS = build_holiday_df()
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -981,7 +995,7 @@ def run_prophet(df_monthly_raw, target, cat, n_months, use_holidays=True):
         return {'model': m, 'forecast': fc, 'history': cat_df,
                 'r2_insample': r2_is, 'mape_insample': mape_is,
                 'n_holidays': n_holidays,
-                'gcal_used': len(fetch_google_holidays()) > 0}, None
+                'gcal_used': False}, None
     except Exception as e:
         return None, str(e)
 
@@ -1716,7 +1730,7 @@ if df is None:
     f1, f2, f3 = st.columns(3)
     for col, icon, title, desc in [
         (f1, "🤖", "Metode Adaptif", "Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
-        (f2, "📅", "Kalender Indonesia", "Prophet + Google Calendar Indonesia. Deteksi efek Ramadhan, Idul Fitri, Idul Adha, dan 29+ hari libur nasional."),
+        (f2, "📅", "Kalender Indonesia", "Prophet + Google Calendar Indonesia. Semua hari libur nasional otomatis diambil dari API resmi Google — Nyepi, Paskah, Lebaran, Natal, dan lainnya."),
         (f3, "📥", "Export Excel", "Export prediksi tahunan & bulanan ke Excel dengan chart otomatis, siap untuk presentasi."),
     ]:
         with col:
@@ -2540,17 +2554,19 @@ with tab2:
             elif df_raw_m_p is None or len(df_raw_m_p) == 0:
                 st.warning("Upload dataset dengan data bulanan terlebih dahulu untuk menggunakan Prophet.")
             else:
-                n_holidays = len(INDONESIAN_HOLIDAYS)
-                gcal_count = len(INDONESIAN_HOLIDAYS[~INDONESIAN_HOLIDAYS['holiday'].isin(
-                    ['Idul Fitri','Idul Adha','Ramadhan','Natal','Tahun Baru'])])
+                n_holidays  = len(INDONESIAN_HOLIDAYS)
+                n_htypes    = INDONESIAN_HOLIDAYS['holiday'].nunique() if n_holidays > 0 else 0
+                gcal_status = (f"✅ <b>{n_holidays} hari libur</b>, <b>{n_htypes} jenis</b> berhasil dimuat dari Google Calendar API."
+                               if n_holidays > 0 else
+                               "⚠️ Google Calendar API belum merespons. Prophet tetap jalan tanpa holiday effect.")
                 st.markdown(f"""<div class="info-box">
                 🔮 <b>Prophet</b> dipilih karena lebih cocok dari SARIMA untuk data BPJS:<br>
-                • Menangani <b>efek hari libur secara eksplisit</b> (Ramadhan naik/turun, Lebaran, dll)<br>
+                • Menangani <b>efek hari libur secara eksplisit</b> — Ramadhan (window 30 hari),
+                  Idul Fitri (window 14 hari), Idul Adha (window 6 hari), Nyepi, Paskah, Natal, dll<br>
                 • Tidak perlu data stasioner — cocok untuk klaim yang terus tumbuh<br>
                 • Trend + Seasonality + Holiday dipisah secara interpretable<br><br>
-                📅 <b>Kalender hari libur:</b> {n_holidays} hari libur dimuat
-                (<b>{gcal_count} dari Google Calendar Indonesia</b> + Islamic calendar statis).
-                Data Google Calendar diambil otomatis setiap 24 jam.
+                📅 <b>Sumber kalender:</b> Google Calendar API Indonesia (2019–2028, auto-refresh 24 jam).<br>
+                {gcal_status}
                 </div>""", unsafe_allow_html=True)
 
                 pc1, pc2 = st.columns(2)
@@ -2560,7 +2576,7 @@ with tab2:
                     n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
 
                 use_holidays = st.checkbox(
-                    f"Gunakan kalender libur Indonesia ({n_holidays} hari libur dari Google Calendar + Islamic)",
+                    f"Gunakan kalender hari libur Indonesia dari Google Calendar ({n_holidays} hari libur, {n_htypes} jenis)",
                     value=True)
 
                 if st.button("🔮 Jalankan Prophet (Semua Program)", type="primary", width='stretch'):
