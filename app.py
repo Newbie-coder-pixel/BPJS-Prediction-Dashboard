@@ -63,39 +63,20 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:#05090f;color:#e2e8f0;}
 
 /* ══════════════════════════════════════════════
-   SEMBUNYIKAN UI BAWAAN STREAMLIT — AMAN UNTUK SIDEBAR
+   SEMBUNYIKAN UI BAWAAN STREAMLIT — AMAN
    ══════════════════════════════════════════════ */
-
-/* Toolbar kanan atas */
 [data-testid="stToolbar"]{display:none !important;}
 [data-testid="stToolbarActions"]{display:none !important;}
 #MainMenu{display:none !important;}
-[data-testid="stShareButton"]{display:none !important;}
-
-/* Header bar tipis di atas */
 [data-testid="stHeader"]{display:none !important;}
 header[data-testid="stHeader"]{display:none !important;}
-
-/* Footer */
 footer{display:none !important;}
-
-/* Tombol deploy/manage */
-[data-testid="manage-app-button"]{display:none !important;}
-[data-testid="stAppDeployButton"]{display:none !important;}
 [data-testid="stDeployButton"]{display:none !important;}
-.stAppDeployButton{display:none !important;}
-
-/* Status widget */
 [data-testid="stStatusWidget"]{display:none !important;}
-
-/* Badge lama (class statis) */
 .viewerBadge_container__1QSob{display:none !important;}
 .viewerBadge_link__1S137{display:none !important;}
 #stDecoration{display:none !important;}
 [data-testid="stDecoration"]{display:none !important;}
-
-/* JANGAN pakai a[href*="streamlit.io"] — bisa kena sidebar toggle */
-/* Badge ditangani oleh JavaScript MutationObserver di bawah */
 
 /* ── KPI Cards ── */
 .kpi{
@@ -192,25 +173,7 @@ section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
 </style>
 """, unsafe_allow_html=True)
 
-# Inject JS: block badge streamlit — HANYA target link streamlit.io, bukan sidebar
-st.markdown("""
-<script>
-(function() {
-  function blockStreamlitBadge() {
-    // Hanya sembunyikan anchor tag yang menuju streamlit.io
-    // TIDAK menyentuh div/container lain agar sidebar tidak terpengaruh
-    document.querySelectorAll('a[href*="streamlit.io"]').forEach(function(el) {
-      el.style.display = 'none';
-      el.style.pointerEvents = 'none';
-      el.removeAttribute('href');
-    });
-  }
-  blockStreamlitBadge();
-  var obs = new MutationObserver(blockStreamlitBadge);
-  obs.observe(document.body, {childList: true, subtree: true});
-})();
-</script>
-""", unsafe_allow_html=True)
+# Badge disembunyikan via CSS data-testid selector di atas
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PERSISTENT HISTORY — saved to disk, survives Streamlit restart
