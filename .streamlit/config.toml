@@ -3,7 +3,6 @@ gatherUsageStats = false
 
 [client]
 showErrorDetails = false
-toolbarMode = "viewer"
 
 [server]
 headless = true
