@@ -139,10 +139,11 @@ section[data-testid="stSidebar"] .stButton>button:hover{
 .kpi{
   background:linear-gradient(145deg,#061120 0%,#081828 100%);
   border:1px solid #0f1f35;border-radius:20px;
-  padding:26px 22px 22px;text-align:center;
+  padding:22px 16px 18px;text-align:center;
   position:relative;overflow:hidden;
   transition:transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s ease;
-  cursor:default;
+  cursor:default;min-height:130px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
 }
 .kpi:hover{
   transform:translateY(-4px);
@@ -160,11 +161,14 @@ section[data-testid="stSidebar"] .stButton>button:hover{
 }
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .kpi .val{
-  font-size:2.1rem;font-weight:800;font-family:'Syne',sans-serif;
+  font-size:clamp(1rem, 2.8vw, 1.85rem);font-weight:800;font-family:'Syne',sans-serif;
   background:linear-gradient(135deg,#7dd3fc 0%,#a78bfa 100%);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  line-height:1.1;letter-spacing:-1px;
+  line-height:1.15;letter-spacing:-0.5px;
+  word-break:break-word;overflow-wrap:break-word;
+  white-space:normal;
 }
+.kpi .val-tooltip{cursor:help;}
 .kpi .lbl{
   font-size:.62rem;color:#334155;text-transform:uppercase;
   letter-spacing:2.5px;margin-top:10px;font-weight:600;font-family:'Instrument Sans',sans-serif;
@@ -570,8 +574,6 @@ DARK = dict(
     plot_bgcolor='rgba(4,14,28,0)',
     font_color='#64748b',
     font_family='Instrument Sans',
-    title_font_family='Syne',
-    title_font_color='#94a3b8',
 )
 
 # Refined palette — jewel tones on deep dark
@@ -618,7 +620,7 @@ def styled_chart(fig, height=420, legend_bottom=True, margin_b=90, title=None):
             font=dict(size=10.5, family='Instrument Sans'),
             bgcolor='rgba(0,0,0,0)',
         ),
-        margin=dict(b=margin_b if legend_bottom else 40, t=30, l=60, r=24),
+        margin=dict(b=margin_b if legend_bottom else 40, t=30 if not title else 50, l=60, r=24),
         xaxis=dict(
             showgrid=True, gridcolor=grid_color, gridwidth=1,
             zeroline=False, linecolor='#0a1a2e', linewidth=1,
@@ -631,11 +633,13 @@ def styled_chart(fig, height=420, legend_bottom=True, margin_b=90, title=None):
         ),
     )
     if title:
-        updates['title'] = dict(text=title, font=dict(size=13, color='#64748b'), x=0, pad=dict(b=10))
+        updates['title'] = dict(
+            text=title,
+            font=dict(size=13, color='#64748b', family='Instrument Sans'),
+            x=0, pad=dict(b=10)
+        )
 
     fig.update_layout(**updates)
-
-    # Refined gridline color on axes
     fig.update_xaxes(gridcolor=grid_color, zerolinecolor='#0a1a2e')
     fig.update_yaxes(gridcolor=grid_color2, zerolinecolor='#0a1a2e')
     return fig
@@ -1702,21 +1706,30 @@ if len(years) >= 2:
 tk        = int(df_active_only['Kasus'].sum())
 tk_latest = int(df_active_only[df_active_only['Tahun']==latest_year]['Kasus'].sum())
 
+def fmt_compact(n, prefix='', suffix=''):
+    """Format large numbers compactly: 7,001,353 → 7.0 Jt"""
+    n = float(n)
+    if abs(n) >= 1e9:    return f"{prefix}{n/1e9:.2f}M{suffix}"   # miliar
+    elif abs(n) >= 1e6:  return f"{prefix}{n/1e6:.2f}Jt{suffix}"  # juta
+    elif abs(n) >= 1e3:  return f"{prefix}{n/1e3:.1f}Rb{suffix}"  # ribu
+    else:                return f"{prefix}{n:,.0f}{suffix}"
+
 c1,c2,c3,c4,c5 = st.columns(5)
 with c1:
     st.markdown(f'<div class="kpi"><div class="val">{len(years)}</div><div class="lbl">📅 Tahun Data</div><div class="delta delta-neu">{years[0]} – {years[-1]}</div></div>', unsafe_allow_html=True)
 with c2:
     st.markdown(f'<div class="kpi"><div class="val">{len(active_progs)}</div><div class="lbl">🏷️ Program Aktif</div><div class="delta delta-neu">{", ".join(active_progs[:2])}{"…" if len(active_progs)>2 else ""}</div></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="kpi"><div class="val">{tk_latest:,}</div><div class="lbl">📋 Kasus {latest_year}</div>{kpi_delta_k}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi" title="Total: {tk_latest:,} kasus"><div class="val val-tooltip">{fmt_compact(tk_latest)}</div><div class="lbl">📋 Kasus {latest_year}</div>{kpi_delta_k}</div>', unsafe_allow_html=True)
 with c4:
     if has_nom:
-        tn = df_active_only[df_active_only['Tahun']==latest_year]['Nominal'].sum()/1e9
-        st.markdown(f'<div class="kpi"><div class="val">Rp{tn:,.1f}B</div><div class="lbl">💰 Nominal {latest_year}</div>{kpi_delta_n}</div>', unsafe_allow_html=True)
+        tn_raw = df_active_only[df_active_only['Tahun']==latest_year]['Nominal'].sum()
+        tn_str = fmt_compact(tn_raw/1e9, prefix='Rp', suffix='B') if tn_raw < 1e12 else fmt_compact(tn_raw/1e12, prefix='Rp', suffix='T')
+        st.markdown(f'<div class="kpi" title="Total: Rp {tn_raw:,.0f}"><div class="val val-tooltip">{tn_str}</div><div class="lbl">💰 Nominal {latest_year}</div>{kpi_delta_n}</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="kpi"><div class="val">{latest_year}</div><div class="lbl">📅 Tahun Terbaru</div></div>', unsafe_allow_html=True)
 with c5:
-    st.markdown(f'<div class="kpi"><div class="val">{tk:,}</div><div class="lbl">📊 Total Kasus</div>{kpi_avg_growth}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi" title="Total: {tk:,} kasus (semua tahun)"><div class="val val-tooltip">{fmt_compact(tk)}</div><div class="lbl">📊 Total Kasus</div>{kpi_avg_growth}</div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1749,7 +1762,7 @@ with tab1:
             (ia,"🏆 Program Terbesar", top_prog, f"{top_val:,} kasus di {latest_year}"),
             (ib,"📈 Pertumbuhan Tertinggi", fastest, f"+{fastest_g:.1f}% vs tahun lalu"),
             (ic,"📉 Pertumbuhan Terendah", slowest, f"{slowest_g:+.1f}% vs tahun lalu"),
-            (id_,"📋 Total Kasus", f"{int(df_lat['Kasus'].sum()):,}", f"{len(active_progs)} program aktif"),
+            (id_,"📋 Total Kasus", fmt_compact(int(df_lat['Kasus'].sum())), f"{len(active_progs)} program aktif"),
         ]:
             with col:
                 st.markdown(f'<div class="insight-card"><div class="ic-title">{title}</div><div class="ic-val">{val}</div><div class="ic-sub">{sub}</div></div>', unsafe_allow_html=True)
@@ -1767,7 +1780,7 @@ with tab1:
             hovertemplate='<b>%{label}</b><br>Kasus: %{value:,}<br>%{percent}<extra></extra>',
         ))
         total_kasus = int(pie_d['Kasus'].sum())
-        fig.add_annotation(text=f"<b style='font-size:18px'>{total_kasus:,}</b><br>Total",
+        fig.add_annotation(text=f"<b style='font-size:18px'>{fmt_compact(total_kasus)}</b><br>Total",
             showarrow=False, font=dict(size=13, color='#e2e8f0', family='Syne'), align='center')
         fig.update_layout(**DARK, showlegend=True, height=420,
             legend=dict(orientation='h', y=-0.1, font=dict(size=10.5, family='Instrument Sans'), bgcolor='rgba(0,0,0,0)'),
