@@ -22,14 +22,29 @@ def check_password():
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
+        st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap');
+        html,body,[class*="css"]{font-family:'Syne',sans-serif;background:#020a14;}
+        .login-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:24px;}
+        .login-logo{font-size:3.2rem;font-weight:800;
+          background:linear-gradient(135deg,#38bdf8 0%,#6366f1 50%,#a78bfa 100%);
+          -webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-1px;}
+        .login-sub{color:#334155;font-size:.78rem;letter-spacing:3px;text-transform:uppercase;}
+        </style>
+        <div class="login-wrap">
+          <div class="login-logo">⬡ BPJS ML</div>
+          <div class="login-sub">Prediction Intelligence Dashboard</div>
+        </div>
+        """, unsafe_allow_html=True)
+        password = st.text_input("Masukkan password:", type="password", label_visibility="collapsed",
+                                 placeholder="🔑  Masukkan password…")
+        if st.button("Masuk →", type="primary", use_container_width=True):
             if password == "bpjs2026":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Password salah!")
+                st.error("❌  Password salah. Coba lagi.")
         st.stop()
 
 check_password()
@@ -59,7 +74,7 @@ except ImportError:
     except ImportError:
         PROPHET_OK = False
 
-st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
+st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="⬡", initial_sidebar_state="expanded")
 
 st.markdown("""
 <script>
@@ -72,94 +87,412 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# GLOBAL DESIGN SYSTEM — Refined Dark Precision Theme
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
-*{box-sizing:border-box;}
-html,body,[class*="css"]{font-family:'Inter',sans-serif;}
-.stApp{background:#05090f;color:#e2e8f0;}
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap');
 
+/* ── Reset & Base ─────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,[class*="css"]{
+  font-family:'Instrument Sans',sans-serif;
+  background:#020c18 !important;
+  color:#cbd5e1;
+}
+.stApp{background:#020c18;}
+
+/* ── Scrollbar ────────────────────────────────── */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:#030f1e;}
+::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:#2d5280;}
+
+/* ══════════════════════════════════════════════
+   SIDEBAR
+══════════════════════════════════════════════ */
+section[data-testid="stSidebar"]{
+  background:linear-gradient(180deg,#020c18 0%,#030f22 100%) !important;
+  border-right:1px solid #0f1f35 !important;
+}
+section[data-testid="stSidebar"] > div{padding-top:0 !important;}
+section[data-testid="stSidebar"] .stMarkdown{color:#64748b;}
+section[data-testid="stSidebar"] label{color:#64748b !important;font-size:.78rem !important;}
+section[data-testid="stSidebar"] .stSlider [data-testid="stTickBarMin"],
+section[data-testid="stSidebar"] .stSlider [data-testid="stTickBarMax"]{color:#334155;}
+section[data-testid="stSidebar"] .stSlider [data-testid="stSliderThumbValue"]{
+  background:#1e3a5f;color:#60a5fa;font-size:.72rem;border-radius:4px;padding:2px 6px;
+}
+section[data-testid="stSidebar"] .stButton>button{
+  background:transparent;border:1px solid #0f2040;color:#475569;
+  border-radius:8px;font-size:.78rem;padding:6px 10px;
+  transition:all .2s;
+}
+section[data-testid="stSidebar"] .stButton>button:hover{
+  border-color:#1e3a5f;color:#60a5fa;background:#0a1628;
+}
+
+/* ══════════════════════════════════════════════
+   KPI CARDS
+══════════════════════════════════════════════ */
 .kpi{
-  background:linear-gradient(145deg,#0d1424 0%,#0a1020 100%);
-  border:1px solid #1a2840;border-radius:16px;padding:24px 20px;
-  text-align:center;position:relative;overflow:hidden;
-  transition:transform .2s,border-color .2s;
+  background:linear-gradient(145deg,#061120 0%,#081828 100%);
+  border:1px solid #0f1f35;border-radius:20px;
+  padding:26px 22px 22px;text-align:center;
+  position:relative;overflow:hidden;
+  transition:transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s ease;
+  cursor:default;
+}
+.kpi:hover{
+  transform:translateY(-4px);
+  box-shadow:0 20px 60px rgba(6,18,36,.8), 0 0 0 1px #1e3a5f;
 }
 .kpi::before{
-  content:'';position:absolute;top:0;left:0;right:0;height:3px;
-  background:linear-gradient(90deg,#3b82f6,#8b5cf6);
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,#1e3a5f,#3b82f6,#6366f1,#1e3a5f);
+  background-size:200% 100%;animation:shimmer 3s linear infinite;
 }
-.kpi .val{font-size:2rem;font-weight:800;
-          background:linear-gradient(135deg,#60a5fa,#a78bfa);
-          -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-          font-family:'JetBrains Mono',monospace;line-height:1.2;}
-.kpi .lbl{font-size:.68rem;color:#475569;text-transform:uppercase;
-          letter-spacing:1.5px;margin-top:8px;font-weight:600;}
-.kpi .delta{font-size:.75rem;margin-top:6px;font-weight:500;}
-.delta-pos{color:#34d399;} .delta-neg{color:#f87171;} .delta-neu{color:#94a3b8;}
-
-.badge{
-  background:linear-gradient(135deg,#0f1f35 0%,#0a1a0a 100%);
-  border:1px solid #1e3a5f;border-radius:12px;
-  padding:14px 20px;margin:12px 0;font-size:.9rem;line-height:1.7;
+.kpi::after{
+  content:'';position:absolute;top:-40%;right:-20%;width:120px;height:120px;
+  background:radial-gradient(circle,rgba(59,130,246,.06) 0%,transparent 70%);
+  border-radius:50%;pointer-events:none;
 }
-.badge b{color:#93c5fd;}
-
-.sec{
-  font-size:.68rem;font-weight:700;color:#334155;
-  text-transform:uppercase;letter-spacing:2.5px;
-  margin:28px 0 12px;padding-bottom:8px;
-  border-bottom:1px solid #0f1f35;
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.kpi .val{
+  font-size:2.1rem;font-weight:800;font-family:'Syne',sans-serif;
+  background:linear-gradient(135deg,#7dd3fc 0%,#a78bfa 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  line-height:1.1;letter-spacing:-1px;
 }
+.kpi .lbl{
+  font-size:.62rem;color:#334155;text-transform:uppercase;
+  letter-spacing:2.5px;margin-top:10px;font-weight:600;font-family:'Instrument Sans',sans-serif;
+}
+.kpi .delta{font-size:.73rem;margin-top:8px;font-weight:500;font-family:'DM Mono',monospace;}
+.delta-pos{color:#34d399;} .delta-neg{color:#f87171;} .delta-neu{color:#475569;}
 
-.warn{background:#1a1200;border:1px solid #92400e50;border-radius:12px;
-      padding:14px 18px;color:#fbbf24;font-size:.88rem;margin:10px 0;
-      border-left:3px solid #f59e0b;}
-.info-box{background:#0a1628;border:1px solid #1e3a5f;border-radius:12px;
-          padding:16px 18px;font-size:.84rem;color:#7dd3fc;
-          margin:10px 0;line-height:1.85;border-left:3px solid #3b82f6;}
-.success-box{background:#052e16;border:1px solid #14532d50;border-radius:12px;
-          padding:14px 18px;font-size:.84rem;color:#86efac;
-          margin:10px 0;border-left:3px solid #22c55e;}
-
-.tag-add{display:inline-block;background:#14532d20;color:#86efac;border:1px solid #14532d;
-         border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
-.tag-rem{display:inline-block;background:#450a0a20;color:#fca5a5;border:1px solid #7f1d1d50;
-         border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
-.tag-stable{display:inline-block;background:#1e3a5f20;color:#93c5fd;border:1px solid #1e3a5f;
-            border-radius:6px;padding:3px 10px;font-size:.75rem;margin:2px;font-weight:500;}
-
-.mpill{display:inline-block;padding:4px 12px;border-radius:20px;
-       font-size:.78rem;font-weight:600;margin:2px;}
-.mpill-green{background:#052e1640;color:#4ade80;border:1px solid #14532d;}
-.mpill-blue{background:#1e3a5f40;color:#60a5fa;border:1px solid #1e3a5f;}
-.mpill-yellow{background:#451a0340;color:#fbbf24;border:1px solid #78350f;}
-.mpill-red{background:#450a0a40;color:#f87171;border:1px solid #7f1d1d;}
-
+/* ══════════════════════════════════════════════
+   INSIGHT CARDS
+══════════════════════════════════════════════ */
 .insight-card{
-  background:linear-gradient(135deg,#0a1628,#0d1f0d);
-  border:1px solid #1e3a5f;border-radius:14px;
-  padding:20px;margin:8px 0;
+  background:linear-gradient(135deg,#061828 0%,#061420 100%);
+  border:1px solid #0f2535;border-radius:16px;padding:22px 20px;
+  position:relative;overflow:hidden;
+  transition:transform .2s ease, border-color .2s ease;
 }
-.insight-card .ic-title{font-size:.7rem;color:#475569;text-transform:uppercase;
-  letter-spacing:1.5px;font-weight:700;margin-bottom:8px;}
-.insight-card .ic-val{font-size:1.4rem;font-weight:800;color:#e2e8f0;font-family:'JetBrains Mono',monospace;}
-.insight-card .ic-sub{font-size:.8rem;color:#64748b;margin-top:4px;}
+.insight-card:hover{transform:translateY(-2px);border-color:#1e3a5f;}
+.insight-card::before{
+  content:'';position:absolute;bottom:0;right:0;width:80px;height:80px;
+  background:radial-gradient(circle,rgba(99,102,241,.08) 0%,transparent 70%);
+}
+.insight-card .ic-title{
+  font-size:.6rem;color:#334155;text-transform:uppercase;
+  letter-spacing:2px;font-weight:700;margin-bottom:10px;
+  font-family:'Instrument Sans',sans-serif;
+}
+.insight-card .ic-val{
+  font-size:1.45rem;font-weight:800;color:#e2e8f0;
+  font-family:'Syne',sans-serif;letter-spacing:-0.5px;
+}
+.insight-card .ic-sub{font-size:.78rem;color:#475569;margin-top:6px;font-family:'DM Mono',monospace;}
 
-.prog-bar-wrap{background:#0f1923;border-radius:6px;height:8px;margin:4px 0;}
-.prog-bar-fill{height:8px;border-radius:6px;
-  background:linear-gradient(90deg,#3b82f6,#8b5cf6);}
+/* ══════════════════════════════════════════════
+   SECTION HEADERS
+══════════════════════════════════════════════ */
+.sec{
+  font-size:.58rem;font-weight:700;color:#1e3a5f;
+  text-transform:uppercase;letter-spacing:3px;
+  margin:32px 0 14px;padding-bottom:10px;
+  border-bottom:1px solid #0a1a2e;
+  font-family:'Instrument Sans',sans-serif;
+  display:flex;align-items:center;gap:8px;
+}
+.sec::before{content:'';display:inline-block;width:16px;height:2px;background:linear-gradient(90deg,#3b82f6,#6366f1);border-radius:2px;}
 
-section[data-testid="stSidebar"]{background:#030712 !important;}
-section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
+/* ══════════════════════════════════════════════
+   BADGE / INFO BOXES
+══════════════════════════════════════════════ */
+.badge{
+  background:linear-gradient(135deg,#061828 0%,#06140e 100%);
+  border:1px solid #0f2535;border-radius:14px;
+  padding:16px 22px;margin:14px 0;font-size:.87rem;line-height:1.8;
+  border-left:3px solid #3b82f6;
+}
+.badge b{color:#7dd3fc;}
 
-.stTabs [data-baseweb="tab-list"]{gap:4px;background:#0a0f1a;
-  border-radius:12px;padding:4px;}
-.stTabs [data-baseweb="tab"]{border-radius:9px;padding:8px 18px;
-  font-size:.85rem;font-weight:500;color:#475569;}
-.stTabs [aria-selected="true"]{background:#1e2d45 !important;color:#e2e8f0 !important;}
+.warn{
+  background:linear-gradient(135deg,#1a1000 0%,#1a0800 100%);
+  border:1px solid #78350f30;border-radius:14px;
+  padding:16px 20px;color:#fcd34d;font-size:.85rem;margin:12px 0;
+  border-left:3px solid #f59e0b;line-height:1.7;
+}
+.info-box{
+  background:linear-gradient(135deg,#060f20 0%,#08142a 100%);
+  border:1px solid #0f2035;border-radius:14px;
+  padding:18px 20px;font-size:.83rem;color:#7dd3fc;
+  margin:12px 0;line-height:1.9;border-left:3px solid #3b82f6;
+}
+.success-box{
+  background:linear-gradient(135deg,#030f08 0%,#051810 100%);
+  border:1px solid #14532d30;border-radius:14px;
+  padding:16px 20px;font-size:.83rem;color:#86efac;
+  margin:12px 0;border-left:3px solid #22c55e;line-height:1.8;
+}
 
-.stDataFrame{border-radius:10px;overflow:hidden;}
+/* ══════════════════════════════════════════════
+   TAGS
+══════════════════════════════════════════════ */
+.tag-add{display:inline-block;background:#052e1620;color:#4ade80;
+  border:1px solid #14532d50;border-radius:6px;padding:3px 10px;
+  font-size:.72rem;margin:2px;font-weight:600;font-family:'DM Mono',monospace;}
+.tag-rem{display:inline-block;background:#450a0a20;color:#fca5a5;
+  border:1px solid #7f1d1d30;border-radius:6px;padding:3px 10px;
+  font-size:.72rem;margin:2px;font-weight:600;font-family:'DM Mono',monospace;}
+.tag-stable{display:inline-block;background:#0f2035;color:#60a5fa;
+  border:1px solid #1e3a5f50;border-radius:6px;padding:3px 10px;
+  font-size:.72rem;margin:2px;font-weight:600;font-family:'DM Mono',monospace;}
+
+/* ══════════════════════════════════════════════
+   MODEL PILLS
+══════════════════════════════════════════════ */
+.mpill{display:inline-block;padding:3px 11px;border-radius:20px;font-size:.72rem;font-weight:600;margin:2px;font-family:'DM Mono',monospace;}
+.mpill-green{background:#052e1640;color:#4ade80;border:1px solid #14532d60;}
+.mpill-blue{background:#0f2035;color:#60a5fa;border:1px solid #1e3a5f;}
+.mpill-yellow{background:#451a0340;color:#fbbf24;border:1px solid #78350f60;}
+.mpill-red{background:#450a0a40;color:#f87171;border:1px solid #7f1d1d60;}
+
+/* ══════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════ */
+.stTabs [data-baseweb="tab-list"]{
+  gap:2px;background:#040e1c;border-radius:14px;padding:5px;
+  border:1px solid #0a1a2e;
+}
+.stTabs [data-baseweb="tab"]{
+  border-radius:10px;padding:10px 22px;font-size:.82rem;font-weight:600;
+  color:#334155;font-family:'Instrument Sans',sans-serif;letter-spacing:.3px;
+  transition:all .2s ease;
+}
+.stTabs [aria-selected="true"]{
+  background:linear-gradient(135deg,#0a1f3d,#0f2545) !important;
+  color:#7dd3fc !important;
+  box-shadow:0 0 0 1px #1e3a5f, 0 4px 12px rgba(59,130,246,.15) !important;
+}
+.stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]){color:#60a5fa;background:#070f1e;}
+
+/* ══════════════════════════════════════════════
+   DATAFRAME
+══════════════════════════════════════════════ */
+.stDataFrame{border-radius:14px;overflow:hidden;border:1px solid #0a1a2e;}
+.stDataFrame [data-testid="stDataFrameResizable"]{background:#040e1c;}
+
+/* ══════════════════════════════════════════════
+   BUTTONS
+══════════════════════════════════════════════ */
+.stButton>button{
+  border-radius:10px;font-family:'Instrument Sans',sans-serif;
+  font-weight:600;font-size:.85rem;letter-spacing:.3px;
+  transition:all .2s cubic-bezier(.34,1.56,.64,1);
+}
+.stButton>button[kind="primary"]{
+  background:linear-gradient(135deg,#1d4ed8,#2563eb,#4f46e5) !important;
+  border:none !important;color:#fff !important;
+  box-shadow:0 4px 20px rgba(59,130,246,.35);
+}
+.stButton>button[kind="primary"]:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 30px rgba(59,130,246,.5) !important;
+}
+
+/* ══════════════════════════════════════════════
+   SELECT / INPUT
+══════════════════════════════════════════════ */
+.stSelectbox [data-baseweb="select"]{border-radius:10px !important;}
+.stSelectbox [data-baseweb="select"] > div{
+  background:#061120 !important;border-color:#0f1f35 !important;
+  color:#e2e8f0 !important;font-family:'Instrument Sans',sans-serif;font-size:.88rem;
+}
+.stTextInput input{
+  background:#061120 !important;border:1px solid #0f1f35 !important;
+  border-radius:10px !important;color:#e2e8f0 !important;
+  font-family:'DM Mono',monospace !important;font-size:.88rem;
+}
+.stTextInput input:focus{border-color:#3b82f6 !important;box-shadow:0 0 0 2px rgba(59,130,246,.2) !important;}
+
+/* ══════════════════════════════════════════════
+   FILE UPLOADER
+══════════════════════════════════════════════ */
+[data-testid="stFileUploader"]{
+  background:#040e1c;border:1px dashed #0f1f35;border-radius:14px;padding:8px;
+}
+[data-testid="stFileUploader"]:hover{border-color:#1e3a5f;}
+[data-testid="stFileUploadDropzone"]{background:transparent !important;}
+
+/* ══════════════════════════════════════════════
+   EXPANDER
+══════════════════════════════════════════════ */
+[data-testid="stExpander"]{
+  border:1px solid #0a1a2e;border-radius:14px;overflow:hidden;
+  background:#040e1c;
+}
+[data-testid="stExpander"] summary{
+  background:#040e1c;padding:14px 18px;
+  color:#475569;font-size:.84rem;font-family:'Instrument Sans',sans-serif;
+}
+[data-testid="stExpander"] summary:hover{color:#60a5fa;}
+
+/* ══════════════════════════════════════════════
+   METRIC  (override streamlit default)
+══════════════════════════════════════════════ */
+[data-testid="stMetric"]{
+  background:#061120;border:1px solid #0f1f35;border-radius:14px;padding:18px;
+}
+[data-testid="stMetricValue"]{
+  color:#7dd3fc;font-family:'Syne',sans-serif;font-weight:800;
+}
+[data-testid="stMetricLabel"]{color:#334155;font-size:.72rem;letter-spacing:1.5px;}
+
+/* ══════════════════════════════════════════════
+   ALERT / WARNING
+══════════════════════════════════════════════ */
+[data-testid="stAlert"]{border-radius:12px;border:none;}
+
+/* ══════════════════════════════════════════════
+   DOWNLOAD BUTTON
+══════════════════════════════════════════════ */
+[data-testid="stDownloadButton"] button{
+  background:linear-gradient(135deg,#052e16,#064e3b) !important;
+  border:1px solid #14532d50 !important;color:#4ade80 !important;
+  border-radius:10px;font-family:'Instrument Sans',sans-serif;font-weight:600;
+}
+[data-testid="stDownloadButton"] button:hover{
+  background:linear-gradient(135deg,#064e3b,#065f46) !important;
+  box-shadow:0 4px 20px rgba(34,197,94,.25) !important;
+  transform:translateY(-2px);
+}
+
+/* ══════════════════════════════════════════════
+   SPINNER
+══════════════════════════════════════════════ */
+[data-testid="stSpinner"]>div{
+  border-color:#1e3a5f #1e3a5f #3b82f6 !important;
+}
+
+/* ══════════════════════════════════════════════
+   HERO HEADER
+══════════════════════════════════════════════ */
+.hero-wrap{
+  padding:28px 32px;
+  background:linear-gradient(135deg,#040e1c 0%,#050f1a 60%,#06111e 100%);
+  border:1px solid #0a1a2e;border-radius:20px;
+  position:relative;overflow:hidden;margin-bottom:8px;
+}
+.hero-wrap::before{
+  content:'';position:absolute;top:-60%;right:-10%;width:400px;height:400px;
+  background:radial-gradient(circle,rgba(59,130,246,.07) 0%,transparent 60%);
+  border-radius:50%;pointer-events:none;
+}
+.hero-wrap::after{
+  content:'';position:absolute;bottom:-40%;left:30%;width:300px;height:300px;
+  background:radial-gradient(circle,rgba(99,102,241,.05) 0%,transparent 60%);
+  border-radius:50%;pointer-events:none;
+}
+.hero-logo{
+  font-size:1.75rem;font-weight:800;font-family:'Syne',sans-serif;
+  background:linear-gradient(135deg,#38bdf8 0%,#818cf8 60%,#c084fc 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  letter-spacing:-1px;line-height:1;margin-bottom:6px;
+}
+.hero-sub{font-size:.72rem;color:#1e3a5f;letter-spacing:3px;text-transform:uppercase;font-family:'Instrument Sans',sans-serif;}
+
+/* ══════════════════════════════════════════════
+   SIDEBAR BRAND
+══════════════════════════════════════════════ */
+.sb-brand{
+  padding:28px 20px 20px;
+  border-bottom:1px solid #0a1a2e;margin-bottom:16px;
+}
+.sb-logo{
+  font-size:1.4rem;font-weight:800;font-family:'Syne',sans-serif;
+  background:linear-gradient(135deg,#38bdf8,#818cf8);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px;
+}
+.sb-sub{font-size:.6rem;color:#1e3a5f;letter-spacing:2.5px;text-transform:uppercase;margin-top:4px;font-family:'Instrument Sans',sans-serif;}
+
+/* ══════════════════════════════════════════════
+   CONCLUSION CARDS
+══════════════════════════════════════════════ */
+.concl-card{
+  background:linear-gradient(135deg,#061828 0%,#06140e 100%);
+  border:1px solid #0f2535;border-radius:16px;
+  padding:20px 24px;margin:10px 0;border-left:3px solid #3b82f6;
+  transition:transform .2s ease;
+}
+.concl-card:hover{transform:translateX(4px);}
+.concl-card .ct{font-size:.58rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:2.5px;font-weight:700;margin-bottom:8px;font-family:'Instrument Sans',sans-serif;}
+.concl-card .cv{color:#cbd5e1;font-size:.9rem;line-height:1.8;}
+
+/* ══════════════════════════════════════════════
+   PROGRAM MODEL CARDS
+══════════════════════════════════════════════ */
+.prog-card{
+  background:#061120;border:1px solid #0f1f35;border-radius:12px;
+  padding:12px 16px;min-width:130px;display:inline-block;
+}
+.prog-card .pc-name{font-size:.62rem;color:#334155;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;margin-bottom:6px;font-family:'Instrument Sans',sans-serif;}
+.prog-card .pc-model{font-size:.9rem;font-weight:700;color:#e2e8f0;margin-bottom:6px;font-family:'Syne',sans-serif;}
+
+/* ══════════════════════════════════════════════
+   HOLIDAY EFFECT CARDS
+══════════════════════════════════════════════ */
+.hol-card{
+  border-radius:14px;padding:18px 20px;
+  transition:transform .2s ease;
+}
+.hol-card:hover{transform:translateY(-3px);}
+
+/* ══════════════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════════════ */
+.empty-state{
+  text-align:center;padding:80px 0 60px;
+}
+.empty-icon{font-size:4rem;margin-bottom:20px;filter:drop-shadow(0 0 30px rgba(59,130,246,.3));}
+.empty-title{
+  font-size:2rem;font-weight:800;font-family:'Syne',sans-serif;
+  background:linear-gradient(135deg,#38bdf8 0%,#818cf8 60%,#c084fc 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  letter-spacing:-1px;margin-bottom:14px;
+}
+.empty-sub{color:#334155;max-width:520px;margin:auto;font-size:.92rem;line-height:1.85;}
+
+/* ══════════════════════════════════════════════
+   FEATURE CARDS (landing)
+══════════════════════════════════════════════ */
+.feat-card{
+  background:linear-gradient(145deg,#040e1c,#060f1e);
+  border:1px solid #0a1a2e;border-radius:18px;padding:26px 22px;
+  text-align:center;height:180px;position:relative;overflow:hidden;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1), border-color .3s ease;
+}
+.feat-card:hover{transform:translateY(-6px);border-color:#1e3a5f;}
+.feat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,#3b82f6,transparent);
+}
+.feat-icon{font-size:2rem;margin-bottom:10px;filter:drop-shadow(0 0 16px rgba(59,130,246,.4));}
+.feat-title{font-weight:700;color:#e2e8f0;margin-bottom:8px;font-size:.95rem;font-family:'Syne',sans-serif;}
+.feat-desc{color:#334155;font-size:.8rem;line-height:1.65;}
+
+/* ══════════════════════════════════════════════
+   EXPORT STATUS BOX
+══════════════════════════════════════════════ */
+.export-box{
+  background:#040e1c;border:1px solid #0a1a2e;border-radius:14px;
+  padding:18px 20px;line-height:2;font-size:.83rem;
+}
+.export-box .ok{color:#4ade80;} .export-box .nok{color:#475569;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -228,36 +561,88 @@ for k, v in [('active_data', None), ('active_results', {}), ('active_entry_id', 
     if k not in st.session_state:
         st.session_state[k] = v
 
-DARK = dict(template='plotly_dark', paper_bgcolor='#05090f', plot_bgcolor='#05090f',
-            font_color='#e2e8f0', font_family='Inter',
-            title_font_family='Inter', title_font_color='#e2e8f0')
-COLORS = ['#60a5fa','#34d399','#fb923c','#a78bfa','#f87171',
-          '#fbbf24','#38bdf8','#f472b6','#4ade80','#e879f9']
-COLORS_ALPHA = {c: c for c in COLORS}
+# ══════════════════════════════════════════════════════════════════════════════
+# CHART DESIGN SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+DARK = dict(
+    template='plotly_dark',
+    paper_bgcolor='rgba(2,12,24,0)',
+    plot_bgcolor='rgba(4,14,28,0)',
+    font_color='#64748b',
+    font_family='Instrument Sans',
+    title_font_family='Syne',
+    title_font_color='#94a3b8',
+)
+
+# Refined palette — jewel tones on deep dark
+COLORS = [
+    '#38bdf8',  # sky blue
+    '#34d399',  # emerald
+    '#a78bfa',  # violet
+    '#fb923c',  # amber
+    '#f472b6',  # pink
+    '#fbbf24',  # gold
+    '#4ade80',  # lime
+    '#e879f9',  # fuchsia
+    '#22d3ee',  # cyan
+    '#f87171',  # red
+]
 
 def hex_to_rgba(hex_c, alpha=1.0):
     h = hex_c.lstrip('#')
     r, g, b = int(h[0:2],16), int(h[2:4],16), int(h[4:6],16)
     return f'rgba({r},{g},{b},{alpha})'
 
-def styled_chart(fig, height=400, legend_bottom=True, margin_b=80):
-    fig.update_layout(
-        **DARK, height=height,
+def styled_chart(fig, height=420, legend_bottom=True, margin_b=90, title=None):
+    """Apply unified dark chart styling."""
+    grid_color  = 'rgba(14,30,56,0.8)'
+    grid_color2 = 'rgba(10,20,40,0.9)'
+
+    updates = dict(
+        **DARK,
+        height=height,
         hovermode='x unified',
-        hoverlabel=dict(bgcolor='#0d1f35', font_size=12, bordercolor='#1e3a5f'),
-        legend=dict(orientation='h', y=-0.22, font=dict(size=10.5),
-                    groupclick='toggleitem') if legend_bottom else {},
-        margin=dict(b=margin_b if legend_bottom else 40, t=20, l=60, r=20),
-        xaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
-                   zeroline=False, linecolor='#1e2d45'),
-        yaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
-                   zeroline=False, linecolor='#1e2d45'),
+        hoverlabel=dict(
+            bgcolor='rgba(6,18,36,.96)',
+            font_size=12,
+            font_family='DM Mono',
+            bordercolor='#1e3a5f',
+        ),
+        legend=dict(
+            orientation='h', y=-0.22,
+            font=dict(size=10.5, family='Instrument Sans'),
+            groupclick='toggleitem',
+            bgcolor='rgba(0,0,0,0)',
+            bordercolor='rgba(0,0,0,0)',
+        ) if legend_bottom else dict(
+            font=dict(size=10.5, family='Instrument Sans'),
+            bgcolor='rgba(0,0,0,0)',
+        ),
+        margin=dict(b=margin_b if legend_bottom else 40, t=30, l=60, r=24),
+        xaxis=dict(
+            showgrid=True, gridcolor=grid_color, gridwidth=1,
+            zeroline=False, linecolor='#0a1a2e', linewidth=1,
+            tickfont=dict(size=10.5, color='#334155', family='DM Mono'),
+        ),
+        yaxis=dict(
+            showgrid=True, gridcolor=grid_color2, gridwidth=1,
+            zeroline=False, linecolor='#0a1a2e', linewidth=1,
+            tickfont=dict(size=10.5, color='#334155', family='DM Mono'),
+        ),
     )
+    if title:
+        updates['title'] = dict(text=title, font=dict(size=13, color='#64748b'), x=0, pad=dict(b=10))
+
+    fig.update_layout(**updates)
+
+    # Refined gridline color on axes
+    fig.update_xaxes(gridcolor=grid_color, zerolinecolor='#0a1a2e')
+    fig.update_yaxes(gridcolor=grid_color2, zerolinecolor='#0a1a2e')
     return fig
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA PARSING
+# DATA PARSING (unchanged logic, same as original)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def clean_num(val):
@@ -277,7 +662,6 @@ def load_raw(fb, fname):
 
 def parse_dataset(df, year_hint):
     cols = df.columns.tolist()
-
     prog_col = None
     for c in cols:
         if c in ('PROGRAM', 'KATEGORI', 'CATEGORY', 'JENIS', 'JAMINAN'):
@@ -287,7 +671,6 @@ def parse_dataset(df, year_hint):
             if df[c].dtype == object and df[c].nunique() < 50:
                 if not any(k in c for k in ('DATE','TANGGAL','KODE','ID','PERIODE')):
                     prog_col = c; break
-
     if prog_col is None:
         return None, f"Kolom PROGRAM tidak ditemukan. Kolom: {cols}"
 
@@ -295,7 +678,6 @@ def parse_dataset(df, year_hint):
     for candidate in ('AKTUAL_KASUS', 'KASUS', 'CASE', 'KLAIM', 'COUNT'):
         if candidate in cols:
             kasus_col = candidate; break
-
     if kasus_col is None:
         return None, f"Kolom KASUS tidak ditemukan. Kolom: {cols}"
 
@@ -407,7 +789,6 @@ def merge_all(files_info):
     if not all_dfs:
         return None, errors
     combined = pd.concat(all_dfs, ignore_index=True)
-
     agg = {'Kasus': 'last'}
     if 'Nominal' in combined.columns:
         agg['Nominal'] = 'last'
@@ -418,15 +799,10 @@ def analyze_program_changes(df):
     years = sorted(df['Tahun'].unique())
     changes = {}
     for i in range(len(years) - 1):
-        y0 = years[i]
-        y1 = years[i + 1]
+        y0, y1 = years[i], years[i+1]
         p0 = set(df[df['Tahun'] == y0]['Kategori'].unique())
         p1 = set(df[df['Tahun'] == y1]['Kategori'].unique())
-        changes[(y0, y1)] = {
-            'added':   sorted(p1 - p0),
-            'removed': sorted(p0 - p1),
-            'stable':  sorted(p0 & p1),
-        }
+        changes[(y0, y1)] = {'added': sorted(p1-p0), 'removed': sorted(p0-p1), 'stable': sorted(p0&p1)}
     return changes
 
 def get_active_programs(df):
@@ -435,7 +811,7 @@ def get_active_programs(df):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ML CORE
+# ML CORE (unchanged)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def score_model(yt, yp):
@@ -446,115 +822,90 @@ def score_model(yt, yp):
     mape = float(np.mean(np.abs((yt - yp) / (np.abs(yt) + 1e-9))) * 100)
     return {'MAE': mae, 'RMSE': rmse, 'R2': r2, 'MAPE (%)': mape}
 
-
 def forecast_holt(history, n_steps, alpha=None, beta=None):
     y = np.array(history, dtype=float)
     n = len(y)
     if n < 2:
         return np.array([y[-1]] * n_steps)
-
     best_mape = np.inf
     best_a, best_b = 0.3, 0.1
     for a in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]:
         for b in [0.05, 0.1, 0.15, 0.2, 0.3]:
             try:
                 lvl = np.zeros(n); trnd = np.zeros(n)
-                lvl[0] = y[0]; trnd[0] = y[1] - y[0] if n > 1 else 0
+                lvl[0] = y[0]; trnd[0] = y[1]-y[0] if n>1 else 0
                 for i in range(1, n):
-                    lvl[i]  = a * y[i] + (1-a) * (lvl[i-1] + trnd[i-1])
-                    trnd[i] = b * (lvl[i] - lvl[i-1]) + (1-b) * trnd[i-1]
+                    lvl[i]  = a*y[i] + (1-a)*(lvl[i-1]+trnd[i-1])
+                    trnd[i] = b*(lvl[i]-lvl[i-1]) + (1-b)*trnd[i-1]
                 fitted = lvl[:-1] + trnd[:-1]
-                mape = np.mean(np.abs((y[1:] - fitted) / (np.abs(y[1:]) + 1e-9))) * 100
+                mape = np.mean(np.abs((y[1:]-fitted)/(np.abs(y[1:])+1e-9)))*100
                 if mape < best_mape:
-                    best_mape = mape; best_a = a; best_b = b
+                    best_mape=mape; best_a=a; best_b=b
             except:
                 pass
-
     lvl = np.zeros(n); trnd = np.zeros(n)
-    lvl[0] = y[0]; trnd[0] = y[1] - y[0] if n > 1 else 0
+    lvl[0] = y[0]; trnd[0] = y[1]-y[0] if n>1 else 0
     for i in range(1, n):
-        lvl[i]  = best_a * y[i] + (1-best_a) * (lvl[i-1] + trnd[i-1])
-        trnd[i] = best_b * (lvl[i] - lvl[i-1]) + (1-best_b) * trnd[i-1]
-    preds = np.array([lvl[-1] + (s+1)*trnd[-1] for s in range(n_steps)])
+        lvl[i]  = best_a*y[i] + (1-best_a)*(lvl[i-1]+trnd[i-1])
+        trnd[i] = best_b*(lvl[i]-lvl[i-1]) + (1-best_b)*trnd[i-1]
+    preds = np.array([lvl[-1]+(s+1)*trnd[-1] for s in range(n_steps)])
     return preds, best_a, best_b, lvl, trnd
-
 
 def forecast_ses(history, n_steps):
     y = np.array(history, dtype=float)
-    best_mape = np.inf; best_a = 0.3
-    for a in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-        lvl = y[0]
-        fitted = []
-        for i in range(1, len(y)):
-            fitted.append(lvl)
-            lvl = a * y[i] + (1-a) * lvl
+    best_mape=np.inf; best_a=0.3
+    for a in [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]:
+        lvl=y[0]; fitted=[]
+        for i in range(1,len(y)):
+            fitted.append(lvl); lvl=a*y[i]+(1-a)*lvl
         if fitted:
-            mape = np.mean(np.abs((y[1:len(fitted)+1] - np.array(fitted)) / (np.abs(y[1:len(fitted)+1]) + 1e-9))) * 100
+            mape=np.mean(np.abs((y[1:len(fitted)+1]-np.array(fitted))/(np.abs(y[1:len(fitted)+1])+1e-9)))*100
             if mape < best_mape:
-                best_mape = mape; best_a = a
-    lvl = y[0]
-    for v in y[1:]:
-        lvl = best_a * v + (1-best_a) * lvl
-    return np.array([lvl] * n_steps), best_a
-
+                best_mape=mape; best_a=a
+    lvl=y[0]
+    for v in y[1:]: lvl=best_a*v+(1-best_a)*lvl
+    return np.array([lvl]*n_steps), best_a
 
 def forecast_moving_avg(history, n_steps, window=3):
     y = np.array(history, dtype=float)
     w = min(window, len(y))
-    weights = np.arange(1, w+1, dtype=float)
-    weights /= weights.sum()
+    weights = np.arange(1, w+1, dtype=float); weights /= weights.sum()
     base = float(np.dot(y[-w:], weights))
-    if len(y) >= 2:
-        trend = float(y[-1] - y[-2])
-    else:
-        trend = 0.0
+    trend = float(y[-1]-y[-2]) if len(y)>=2 else 0.0
     trend = np.clip(trend, -abs(base)*0.3, abs(base)*0.3)
-    return np.array([base + trend*(s+1)*0.5 for s in range(n_steps)])
-
+    return np.array([base+trend*(s+1)*0.5 for s in range(n_steps)])
 
 def loo_cv_stat(history, method_fn, n_steps=1):
     y = np.array(history, dtype=float)
     n = len(y)
     yt_all, yp_all = [], []
     for leave in range(1, n):
-        train = y[:leave]
-        actual = y[leave]
+        train = y[:leave]; actual = y[leave]
         try:
             preds = method_fn(train, n_steps)
             if isinstance(preds, tuple): preds = preds[0]
-            yp_all.append(float(preds[0]))
-            yt_all.append(actual)
-        except:
-            pass
+            yp_all.append(float(preds[0])); yt_all.append(actual)
+        except: pass
     if len(yt_all) < 1:
         return {'MAE': np.inf, 'RMSE': np.inf, 'R2': -999, 'MAPE (%)': np.inf}
     return score_model(np.array(yt_all), np.array(yp_all))
 
-
 def build_features(series, n_lags=1, cat_id=0.0):
     pad = list(series)
-    while len(pad) <= n_lags:
-        pad.insert(0, pad[0])
+    while len(pad) <= n_lags: pad.insert(0, pad[0])
     X_all, y_all = [], []
     for i in range(n_lags, len(pad)):
-        lags = [pad[i - l] for l in range(1, n_lags + 1)]
-        win  = pad[max(0, i-3):i]
-        feat = lags + [
-            np.mean(win),
-            np.std(win) if len(win) > 1 else 0.0,
-            pad[i-1] - pad[i-2] if i >= 2 else 0.0,
-            cat_id
-        ]
-        X_all.append(feat)
-        y_all.append(pad[i])
+        lags = [pad[i-l] for l in range(1, n_lags+1)]
+        win  = pad[max(0,i-3):i]
+        feat = lags + [np.mean(win), np.std(win) if len(win)>1 else 0.0,
+                       pad[i-1]-pad[i-2] if i>=2 else 0.0, cat_id]
+        X_all.append(feat); y_all.append(pad[i])
     return np.array(X_all), np.array(y_all)
-
 
 SCALED_MODELS = {'SVR', 'KNN', 'Ridge', 'Lasso', 'ElasticNet', 'Linear Regression', 'Huber'}
 
-
 def get_ml_models(n_train):
-    k = min(3, max(1, n_train - 1))
+    k = min(3, max(1, n_train-1))
     models = {
         'Linear Regression': LinearRegression(),
         'Ridge':             Ridge(alpha=1.0),
@@ -566,13 +917,10 @@ def get_ml_models(n_train):
         'KNN':               KNeighborsRegressor(n_neighbors=k, weights='distance'),
     }
     if XGBOOST_OK:
-        models['XGBoost'] = XGBRegressor(n_estimators=100, max_depth=3, learning_rate=0.1,
-                                          n_jobs=-1, random_state=42, verbosity=0)
+        models['XGBoost'] = XGBRegressor(n_estimators=100, max_depth=3, learning_rate=0.1, n_jobs=-1, random_state=42, verbosity=0)
     if LGBM_OK:
-        models['LightGBM'] = LGBMRegressor(n_estimators=100, max_depth=3, learning_rate=0.1,
-                                             n_jobs=-1, random_state=42, verbose=-1)
+        models['LightGBM'] = LGBMRegressor(n_estimators=100, max_depth=3, learning_rate=0.1, n_jobs=-1, random_state=42, verbose=-1)
     return models
-
 
 def loo_cv_ml(Xc, yc, model_name, model_obj):
     import copy
@@ -590,12 +938,10 @@ def loo_cv_ml(Xc, yc, model_name, model_obj):
             mdl.fit(Xtr_s if model_name in SCALED_MODELS else Xtr, ytr)
             yp = float(mdl.predict(Xte_s if model_name in SCALED_MODELS else Xte)[0])
             yt_all.append(float(yte[0])); yp_all.append(yp)
-        except:
-            pass
+        except: pass
     if len(yt_all) < 2:
         return {'MAE': np.inf, 'RMSE': np.inf, 'R2': -999, 'MAPE (%)': np.inf}
     return score_model(np.array(yt_all), np.array(yp_all))
-
 
 def train_best_per_program(df, target, n_lags, test_ratio):
     from collections import Counter
@@ -605,116 +951,75 @@ def train_best_per_program(df, target, n_lags, test_ratio):
     cat_enc = {c: float(i) for i, c in enumerate(active)}
     years   = sorted(df['Tahun'].unique())
     single  = len(years) == 1
-
-    per_prog    = {}
-    detail_rows = []
+    per_prog = {}; detail_rows = []
 
     for cat in active:
-        sub = (df[df['Kategori'] == cat]
-               .sort_values('Tahun')[target].dropna().values.astype(float))
-        if len(sub) == 0:
+        sub = (df[df['Kategori']==cat].sort_values('Tahun')[target].dropna().values.astype(float))
+        if len(sub)==0: continue
+        if len(sub)<2:
+            per_prog[cat] = {'best_name':'Holt Smoothing','method_type':'stat','history':list(sub),'single':True,
+                             'metrics':{'R2':None,'MAPE (%)':None,'MAE':None,'RMSE':None},'cat_id':cat_enc.get(cat,0.0)}
             continue
-
-        if len(sub) < 2:
-            per_prog[cat] = {
-                'best_name': 'Holt Smoothing', 'method_type': 'stat',
-                'history': list(sub), 'single': True,
-                'metrics': {'R2': None, 'MAPE (%)': None, 'MAE': None, 'RMSE': None},
-                'cat_id': cat_enc.get(cat, 0.0),
-            }
-            continue
-
         use_ml = (len(sub) >= 8)
-
         stat_candidates = {
-            'Holt Smoothing':   lambda h, s: forecast_holt(h, s),
-            'Exp Smoothing':    lambda h, s: (forecast_ses(h, s)[0],),
-            'Weighted MA':      lambda h, s: (forecast_moving_avg(h, s),),
+            'Holt Smoothing': lambda h,s: forecast_holt(h,s),
+            'Exp Smoothing':  lambda h,s: (forecast_ses(h,s)[0],),
+            'Weighted MA':    lambda h,s: (forecast_moving_avg(h,s),),
         }
         stat_scores = {}
         for mname, fn in stat_candidates.items():
             sc = loo_cv_stat(list(sub), fn)
             stat_scores[mname] = sc
-            detail_rows.append({'Program': cat, 'Model': mname, **sc})
-
-        ml_scores = {}
-        ml_models_fitted = {}
+            detail_rows.append({'Program':cat,'Model':mname,**sc})
+        ml_scores = {}; ml_models_fitted = {}
         if use_ml:
-            Xc, yc = build_features(sub, min(n_lags, 2), cat_enc.get(cat, 0.0))
+            Xc, yc = build_features(sub, min(n_lags,2), cat_enc.get(cat,0.0))
             sc_full = StandardScaler().fit(Xc)
-            ml_defs = get_ml_models(len(Xc) - 1)
+            ml_defs = get_ml_models(len(Xc)-1)
             for mname, mdl_obj in ml_defs.items():
                 sc = loo_cv_ml(Xc, yc, mname, mdl_obj)
                 ml_scores[mname] = sc
-                detail_rows.append({'Program': cat, 'Model': mname, **sc})
+                detail_rows.append({'Program':cat,'Model':mname,**sc})
                 try:
                     mdl_full = copy.deepcopy(mdl_obj)
                     Xc_s = sc_full.transform(Xc)
                     mdl_full.fit(Xc_s if mname in SCALED_MODELS else Xc, yc)
-                    ml_models_fitted[mname] = {'model': mdl_full, 'scaler': sc_full, 'Xc': Xc, 'yc': yc}
-                except:
-                    pass
-
-        all_scores = {**stat_scores, **ml_scores}
-        valid = {m: s for m, s in all_scores.items() if s['MAPE (%)'] < 200}
+                    ml_models_fitted[mname] = {'model':mdl_full,'scaler':sc_full,'Xc':Xc,'yc':yc}
+                except: pass
+        all_scores = {**stat_scores,**ml_scores}
+        valid = {m:s for m,s in all_scores.items() if s['MAPE (%)']<200}
         pool  = valid if valid else all_scores
-        if not pool:
-            pool = stat_scores
-
+        if not pool: pool = stat_scores
         best_name = min(pool, key=lambda m: pool[m]['MAPE (%)'])
         best_sc   = all_scores[best_name]
-
-        is_stat = best_name in stat_candidates
-        entry = {
-            'best_name':   best_name,
-            'method_type': 'stat' if is_stat else 'ml',
-            'history':     list(sub),
-            'single':      False,
-            'metrics':     best_sc,
-            'all_scores':  all_scores,
-            'cat_id':      cat_enc.get(cat, 0.0),
-        }
-        if is_stat:
-            entry['stat_fn_name'] = best_name
+        is_stat   = best_name in stat_candidates
+        entry = {'best_name':best_name,'method_type':'stat' if is_stat else 'ml','history':list(sub),'single':False,'metrics':best_sc,'all_scores':all_scores,'cat_id':cat_enc.get(cat,0.0)}
+        if is_stat: entry['stat_fn_name'] = best_name
         else:
             if best_name in ml_models_fitted:
                 info_ml = ml_models_fitted[best_name]
-                entry['best_model'] = info_ml['model']
-                entry['scaler']     = info_ml['scaler']
-                entry['n_lags_used'] = min(n_lags, 2)
-
+                entry['best_model']=info_ml['model']; entry['scaler']=info_ml['scaler']; entry['n_lags_used']=min(n_lags,2)
         per_prog[cat] = entry
 
     bpp_rows = []
     for cat, info in per_prog.items():
-        m = info.get('metrics', {})
-        bpp_rows.append({
-            'Program': cat, 'Model': info['best_name'],
-            'Tipe': '📊 Statistik' if info.get('method_type') == 'stat' else '🤖 ML',
-            'R2':       m.get('R2'), 'MAPE (%)': m.get('MAPE (%)'),
-            'MAE':      m.get('MAE'), 'RMSE':    m.get('RMSE'),
-        })
+        m = info.get('metrics',{})
+        bpp_rows.append({'Program':cat,'Model':info['best_name'],'Tipe':'📊 Statistik' if info.get('method_type')=='stat' else '🤖 ML',
+                         'R2':m.get('R2'),'MAPE (%)':m.get('MAPE (%)'),'MAE':m.get('MAE'),'RMSE':m.get('RMSE')})
     best_per_prog = pd.DataFrame(bpp_rows)
     detail_df     = pd.DataFrame(detail_rows) if detail_rows else pd.DataFrame()
 
-    valid_bpp = [r for r in bpp_rows if r['MAPE (%)'] is not None and r['MAPE (%)'] < 200]
-    avg_r2   = float(np.mean([r['R2'] for r in valid_bpp if r['R2'] is not None])) if valid_bpp else None
-    avg_mape = float(np.mean([r['MAPE (%)'] for r in valid_bpp])) if valid_bpp else 0.0
-    avg_mae  = float(np.mean([r['MAE']      for r in valid_bpp])) if valid_bpp else 0.0
+    valid_bpp = [r for r in bpp_rows if r['MAPE (%)'] is not None and r['MAPE (%)']<200]
+    avg_r2    = float(np.mean([r['R2'] for r in valid_bpp if r['R2'] is not None])) if valid_bpp else None
+    avg_mape  = float(np.mean([r['MAPE (%)'] for r in valid_bpp])) if valid_bpp else 0.0
+    avg_mae   = float(np.mean([r['MAE']      for r in valid_bpp])) if valid_bpp else 0.0
 
     from collections import Counter
     overall_best = Counter(r['Model'] for r in bpp_rows).most_common(1)[0][0] if bpp_rows else 'N/A'
 
-    return {
-        'per_prog': per_prog, 'best_per_program': best_per_prog,
-        'detail': detail_df,  'results_df': pd.DataFrame(),
-        'best_name': overall_best, 'best_r2': avg_r2,
-        'best_mape': avg_mape, 'best_mae': avg_mae,
-        'cat_enc': cat_enc, 'single': single,
-        'n_lags': n_lags, 'target': target,
-        'active_programs': active,
-    }, None
-
+    return {'per_prog':per_prog,'best_per_program':best_per_prog,'detail':detail_df,'results_df':pd.DataFrame(),
+            'best_name':overall_best,'best_r2':avg_r2,'best_mape':avg_mape,'best_mae':avg_mae,
+            'cat_enc':cat_enc,'single':single,'n_lags':n_lags,'target':target,'active_programs':active}, None
 
 def run_ml(df, target, n_lags, test_ratio):
     return train_best_per_program(df, target, n_lags, test_ratio)
@@ -730,228 +1035,131 @@ def run_ml_per_program(df, target, n_lags, test_ratio):
 
 def build_conclusion(ml_result, per_prog_result, df, target, n_future):
     lines = []
-    if ml_result is None:
-        return lines
-
+    if ml_result is None: return lines
     bpp = ml_result.get('best_per_program', pd.DataFrame())
-    per_prog = ml_result.get('per_prog', {})
 
     if not bpp.empty and 'R2' in bpp.columns:
         r2_val   = float(bpp['R2'].mean())
         mape_val = float(bpp['MAPE (%)'].mean())
     else:
-        r2_val, mape_val = ml_result.get('best_r2', 0.0), ml_result.get('best_mape', 0.0)
+        r2_val, mape_val = ml_result.get('best_r2',0.0), ml_result.get('best_mape',0.0)
 
-    r2_grade   = ("Sangat Baik (>0.9)" if r2_val > 0.9 else
-                  "Baik (0.8–0.9)"     if r2_val > 0.8 else
-                  "Cukup (0.6–0.8)"    if r2_val > 0.6 else "Lemah (<0.6)")
-    mape_grade = ("Sangat Akurat (<10%)" if mape_val < 10 else
-                  "Akurat (10–20%)"      if mape_val < 20 else
-                  "Cukup (20–50%)"       if mape_val < 50 else "Tidak Akurat (>50%)")
+    r2_grade   = ("Sangat Baik (>0.9)" if r2_val>0.9 else "Baik (0.8–0.9)" if r2_val>0.8 else "Cukup (0.6–0.8)" if r2_val>0.6 else "Lemah (<0.6)")
+    mape_grade = ("Sangat Akurat (<10%)" if mape_val<10 else "Akurat (10–20%)" if mape_val<20 else "Cukup (20–50%)" if mape_val<50 else "Tidak Akurat (>50%)")
 
-    lines.append(('🎯', 'Pendekatan Prediksi',
-        "Setiap program menggunakan **model terbaiknya sendiri** (per-program best model). "
+    lines.append(('🎯','Pendekatan Prediksi',
+        f"Setiap program menggunakan **model terbaiknya sendiri** (per-program best model). "
         f"Rata-rata R² = **{r2_val:.4f}** ({r2_grade}), rata-rata MAPE = **{mape_val:.2f}%** ({mape_grade})."))
 
     if not bpp.empty:
-        prog_str = ', '.join(f"{r['Program']} → **{r['Model']}**" for _, r in bpp.iterrows())
-        lines.append(('📊', 'Model Terbaik per Program', prog_str))
-        if len(bpp) > 1:
+        prog_str = ', '.join(f"{r['Program']} → **{r['Model']}**" for _,r in bpp.iterrows())
+        lines.append(('📊','Model Terbaik per Program', prog_str))
+        if len(bpp)>1:
             worst  = bpp.sort_values('R2').iloc[0]
-            best_p = bpp.sort_values('R2', ascending=False).iloc[0]
-            lines.append(('🔍', 'Akurasi per Program',
+            best_p = bpp.sort_values('R2',ascending=False).iloc[0]
+            lines.append(('🔍','Akurasi per Program',
                 f"Program **{best_p['Program']}** paling mudah diprediksi (R²={best_p['R2']:.3f}, MAPE={best_p['MAPE (%)']:.1f}%). "
                 f"Program **{worst['Program']}** paling sulit (R²={worst['R2']:.3f}, MAPE={worst['MAPE (%)']:.1f}%) — "
                 "pertimbangkan menambah data historis atau fitur eksternal."))
 
     base_yr = int(df['Tahun'].max())
-    lines.append(('📅', 'Horizon Prediksi',
-        f"Model dilatih pada data s/d **{base_yr}** dan mampu memproyeksikan hingga "
-        f"**{base_yr + n_future}** ({n_future} tahun ke depan). "
+    lines.append(('📅','Horizon Prediksi',
+        f"Model dilatih pada data s/d **{base_yr}** dan mampu memproyeksikan hingga **{base_yr+n_future}** ({n_future} tahun ke depan). "
         "Akurasi menurun semakin jauh horizon waktu — gunakan prediksi jangka pendek untuk keputusan kritis."))
 
     yrs = sorted(df['Tahun'].unique())
-    lines.append(('📁', 'Kualitas Data',
-        f"Dataset mencakup **{len(yrs)} tahun** ({yrs[0]}–{yrs[-1]}) "
-        f"dengan **{len(get_active_programs(df))} program aktif**. "
-        + ("✅ Jumlah tahun cukup untuk model lag." if len(yrs) >= 4
-           else "⚠️ Tambah data historis untuk meningkatkan akurasi model.")))
+    lines.append(('📁','Kualitas Data',
+        f"Dataset mencakup **{len(yrs)} tahun** ({yrs[0]}–{yrs[-1]}) dengan **{len(get_active_programs(df))} program aktif**. "
+        + ("✅ Jumlah tahun cukup untuk model lag." if len(yrs)>=4 else "⚠️ Tambah data historis untuk meningkatkan akurasi model.")))
 
-    if r2_val >= 0.8 and mape_val <= 20:
+    if r2_val>=0.8 and mape_val<=20:
         rec = "✅ Model layak digunakan untuk perencanaan anggaran dan proyeksi klaim BPJS."
-    elif r2_val >= 0.6:
+    elif r2_val>=0.6:
         rec = "⚠️ Model cukup untuk proyeksi kasar. Validasi manual disarankan sebelum keputusan strategis."
     else:
         rec = "❌ Akurasi belum optimal. Tambah data historis minimal 5 tahun, atau gunakan Prophet untuk data bulanan."
-    lines.append(('💡', 'Rekomendasi', rec))
+    lines.append(('💡','Rekomendasi', rec))
     return lines
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INDONESIAN HOLIDAYS — Google Calendar API
-# FIXED: GCAL_KEY dibaca saat fungsi dipanggil (bukan saat module load)
-#        Cache di-bust jika key berbeda dari sebelumnya
 # ══════════════════════════════════════════════════════════════════════════════
 
 GCAL_CALENDAR_ID = "en.indonesian%23holiday%40group.v.calendar.google.com"
 
 _WINDOW_RULES = {
-    'idul fitri'          : (-7,  7),
-    'lebaran'             : (-7,  7),
-    'ramadan'             : ( 0, 29),
-    'ramadhan'            : ( 0, 29),
-    'puasa'               : ( 0, 29),
-    'idul adha'           : (-3,  3),
-    'natal'               : (-2,  2),
-    'christmas'           : (-2,  2),
-    'tahun baru'          : (-1,  2),
-    'new year'            : (-1,  2),
-    'cuti bersama'        : (-1,  1),
-    'default'             : (-1,  1),
+    'idul fitri': (-7,7), 'lebaran': (-7,7), 'ramadan': (0,29), 'ramadhan': (0,29),
+    'puasa': (0,29), 'idul adha': (-3,3), 'natal': (-2,2), 'christmas': (-2,2),
+    'tahun baru': (-1,2), 'new year': (-1,2), 'cuti bersama': (-1,1), 'default': (-1,1),
 }
 
 def _get_window(name: str):
     nl = name.lower()
     for keyword, (lo, hi) in _WINDOW_RULES.items():
-        if keyword != 'default' and keyword in nl:
-            return lo, hi
+        if keyword != 'default' and keyword in nl: return lo, hi
     return _WINDOW_RULES['default']
-
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_google_holidays(gcal_key: str, year_start: int = 2019, year_end: int = 2028) -> list:
-    """
-    Fetch Indonesian holidays from Google Calendar API.
-    gcal_key dipass sebagai parameter eksplisit agar cache ter-bust
-    jika key berubah, dan agar tidak dibaca dari st.secrets di level module.
-    """
     import urllib.request, urllib.parse, json as json_lib
-
-    if not gcal_key:
-        return []
-
+    if not gcal_key: return []
     base_url = f"https://www.googleapis.com/calendar/v3/calendars/{GCAL_CALENDAR_ID}/events"
-    all_rows  = []
-    seen_keys = set()
-
-    for year in range(year_start, year_end + 1):
+    all_rows = []; seen_keys = set()
+    for year in range(year_start, year_end+1):
         page_token = None
         while True:
-            params = {
-                'key'          : gcal_key,
-                'timeMin'      : f'{year}-01-01T00:00:00Z',
-                'timeMax'      : f'{year}-12-31T23:59:59Z',
-                'maxResults'   : '2500',
-                'singleEvents' : 'true',
-                'orderBy'      : 'startTime',
-            }
-            if page_token:
-                params['pageToken'] = page_token
-
+            params = {'key':gcal_key,'timeMin':f'{year}-01-01T00:00:00Z','timeMax':f'{year}-12-31T23:59:59Z',
+                      'maxResults':'2500','singleEvents':'true','orderBy':'startTime'}
+            if page_token: params['pageToken'] = page_token
             url = base_url + '?' + urllib.parse.urlencode(params)
             try:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=15) as r:
-                    raw_bytes = r.read()
-                    data = json_lib.loads(raw_bytes.decode('utf-8'))
-            except Exception as e:
-                # Jika satu tahun gagal, lanjut ke tahun berikutnya
-                break
-
+                    data = json_lib.loads(r.read().decode('utf-8'))
+            except: break
             if 'error' in data:
-                # Return list kosong dengan info error agar bisa ditampilkan ke user
-                err_msg = data['error'].get('message', 'Unknown error')
-                err_code = data['error'].get('code', 0)
-                return [{'_error': True, 'message': err_msg, 'code': err_code}]
-
-            for item in data.get('items', []):
-                start_raw = (item.get('start', {}).get('date')
-                             or item.get('start', {}).get('dateTime', '')[:10])
-                name = item.get('summary', '').strip()
-                if not start_raw or not name:
-                    continue
-
-                try:
-                    ds = pd.Timestamp(start_raw)
-                except Exception:
-                    continue
-
+                err = data['error']
+                return [{'_error':True,'message':err.get('message','Unknown error'),'code':err.get('code',0)}]
+            for item in data.get('items',[]):
+                start_raw = (item.get('start',{}).get('date') or item.get('start',{}).get('dateTime','')[:10])
+                name = item.get('summary','').strip()
+                if not start_raw or not name: continue
+                try: ds = pd.Timestamp(start_raw)
+                except: continue
                 key = (str(ds.date()), name)
-                if key in seen_keys:
-                    continue
+                if key in seen_keys: continue
                 seen_keys.add(key)
-
                 lo, hi = _get_window(name)
-                all_rows.append({
-                    'ds'           : ds,
-                    'holiday'      : name,
-                    'lower_window' : lo,
-                    'upper_window' : hi,
-                })
-
+                all_rows.append({'ds':ds,'holiday':name,'lower_window':lo,'upper_window':hi})
             page_token = data.get('nextPageToken')
-            if not page_token:
-                break
-
+            if not page_token: break
     return all_rows
 
-
 def get_gcal_key() -> str:
-    """Baca GCAL_KEY dari st.secrets dengan aman."""
     try:
-        key = st.secrets.get("GCAL_KEY", "")
+        key = st.secrets.get("GCAL_KEY","")
         return key.strip() if key else ""
-    except Exception:
-        return ""
-
+    except: return ""
 
 def build_holiday_df() -> tuple:
-    """
-    Build DataFrame hari libur dari Google Calendar API.
-    Return: (df_holidays, status_message, is_ok)
-    Dipanggil saat dibutuhkan, bukan saat module load.
-    """
     gcal_key = get_gcal_key()
-
     if not gcal_key:
-        return (
-            pd.DataFrame(columns=['ds', 'holiday', 'lower_window', 'upper_window']),
-            "❌ GCAL_KEY tidak ditemukan di Streamlit Secrets.",
-            False
-        )
-
+        return (pd.DataFrame(columns=['ds','holiday','lower_window','upper_window']),
+                "❌ GCAL_KEY tidak ditemukan di Streamlit Secrets.", False)
     rows = fetch_google_holidays(gcal_key)
-
-    # Cek apakah ada error dari API
-    if rows and isinstance(rows[0], dict) and rows[0].get('_error'):
+    if rows and isinstance(rows[0],dict) and rows[0].get('_error'):
         err = rows[0]
-        return (
-            pd.DataFrame(columns=['ds', 'holiday', 'lower_window', 'upper_window']),
-            f"❌ Google Calendar API error (code {err.get('code')}): {err.get('message')}",
-            False
-        )
-
+        return (pd.DataFrame(columns=['ds','holiday','lower_window','upper_window']),
+                f"❌ Google Calendar API error (code {err.get('code')}): {err.get('message')}", False)
     if not rows:
-        return (
-            pd.DataFrame(columns=['ds', 'holiday', 'lower_window', 'upper_window']),
-            "⚠️ Google Calendar API tidak mengembalikan data. Cek quota atau koneksi.",
-            False
-        )
-
+        return (pd.DataFrame(columns=['ds','holiday','lower_window','upper_window']),
+                "⚠️ Google Calendar API tidak mengembalikan data.", False)
     df_h = pd.DataFrame(rows)
     df_h['ds'] = pd.to_datetime(df_h['ds'])
-    df_h = (df_h
-            .drop_duplicates(subset=['ds', 'holiday'])
-            .sort_values('ds')
-            .reset_index(drop=True))
-
-    n_total = len(df_h)
-    n_types = df_h['holiday'].nunique()
-    yr_min  = df_h['ds'].dt.year.min()
-    yr_max  = df_h['ds'].dt.year.max()
-
-    status = (f"✅ **{n_total} hari libur** dari **{n_types} jenis** "
-              f"berhasil dimuat dari Google Calendar API ({yr_min}–{yr_max}).")
+    df_h = df_h.drop_duplicates(subset=['ds','holiday']).sort_values('ds').reset_index(drop=True)
+    n_total=len(df_h); n_types=df_h['holiday'].nunique(); yr_min=df_h['ds'].dt.year.min(); yr_max=df_h['ds'].dt.year.max()
+    status = f"✅ **{n_total} hari libur** dari **{n_types} jenis** berhasil dimuat dari Google Calendar API ({yr_min}–{yr_max})."
     return df_h, status, True
 
 
@@ -961,587 +1169,293 @@ def build_holiday_df() -> tuple:
 
 def run_prophet(df_monthly_raw, target, cat, n_months, holidays_df):
     if not PROPHET_OK:
-        return None, "Prophet tidak terinstall. Tambahkan 'prophet' ke requirements.txt."
-    cat_df = df_monthly_raw[df_monthly_raw['Kategori'] == cat].copy()
-    if len(cat_df) < 6:
-        return None, f"Data {cat} kurang dari 6 bulan."
+        return None, "Prophet tidak terinstall."
+    cat_df = df_monthly_raw[df_monthly_raw['Kategori']==cat].copy()
+    if len(cat_df)<6: return None, f"Data {cat} kurang dari 6 bulan."
     cat_df = cat_df.sort_values(['Tahun','Bulan'])
-    cat_df['ds'] = pd.to_datetime(
-        cat_df['Tahun'].astype(str) + '-' + cat_df['Bulan'].astype(str).str.zfill(2) + '-01')
+    cat_df['ds'] = pd.to_datetime(cat_df['Tahun'].astype(str)+'-'+cat_df['Bulan'].astype(str).str.zfill(2)+'-01')
     cat_df = cat_df.groupby('ds')[target].sum().reset_index()
-    cat_df.columns = ['ds', 'y']
-    cat_df = cat_df[cat_df['y'] > 0].sort_values('ds').reset_index(drop=True)
-
-    if len(cat_df) < 6:
-        return None, f"Data {cat} setelah filtering kurang dari 6 bulan."
-
-    # Gunakan holidays_df yang sudah dipass sebagai parameter
-    use_holidays = holidays_df is not None and len(holidays_df) > 0
-
-    y_floor = 0.0
-    y_cap   = float(cat_df['y'].max()) * 3.0
-
+    cat_df.columns = ['ds','y']
+    cat_df = cat_df[cat_df['y']>0].sort_values('ds').reset_index(drop=True)
+    if len(cat_df)<6: return None, f"Data {cat} setelah filtering kurang dari 6 bulan."
+    use_holidays = holidays_df is not None and len(holidays_df)>0
+    y_floor=0.0; y_cap=float(cat_df['y'].max())*3.0
     try:
         n_data = len(cat_df)
-        if n_data >= 24:
-            s_mode = 'multiplicative'
-            cp_scale = 0.05
-        else:
-            s_mode = 'additive'
-            cp_scale = 0.03
-
-        m = Prophet(
-            yearly_seasonality=True,
-            weekly_seasonality=False,
-            daily_seasonality=False,
-            holidays=holidays_df if use_holidays else None,
-            seasonality_mode=s_mode,
-            interval_width=0.80,
-            changepoint_prior_scale=cp_scale,
-            seasonality_prior_scale=5.0,
-            holidays_prior_scale=5.0,
-            growth='flat' if n_data < 12 else 'linear',
-        )
+        s_mode = 'multiplicative' if n_data>=24 else 'additive'
+        cp_scale = 0.05 if n_data>=24 else 0.03
+        m = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False,
+                    holidays=holidays_df if use_holidays else None, seasonality_mode=s_mode,
+                    interval_width=0.80, changepoint_prior_scale=cp_scale,
+                    seasonality_prior_scale=5.0, holidays_prior_scale=5.0,
+                    growth='flat' if n_data<12 else 'linear')
         m.fit(cat_df)
         future = m.make_future_dataframe(periods=n_months, freq='MS')
         fc = m.predict(future)
-
-        fc['yhat']       = fc['yhat'].clip(lower=y_floor)
+        fc['yhat']       = fc['yhat'].clip(lower=y_floor, upper=y_cap)
         fc['yhat_lower'] = fc['yhat_lower'].clip(lower=y_floor)
-        fc['yhat_upper'] = fc['yhat_upper'].clip(lower=y_floor)
-        fc['yhat']       = fc['yhat'].clip(upper=y_cap)
-        fc['yhat_upper'] = fc['yhat_upper'].clip(upper=y_cap * 1.2)
-
+        fc['yhat_upper'] = fc['yhat_upper'].clip(lower=y_floor, upper=y_cap*1.2)
         hist_pred = fc[fc['ds'].isin(cat_df['ds'])]
-        if len(hist_pred) > 0:
-            yt = cat_df.set_index('ds').loc[hist_pred['ds'], 'y'].values
+        if len(hist_pred)>0:
+            yt = cat_df.set_index('ds').loc[hist_pred['ds'],'y'].values
             yp = hist_pred['yhat'].values
-            r2_is   = float(r2_score(yt, yp)) if len(yt) > 1 else 0.0
-            mape_is = float(np.mean(np.abs((yt - yp)/(np.abs(yt)+1e-9)))*100)
-        else:
-            r2_is = mape_is = 0.0
-
-        n_holidays_used = len(holidays_df) if use_holidays else 0
-        return {'model': m, 'forecast': fc, 'history': cat_df,
-                'r2_insample': r2_is, 'mape_insample': mape_is,
-                'n_holidays': n_holidays_used,
-                'gcal_used': use_holidays}, None
+            r2_is   = float(r2_score(yt,yp)) if len(yt)>1 else 0.0
+            mape_is = float(np.mean(np.abs((yt-yp)/(np.abs(yt)+1e-9)))*100)
+        else: r2_is=mape_is=0.0
+        return {'model':m,'forecast':fc,'history':cat_df,'r2_insample':r2_is,'mape_insample':mape_is,
+                'n_holidays':len(holidays_df) if use_holidays else 0,'gcal_used':use_holidays}, None
     except Exception as e:
         return None, str(e)
 
 
 def forecast(df, ml, n_years):
-    target   = ml['target']
-    nlags    = ml['n_lags']
-    active   = ml['active_programs']
-    per_prog = ml.get('per_prog', {})
-    base_yr  = int(df['Tahun'].max())
-    rows     = []
-
-    STAT_METHODS = {'Holt Smoothing', 'Exp Smoothing', 'Weighted MA'}
-
+    target=ml['target']; nlags=ml['n_lags']; active=ml['active_programs']
+    per_prog=ml.get('per_prog',{}); base_yr=int(df['Tahun'].max()); rows=[]
+    STAT_METHODS = {'Holt Smoothing','Exp Smoothing','Weighted MA'}
     for cat in active:
         info    = per_prog.get(cat, None)
-        history = list(df[df['Kategori'] == cat]
-                       .sort_values('Tahun')[target]
-                       .dropna().values.astype(float))
+        history = list(df[df['Kategori']==cat].sort_values('Tahun')[target].dropna().values.astype(float))
         if not history: continue
-
-        best_nm = info.get('best_name', 'Holt Smoothing') if info else 'Holt Smoothing'
-
-        if info is None or info.get('single', True) or best_nm in STAT_METHODS:
-            for fy in range(1, n_years + 1):
+        best_nm = info.get('best_name','Holt Smoothing') if info else 'Holt Smoothing'
+        if info is None or info.get('single',True) or best_nm in STAT_METHODS:
+            for fy in range(1, n_years+1):
                 try:
-                    if best_nm == 'Holt Smoothing' or info is None:
-                        result = forecast_holt(history, 1)
-                        pred = float(result[0][0])
-                    elif best_nm == 'Exp Smoothing':
-                        result = forecast_ses(history, 1)
-                        pred = float(result[0][0])
-                    elif best_nm == 'Weighted MA':
-                        result = forecast_moving_avg(history, 1)
-                        pred = float(result[0])
+                    if best_nm=='Holt Smoothing' or info is None:
+                        pred=float(forecast_holt(history,1)[0][0])
+                    elif best_nm=='Exp Smoothing':
+                        pred=float(forecast_ses(history,1)[0][0])
+                    elif best_nm=='Weighted MA':
+                        pred=float(forecast_moving_avg(history,1)[0])
                     else:
-                        result = forecast_holt(history, 1)
-                        pred = float(result[0][0])
-                except:
-                    pred = history[-1] * 1.05
-                pred = max(0.0, pred)
-                rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
-                             target: pred, 'Type': f'Prediksi ({best_nm})'})
+                        pred=float(forecast_holt(history,1)[0][0])
+                except: pred=history[-1]*1.05
+                pred=max(0.0,pred)
+                rows.append({'Kategori':cat,'Tahun':base_yr+fy,target:pred,'Type':f'Prediksi ({best_nm})'})
                 history.append(pred)
             continue
-
-        mdl       = info.get('best_model')
-        sc        = info.get('scaler')
-        cat_id    = info.get('cat_id', 0.0)
-        nlags_use = info.get('n_lags_used', min(nlags, 2))
-        last_actual = history[-1]
-
-        for fy in range(1, n_years + 1):
-            Xc, _ = build_features(history, nlags_use, cat_id)
-            pred = None
-            if len(Xc) > 0 and mdl is not None:
-                feat = Xc[-1].reshape(1, -1)
+        mdl=info.get('best_model'); sc=info.get('scaler'); cat_id=info.get('cat_id',0.0)
+        nlags_use=info.get('n_lags_used',min(nlags,2)); last_actual=history[-1]
+        for fy in range(1, n_years+1):
+            Xc,_=build_features(history,nlags_use,cat_id); pred=None
+            if len(Xc)>0 and mdl is not None:
+                feat=Xc[-1].reshape(1,-1)
                 try:
-                    feat_use = sc.transform(feat) if best_nm in SCALED_MODELS else feat
-                    pred = float(mdl.predict(feat_use)[0])
-                    if pred < last_actual * 0.5 or pred > last_actual * 2.0:
-                        holt_pred = float(forecast_holt(history[:fy + len(history) - 1], 1)[0][0])
-                        pred = (pred + holt_pred) / 2
-                except:
-                    pred = None
+                    feat_use=sc.transform(feat) if best_nm in SCALED_MODELS else feat
+                    pred=float(mdl.predict(feat_use)[0])
+                    if pred<last_actual*0.5 or pred>last_actual*2.0:
+                        holt_pred=float(forecast_holt(history[:fy+len(history)-1],1)[0][0])
+                        pred=(pred+holt_pred)/2
+                except: pred=None
             if pred is None:
-                try:
-                    pred = float(forecast_holt(history, 1)[0][0])
-                except:
-                    pred = history[-1] * 1.05
-            pred = max(0.0, pred)
-            rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
-                         target: pred, 'Type': 'Prediksi'})
+                try: pred=float(forecast_holt(history,1)[0][0])
+                except: pred=history[-1]*1.05
+            pred=max(0.0,pred)
+            rows.append({'Kategori':cat,'Tahun':base_yr+fy,target:pred,'Type':'Prediksi'})
             history.append(pred)
-
     return pd.DataFrame(rows)
 
 def compute_monthly_breakdown(df_raw_monthly, yearly_pred_df, target):
     rows = []
     for cat in yearly_pred_df['Kategori'].unique():
-        cat_hist = df_raw_monthly[df_raw_monthly['Kategori'] == cat]
-        if len(cat_hist) >= 12:
-            mo = cat_hist.groupby(['Tahun','Bulan'])[target].sum().reset_index()
-            yr = mo.groupby('Tahun')[target].sum().reset_index()
-            yr.columns = ['Tahun','YrTotal']
-            mo = mo.merge(yr, on='Tahun')
-            mo['W'] = mo[target] / (mo['YrTotal'] + 1e-9)
-            weights = mo.groupby('Bulan')['W'].mean()
+        cat_hist = df_raw_monthly[df_raw_monthly['Kategori']==cat]
+        if len(cat_hist)>=12:
+            mo=cat_hist.groupby(['Tahun','Bulan'])[target].sum().reset_index()
+            yr=mo.groupby('Tahun')[target].sum().reset_index(); yr.columns=['Tahun','YrTotal']
+            mo=mo.merge(yr,on='Tahun'); mo['W']=mo[target]/(mo['YrTotal']+1e-9)
+            weights=mo.groupby('Bulan')['W'].mean()
         else:
-            weights = pd.Series({m: 1/12 for m in range(1,13)})
-
+            weights=pd.Series({m:1/12 for m in range(1,13)})
         for m in range(1,13):
-            if m not in weights.index:
-                weights[m] = 0.0
-        weights = weights.sort_index()
-        wsum = weights.sum()
-        if wsum > 0:
-            weights = weights / wsum
-        else:
-            weights = pd.Series({m: 1/12 for m in range(1,13)})
-
-        cat_pred = yearly_pred_df[yearly_pred_df['Kategori'] == cat]
-        for _, row in cat_pred.iterrows():
-            yr_total = float(row[target])
-            yr_int   = int(row['Tahun'])
-            for bulan, w in weights.items():
-                rows.append({
-                    'Kategori': cat,
-                    'Tahun':    yr_int,
-                    'Bulan':    int(bulan),
-                    'Periode':  f"{yr_int}-{int(bulan):02d}",
-                    target:     max(0.0, yr_total * w),
-                    'Type':     'Prediksi Bulanan',
-                })
+            if m not in weights.index: weights[m]=0.0
+        weights=weights.sort_index(); wsum=weights.sum()
+        weights=(weights/wsum) if wsum>0 else pd.Series({m:1/12 for m in range(1,13)})
+        cat_pred=yearly_pred_df[yearly_pred_df['Kategori']==cat]
+        for _,row in cat_pred.iterrows():
+            yr_total=float(row[target]); yr_int=int(row['Tahun'])
+            for bulan,w in weights.items():
+                rows.append({'Kategori':cat,'Tahun':yr_int,'Bulan':int(bulan),
+                             'Periode':f"{yr_int}-{int(bulan):02d}",
+                             target:max(0.0,yr_total*w),'Type':'Prediksi Bulanan'})
     return pd.DataFrame(rows)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# EXPORT EXCEL
+# EXPORT EXCEL (unchanged)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _write_monthly_block(ws, wb, df_mo, target_col, hdr_fmt, num_fmt,
-                         start_row, sheet_name, chart_title):
-    if df_mo is None or len(df_mo) == 0:
-        return start_row, None
+def xl_col_to_name(col_idx):
+    name=''
+    col_idx+=1
+    while col_idx:
+        col_idx,remainder=divmod(col_idx-1,26)
+        name=chr(65+remainder)+name
+    return name
 
-    piv = (df_mo.pivot_table(index='Periode', columns='Kategori',
-                             values=target_col, aggfunc='sum')
-           .reset_index()
-           .sort_values('Periode')
-           .reset_index(drop=True))
-
-    n_rows = len(piv)
-    n_cats = len(piv.columns) - 1
-
-    for col_idx, col_name in enumerate(piv.columns):
-        ws.write(start_row, col_idx, str(col_name), hdr_fmt)
-        ws.set_column(col_idx, col_idx, 16)
-
-    for row_idx in range(n_rows):
-        ws.write(start_row + 1 + row_idx, 0, piv.iloc[row_idx, 0])
-        for col_idx in range(1, n_cats + 1):
-            ws.write(start_row + 1 + row_idx, col_idx,
-                     piv.iloc[row_idx, col_idx], num_fmt)
-
-    ch = wb.add_chart({'type': 'line'})
-    for col_idx in range(1, n_cats + 1):
-        ch.add_series({
-            'name':       [sheet_name, start_row,     col_idx],
-            'categories': [sheet_name, start_row + 1, 0,        start_row + n_rows, 0],
-            'values':     [sheet_name, start_row + 1, col_idx,  start_row + n_rows, col_idx],
-            'marker':     {'type': 'circle', 'size': 4},
-        })
-    ch.set_title({'name': chart_title})
-    ch.set_x_axis({'name': 'Periode (YYYY-MM)', 'num_font': {'rotation': -45}})
-    ch.set_y_axis({'name': target_col})
-    ch.set_legend({'position': 'bottom'})
-    ch.set_size({'width': 760, 'height': 420})
-
-    next_row = start_row + n_rows + 3
-    return next_row, ch, start_row + n_rows
-
-
-def export_excel(df, ml_result, fut_df,
-                 fut_kasus=None, fut_nominal=None,
-                 fut_monthly_kasus=None, fut_monthly_nominal=None):
+def export_excel(df, ml_result, fut_df, fut_kasus=None, fut_nominal=None, fut_monthly_kasus=None, fut_monthly_nominal=None):
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        wb      = writer.book
-        hdr     = wb.add_format({'bold': True, 'bg_color': '#1e3a5f',
-                                  'font_color': 'white', 'border': 1})
-        num_fmt = wb.add_format({'num_format': '#,##0', 'border': 1})
-        sec_fmt = wb.add_format({'bold': True, 'bg_color': '#0f2744',
-                                  'font_color': '#93c5fd', 'font_size': 12,
-                                  'border': 0})
+        wb  = writer.book
+        hdr = wb.add_format({'bold':True,'bg_color':'#1e3a5f','font_color':'white','border':1})
+        num_fmt = wb.add_format({'num_format':'#,##0','border':1})
+        sec_fmt = wb.add_format({'bold':True,'bg_color':'#0f2744','font_color':'#93c5fd','font_size':12,'border':0})
 
-        df_sorted = df.sort_values(['Tahun', 'Kategori']).reset_index(drop=True)
+        df_sorted = df.sort_values(['Tahun','Kategori']).reset_index(drop=True)
         df_sorted.to_excel(writer, sheet_name='Data Gabungan', index=False)
         ws1 = writer.sheets['Data Gabungan']
-        for i, c in enumerate(df_sorted.columns):
-            ws1.write(0, i, c, hdr)
-            ws1.set_column(i, i, 22)
+        for i,c in enumerate(df_sorted.columns):
+            ws1.write(0,i,c,hdr); ws1.set_column(i,i,22)
 
         if 'Kasus' in df.columns:
-            piv = df.pivot_table(index='Kategori', columns='Tahun',
-                                 values='Kasus', aggfunc='sum', fill_value=0)
+            piv=df.pivot_table(index='Kategori',columns='Tahun',values='Kasus',aggfunc='sum',fill_value=0)
             piv.to_excel(writer, sheet_name='Pivot Kasus')
-            ws2 = writer.sheets['Pivot Kasus']
-            for i in range(len(piv.columns) + 1):
-                ws2.set_column(i, i, 18)
-            nr, nc2 = len(piv), len(piv.columns)
-            chart_pk = wb.add_chart({'type': 'line'})
+            ws2=writer.sheets['Pivot Kasus']
+            for i in range(len(piv.columns)+1): ws2.set_column(i,i,18)
+            nr,nc2=len(piv),len(piv.columns)
+            chart_pk=wb.add_chart({'type':'line'})
             for i in range(nr):
-                chart_pk.add_series({
-                    'name':       ['Pivot Kasus', i+1, 0],
-                    'categories': ['Pivot Kasus', 0, 1, 0, nc2],
-                    'values':     ['Pivot Kasus', i+1, 1, i+1, nc2],
-                })
-            chart_pk.set_title({'name': 'Tren Kasus per Program'})
-            chart_pk.set_size({'width': 600, 'height': 350})
+                chart_pk.add_series({'name':['Pivot Kasus',i+1,0],'categories':['Pivot Kasus',0,1,0,nc2],'values':['Pivot Kasus',i+1,1,i+1,nc2]})
+            chart_pk.set_title({'name':'Tren Kasus per Program'}); chart_pk.set_size({'width':600,'height':350})
             ws2.insert_chart(f'A{nr+4}', chart_pk)
 
-        has_fut_k = fut_kasus   is not None and len(fut_kasus)   > 0
-        has_fut_n = fut_nominal is not None and len(fut_nominal) > 0
-
-        if not has_fut_k and not has_fut_n and fut_df is not None and len(fut_df) > 0:
-            tc_fb = [c for c in fut_df.columns if c not in ['Kategori','Tahun','Type']]
+        has_fut_k = fut_kasus is not None and len(fut_kasus)>0
+        has_fut_n = fut_nominal is not None and len(fut_nominal)>0
+        if not has_fut_k and not has_fut_n and fut_df is not None and len(fut_df)>0:
+            tc_fb=[c for c in fut_df.columns if c not in ['Kategori','Tahun','Type']]
             if tc_fb:
-                if tc_fb[0] == 'Kasus':
-                    fut_kasus   = fut_df; has_fut_k = True
-                else:
-                    fut_nominal = fut_df; has_fut_n = True
+                if tc_fb[0]=='Kasus': fut_kasus=fut_df; has_fut_k=True
+                else: fut_nominal=fut_df; has_fut_n=True
 
         if has_fut_k or has_fut_n:
-            ws3_name = 'Prediksi Tahunan'
+            ws3_name='Prediksi Tahunan'
             writer.book.add_worksheet(ws3_name)
-            ws3 = writer.sheets[ws3_name]
+            ws3=writer.sheets[ws3_name]
+            hdr_sec=wb.add_format({'bold':True,'bg_color':'#0f2744','font_color':'#93c5fd','font_size':12})
+            hdr_yr=wb.add_format({'bold':True,'bg_color':'#1e3a5f','font_color':'white','border':1,'align':'center'})
+            num_k=wb.add_format({'num_format':'#,##0','border':1})
+            num_hist=wb.add_format({'num_format':'#,##0','border':1,'bg_color':'#1a1a2e'})
+            cursor=0
 
-            hdr_sec  = wb.add_format({'bold': True, 'bg_color': '#0f2744',
-                                       'font_color': '#93c5fd', 'font_size': 12})
-            hdr_yr   = wb.add_format({'bold': True, 'bg_color': '#1e3a5f',
-                                       'font_color': 'white', 'border': 1,
-                                       'align': 'center'})
-            num_k    = wb.add_format({'num_format': '#,##0',   'border': 1})
-            num_hist = wb.add_format({'num_format': '#,##0',   'border': 1,
-                                       'bg_color': '#1a1a2e'})
-
-            cursor = 0
-
-            def _write_annual_block(ws, wb, df_hist, df_pred, value_col,
-                                    title_txt, cursor, ws_name):
-                ph = (df_hist.groupby(['Tahun','Kategori'])[value_col].sum()
-                      .reset_index()
-                      .pivot(index='Tahun', columns='Kategori', values=value_col)
-                      .reset_index())
-                ph['_type'] = 'Aktual'
-
-                pp = (df_pred.groupby(['Tahun','Kategori'])[value_col].sum()
-                      .reset_index()
-                      .pivot(index='Tahun', columns='Kategori', values=value_col)
-                      .reset_index())
-                pp['_type'] = 'Prediksi'
-
-                combined = pd.concat([ph, pp], ignore_index=True)\
-                             .sort_values('Tahun').reset_index(drop=True)
-
-                cats = [c for c in combined.columns if c not in ['Tahun','_type']]
-                n_rows = len(combined)
-                n_cats = len(cats)
-
-                ws.merge_range(cursor, 0, cursor, n_cats + 1, title_txt, hdr_sec)
-                hdr_row = cursor + 1
-
-                ws.write(hdr_row, 0, 'Tahun',   hdr_yr); ws.set_column(0, 0, 10)
-                ws.write(hdr_row, 1, 'Tipe',    hdr_yr); ws.set_column(1, 1, 12)
-                for ci, cat in enumerate(cats):
-                    ws.write(hdr_row, ci + 2, cat, hdr_yr)
-                    ws.set_column(ci + 2, ci + 2, 20)
-
-                data_start = hdr_row + 1
-                for ri, row in combined.iterrows():
-                    r_abs = data_start + ri
-                    fmt_use = num_hist if row['_type'] == 'Aktual' else num_k
-                    ws.write(r_abs, 0, int(row['Tahun']))
-                    ws.write(r_abs, 1, row['_type'])
-                    for ci, cat in enumerate(cats):
-                        val = row.get(cat, 0)
-                        ws.write(r_abs, ci + 2, float(val) if pd.notna(val) else 0, fmt_use)
-
-                last_data_row = data_start + n_rows - 1
-
-                ch = wb.add_chart({'type': 'line'})
-                aktual_rows  = [data_start + i for i, r in combined.iterrows()
-                                if r['_type'] == 'Aktual']
-                pred_rows    = [data_start + i for i, r in combined.iterrows()
-                                if r['_type'] == 'Prediksi']
-
-                CHART_COLORS = ['#4472C4','#ED7D31','#A9D18E','#FF0000',
-                                '#7030A0','#00B0F0','#92D050','#FFC000']
-
-                for ci, cat in enumerate(cats):
-                    col_excel = ci + 2
-                    color     = CHART_COLORS[ci % len(CHART_COLORS)]
-
+            def _write_annual_block(ws,wb,df_hist,df_pred,value_col,title_txt,cursor,ws_name):
+                ph=(df_hist.groupby(['Tahun','Kategori'])[value_col].sum().reset_index()
+                    .pivot(index='Tahun',columns='Kategori',values=value_col).reset_index())
+                ph['_type']='Aktual'
+                pp=(df_pred.groupby(['Tahun','Kategori'])[value_col].sum().reset_index()
+                    .pivot(index='Tahun',columns='Kategori',values=value_col).reset_index())
+                pp['_type']='Prediksi'
+                combined=pd.concat([ph,pp],ignore_index=True).sort_values('Tahun').reset_index(drop=True)
+                cats=[c for c in combined.columns if c not in ['Tahun','_type']]
+                n_rows=len(combined); n_cats=len(cats)
+                ws.merge_range(cursor,0,cursor,n_cats+1,title_txt,hdr_sec)
+                hdr_row=cursor+1
+                ws.write(hdr_row,0,'Tahun',hdr_yr); ws.set_column(0,0,10)
+                ws.write(hdr_row,1,'Tipe',hdr_yr); ws.set_column(1,1,12)
+                for ci,cat in enumerate(cats):
+                    ws.write(hdr_row,ci+2,cat,hdr_yr); ws.set_column(ci+2,ci+2,20)
+                data_start=hdr_row+1
+                for ri,row in combined.iterrows():
+                    r_abs=data_start+ri; fmt_use=num_hist if row['_type']=='Aktual' else num_k
+                    ws.write(r_abs,0,int(row['Tahun'])); ws.write(r_abs,1,row['_type'])
+                    for ci,cat in enumerate(cats):
+                        val=row.get(cat,0); ws.write(r_abs,ci+2,float(val) if pd.notna(val) else 0,fmt_use)
+                last_data_row=data_start+n_rows-1
+                ch=wb.add_chart({'type':'line'})
+                aktual_rows=[data_start+i for i,r in combined.iterrows() if r['_type']=='Aktual']
+                pred_rows=[data_start+i for i,r in combined.iterrows() if r['_type']=='Prediksi']
+                CHART_COLORS=['#4472C4','#ED7D31','#A9D18E','#FF0000','#7030A0','#00B0F0','#92D050','#FFC000']
+                for ci,cat in enumerate(cats):
+                    col_excel=ci+2; color=CHART_COLORS[ci%len(CHART_COLORS)]
                     if aktual_rows:
-                        ch.add_series({
-                            'name':   cat + ' Aktual',
-                            'categories': [ws_name, aktual_rows[0],  0,
-                                           aktual_rows[-1], 0],
-                            'values':     [ws_name, aktual_rows[0],  col_excel,
-                                           aktual_rows[-1], col_excel],
-                            'line':   {'color': color, 'width': 2.25},
-                            'marker': {'type': 'circle', 'size': 6,
-                                       'fill': {'color': color},
-                                       'border': {'color': color}},
-                        })
-
+                        ch.add_series({'name':cat+' Aktual','categories':[ws_name,aktual_rows[0],0,aktual_rows[-1],0],
+                                       'values':[ws_name,aktual_rows[0],col_excel,aktual_rows[-1],col_excel],
+                                       'line':{'color':color,'width':2.25},'marker':{'type':'circle','size':6,'fill':{'color':color},'border':{'color':color}}})
                     if pred_rows:
-                        ch.add_series({
-                            'name':   cat + ' Prediksi',
-                            'categories': [ws_name, pred_rows[0],  0,
-                                           pred_rows[-1], 0],
-                            'values':     [ws_name, pred_rows[0],  col_excel,
-                                           pred_rows[-1], col_excel],
-                            'line':   {'color': color, 'width': 2.25, 'dash_type': 'dash'},
-                            'marker': {'type': 'diamond', 'size': 7,
-                                       'fill': {'color': color},
-                                       'border': {'color': color}},
-                        })
+                        ch.add_series({'name':cat+' Prediksi','categories':[ws_name,pred_rows[0],0,pred_rows[-1],0],
+                                       'values':[ws_name,pred_rows[0],col_excel,pred_rows[-1],col_excel],
+                                       'line':{'color':color,'width':2.25,'dash_type':'dash'},'marker':{'type':'diamond','size':7,'fill':{'color':color},'border':{'color':color}}})
+                ch.set_title({'name':title_txt}); ch.set_x_axis({'name':'Tahun'}); ch.set_y_axis({'name':value_col,'num_format':'#,##0'})
+                ch.set_legend({'position':'bottom','font':{'size':9}}); ch.set_size({'width':800,'height':450}); ch.set_style(10)
+                chart_col=xl_col_to_name(n_cats+3); ws.insert_chart(f'{chart_col}{hdr_row+1}',ch)
+                return last_data_row+4
 
-                ch.set_title({'name': title_txt})
-                ch.set_x_axis({
-                    'name': 'Tahun',
-                    'major_gridlines': {'visible': True, 'line': {'color': '#e0e0e0'}},
-                    'num_font': {'size': 10},
-                })
-                ch.set_y_axis({
-                    'name': value_col,
-                    'major_gridlines': {'visible': True, 'line': {'color': '#e0e0e0'}},
-                    'num_format': '#,##0',
-                })
-                ch.set_legend({'position': 'bottom', 'font': {'size': 9}})
-                ch.set_size({'width': 800, 'height': 450})
-                ch.set_style(10)
-
-                chart_col = xl_col_to_name(n_cats + 3)
-                ws.insert_chart(f'{chart_col}{hdr_row + 1}', ch)
-
-                return last_data_row + 4
-
-            df_hist_k = df[df['Kategori'].isin(
-                df['Kategori'].unique())][['Tahun','Kategori','Kasus']].copy() \
-                if 'Kasus' in df.columns else None
-            df_hist_n = df[df['Kategori'].isin(
-                df['Kategori'].unique())][['Tahun','Kategori','Nominal']].copy() \
-                if 'Nominal' in df.columns else None
-
+            df_hist_k=df[['Tahun','Kategori','Kasus']].copy() if 'Kasus' in df.columns else None
+            df_hist_n=df[['Tahun','Kategori','Nominal']].copy() if 'Nominal' in df.columns else None
             if has_fut_k and df_hist_k is not None:
-                cursor = _write_annual_block(
-                    ws3, wb, df_hist_k, fut_kasus, 'Kasus',
-                    '📊 PREDIKSI KASUS (TAHUNAN) — Aktual vs Proyeksi',
-                    cursor, ws3_name
-                )
-
+                cursor=_write_annual_block(ws3,wb,df_hist_k,fut_kasus,'Kasus','📊 PREDIKSI KASUS (TAHUNAN)',cursor,ws3_name)
             if has_fut_n and df_hist_n is not None:
-                cursor = _write_annual_block(
-                    ws3, wb, df_hist_n, fut_nominal, 'Nominal',
-                    '💰 PREDIKSI NOMINAL (TAHUNAN) — Aktual vs Proyeksi',
-                    cursor, ws3_name
-                )
+                cursor=_write_annual_block(ws3,wb,df_hist_n,fut_nominal,'Nominal','💰 PREDIKSI NOMINAL (TAHUNAN)',cursor,ws3_name)
 
-        has_kasus   = fut_monthly_kasus   is not None and len(fut_monthly_kasus)   > 0
-        has_nominal = fut_monthly_nominal is not None and len(fut_monthly_nominal) > 0
-
+        has_kasus=fut_monthly_kasus is not None and len(fut_monthly_kasus)>0
+        has_nominal=fut_monthly_nominal is not None and len(fut_monthly_nominal)>0
         if has_kasus or has_nominal:
-            ws4_name = 'Prediksi Bulanan'
+            ws4_name='Prediksi Bulanan'
             writer.book.add_worksheet(ws4_name)
-            ws4 = writer.sheets[ws4_name]
-
-            cursor = 0
-
+            ws4=writer.sheets[ws4_name]; cursor=0
             if has_kasus:
-                ws4.merge_range(cursor, 0, cursor, 7,
-                                '📊 PREDIKSI KASUS (BULANAN)', sec_fmt)
-                cursor += 1
-
-                piv_k = (fut_monthly_kasus
-                         .sort_values(['Tahun','Bulan','Kategori'])
-                         .pivot_table(index='Periode', columns='Kategori',
-                                      values='Kasus', aggfunc='sum')
-                         .reset_index()
-                         .sort_values('Periode')
-                         .reset_index(drop=True))
-                nrow_k = len(piv_k)
-                ncat_k = len(piv_k.columns) - 1
-
-                header_row_k = cursor
-                for ci, cn in enumerate(piv_k.columns):
-                    ws4.write(cursor, ci, str(cn), hdr)
-                    ws4.set_column(ci, ci, 16)
-                cursor += 1
-
+                ws4.merge_range(cursor,0,cursor,7,'📊 PREDIKSI KASUS (BULANAN)',sec_fmt); cursor+=1
+                piv_k=(fut_monthly_kasus.sort_values(['Tahun','Bulan','Kategori'])
+                       .pivot_table(index='Periode',columns='Kategori',values='Kasus',aggfunc='sum')
+                       .reset_index().sort_values('Periode').reset_index(drop=True))
+                nrow_k=len(piv_k); ncat_k=len(piv_k.columns)-1
+                header_row_k=cursor
+                for ci,cn in enumerate(piv_k.columns):
+                    ws4.write(cursor,ci,str(cn),hdr); ws4.set_column(ci,ci,16)
+                cursor+=1
                 for ri in range(nrow_k):
-                    ws4.write(cursor + ri, 0, piv_k.iloc[ri, 0])
-                    for ci in range(1, ncat_k + 1):
-                        ws4.write(cursor + ri, ci, piv_k.iloc[ri, ci], num_fmt)
-                last_data_row_k = cursor + nrow_k - 1
-
-                ch_k = wb.add_chart({'type': 'line'})
-                for ci in range(1, ncat_k + 1):
-                    ch_k.add_series({
-                        'name':       [ws4_name, header_row_k, ci],
-                        'categories': [ws4_name, header_row_k + 1, 0,
-                                       last_data_row_k, 0],
-                        'values':     [ws4_name, header_row_k + 1, ci,
-                                       last_data_row_k, ci],
-                        'marker':     {'type': 'circle', 'size': 4},
-                    })
-                ch_k.set_title({'name': 'Prediksi Kasus per Program (Bulanan)'})
-                ch_k.set_x_axis({'name': 'Periode (YYYY-MM)',
-                                  'num_font': {'rotation': -45}})
-                ch_k.set_y_axis({'name': 'Kasus'})
-                ch_k.set_legend({'position': 'bottom'})
-                ch_k.set_size({'width': 760, 'height': 420})
-                chart_col_k = xl_col_to_name(ncat_k + 2)
-                ws4.insert_chart(f'{chart_col_k}{header_row_k + 1}', ch_k)
-
-                cursor = last_data_row_k + 3
-
+                    ws4.write(cursor+ri,0,piv_k.iloc[ri,0])
+                    for ci in range(1,ncat_k+1): ws4.write(cursor+ri,ci,piv_k.iloc[ri,ci],num_fmt)
+                last_data_row_k=cursor+nrow_k-1
+                ch_k=wb.add_chart({'type':'line'})
+                for ci in range(1,ncat_k+1):
+                    ch_k.add_series({'name':[ws4_name,header_row_k,ci],'categories':[ws4_name,header_row_k+1,0,last_data_row_k,0],
+                                     'values':[ws4_name,header_row_k+1,ci,last_data_row_k,ci],'marker':{'type':'circle','size':4}})
+                ch_k.set_title({'name':'Prediksi Kasus per Program (Bulanan)'}); ch_k.set_size({'width':760,'height':420})
+                chart_col_k=xl_col_to_name(ncat_k+2); ws4.insert_chart(f'{chart_col_k}{header_row_k+1}',ch_k)
+                cursor=last_data_row_k+3
             if has_nominal:
-                ws4.merge_range(cursor, 0, cursor, 7,
-                                '💰 PREDIKSI NOMINAL (BULANAN)', sec_fmt)
-                cursor += 1
-
-                piv_n = (fut_monthly_nominal
-                         .sort_values(['Tahun','Bulan','Kategori'])
-                         .pivot_table(index='Periode', columns='Kategori',
-                                      values='Nominal', aggfunc='sum')
-                         .reset_index()
-                         .sort_values('Periode')
-                         .reset_index(drop=True))
-                nrow_n = len(piv_n)
-                ncat_n = len(piv_n.columns) - 1
-
-                header_row_n = cursor
-                for ci, cn in enumerate(piv_n.columns):
-                    ws4.write(cursor, ci, str(cn), hdr)
-                    ws4.set_column(ci, ci, 16)
-                cursor += 1
-
+                ws4.merge_range(cursor,0,cursor,7,'💰 PREDIKSI NOMINAL (BULANAN)',sec_fmt); cursor+=1
+                piv_n=(fut_monthly_nominal.sort_values(['Tahun','Bulan','Kategori'])
+                       .pivot_table(index='Periode',columns='Kategori',values='Nominal',aggfunc='sum')
+                       .reset_index().sort_values('Periode').reset_index(drop=True))
+                nrow_n=len(piv_n); ncat_n=len(piv_n.columns)-1
+                header_row_n=cursor
+                for ci,cn in enumerate(piv_n.columns):
+                    ws4.write(cursor,ci,str(cn),hdr); ws4.set_column(ci,ci,16)
+                cursor+=1
                 for ri in range(nrow_n):
-                    ws4.write(cursor + ri, 0, piv_n.iloc[ri, 0])
-                    for ci in range(1, ncat_n + 1):
-                        ws4.write(cursor + ri, ci, piv_n.iloc[ri, ci], num_fmt)
-                last_data_row_n = cursor + nrow_n - 1
+                    ws4.write(cursor+ri,0,piv_n.iloc[ri,0])
+                    for ci in range(1,ncat_n+1): ws4.write(cursor+ri,ci,piv_n.iloc[ri,ci],num_fmt)
+                last_data_row_n=cursor+nrow_n-1
+                ch_n=wb.add_chart({'type':'line'})
+                for ci in range(1,ncat_n+1):
+                    ch_n.add_series({'name':[ws4_name,header_row_n,ci],'categories':[ws4_name,header_row_n+1,0,last_data_row_n,0],
+                                     'values':[ws4_name,header_row_n+1,ci,last_data_row_n,ci],'marker':{'type':'circle','size':4}})
+                ch_n.set_title({'name':'Prediksi Nominal per Program (Bulanan)'}); ch_n.set_size({'width':760,'height':420})
+                chart_col_n=xl_col_to_name(ncat_n+2); ws4.insert_chart(f'{chart_col_n}{header_row_n+1}',ch_n)
 
-                ch_n = wb.add_chart({'type': 'line'})
-                for ci in range(1, ncat_n + 1):
-                    ch_n.add_series({
-                        'name':       [ws4_name, header_row_n, ci],
-                        'categories': [ws4_name, header_row_n + 1, 0,
-                                       last_data_row_n, 0],
-                        'values':     [ws4_name, header_row_n + 1, ci,
-                                       last_data_row_n, ci],
-                        'marker':     {'type': 'circle', 'size': 4},
-                    })
-                ch_n.set_title({'name': 'Prediksi Nominal per Program (Bulanan)'})
-                ch_n.set_x_axis({'name': 'Periode (YYYY-MM)',
-                                  'num_font': {'rotation': -45}})
-                ch_n.set_y_axis({'name': 'Nominal (Rp)'})
-                ch_n.set_legend({'position': 'bottom'})
-                ch_n.set_size({'width': 760, 'height': 420})
-                chart_col_n = xl_col_to_name(ncat_n + 2)
-                ws4.insert_chart(f'{chart_col_n}{header_row_n + 1}', ch_n)
-
-        detail_frames = []
-        if has_kasus:
-            tmp_k = fut_monthly_kasus[
-                ['Periode','Tahun','Bulan','Kategori','Kasus']].copy()
-            detail_frames.append(tmp_k)
-        if has_nominal:
-            tmp_n = fut_monthly_nominal[
-                ['Periode','Tahun','Bulan','Kategori','Nominal']].copy()
-            detail_frames.append(tmp_n)
-
+        detail_frames=[]
+        if has_kasus: detail_frames.append(fut_monthly_kasus[['Periode','Tahun','Bulan','Kategori','Kasus']].copy())
+        if has_nominal: detail_frames.append(fut_monthly_nominal[['Periode','Tahun','Bulan','Kategori','Nominal']].copy())
         if detail_frames:
-            if len(detail_frames) == 2:
-                detail_all = detail_frames[0].merge(
-                    detail_frames[1], on=['Periode','Tahun','Bulan','Kategori'],
-                    how='outer')
-            else:
-                detail_all = detail_frames[0]
-
-            detail_all = (detail_all
-                          .sort_values(['Tahun','Bulan','Kategori'])
-                          .reset_index(drop=True))
+            detail_all=(detail_frames[0].merge(detail_frames[1],on=['Periode','Tahun','Bulan','Kategori'],how='outer') if len(detail_frames)==2 else detail_frames[0])
+            detail_all=detail_all.sort_values(['Tahun','Bulan','Kategori']).reset_index(drop=True)
             detail_all.to_excel(writer, sheet_name='Bulanan Detail', index=False)
-            ws5 = writer.sheets['Bulanan Detail']
-            for i, c in enumerate(detail_all.columns):
-                ws5.write(0, i, c, hdr)
-                ws5.set_column(i, i, 18)
-            for ci, col_name in enumerate(detail_all.columns):
-                if col_name in ('Kasus', 'Nominal'):
+            ws5=writer.sheets['Bulanan Detail']
+            for i,c in enumerate(detail_all.columns):
+                ws5.write(0,i,c,hdr); ws5.set_column(i,i,18)
+            for ci,col_name in enumerate(detail_all.columns):
+                if col_name in ('Kasus','Nominal'):
                     for ri in range(len(detail_all)):
-                        ws5.write(ri + 1, ci, detail_all.iloc[ri][col_name], num_fmt)
+                        ws5.write(ri+1,ci,detail_all.iloc[ri][col_name],num_fmt)
 
         if ml_result:
-            rdf = ml_result['results_df']
+            rdf=ml_result['results_df']
             rdf.to_excel(writer, sheet_name='ML Results', index=False)
-            ws6 = writer.sheets['ML Results']
-            for i, c in enumerate(rdf.columns):
-                ws6.write(0, i, c, hdr)
-                ws6.set_column(i, i, 18)
-            n = len(rdf)
-            ch_ml = wb.add_chart({'type': 'column'})
-            ch_ml.add_series({
-                'name':       'R² Score',
-                'categories': ['ML Results', 1, 0, n, 0],
-                'values':     ['ML Results', 1, 3, n, 3],
-                'fill':       {'color': '#3b82f6'},
-            })
-            ch_ml.set_title({'name': 'Model Comparison – R²'})
-            ch_ml.set_size({'width': 500, 'height': 300})
-            ws6.insert_chart('H2', ch_ml)
+            ws6=writer.sheets['ML Results']
+            for i,c in enumerate(rdf.columns):
+                ws6.write(0,i,c,hdr); ws6.set_column(i,i,18)
 
     buf.seek(0)
     return buf.getvalue()
-
-
-def xl_col_to_name(col_idx):
-    name = ''
-    col_idx += 1
-    while col_idx:
-        col_idx, remainder = divmod(col_idx - 1, 26)
-        name = chr(65 + remainder) + name
-    return name
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1550,46 +1464,42 @@ def xl_col_to_name(col_idx):
 
 with st.sidebar:
     st.markdown("""
-    <div style="padding:16px 0 8px;text-align:center;">
-      <div style="font-size:1.3rem;font-weight:800;
-        background:linear-gradient(135deg,#60a5fa,#a78bfa);
-        -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-        📊 BPJS ML
-      </div>
-      <div style="font-size:.68rem;color:#334155;letter-spacing:1px;
-        text-transform:uppercase;margin-top:2px;">Prediction Dashboard</div>
+    <div class="sb-brand">
+      <div class="sb-logo">⬡ BPJS ML</div>
+      <div class="sb-sub">Prediction Dashboard</div>
     </div>""", unsafe_allow_html=True)
-    st.markdown("---")
+
+    st.markdown('<div style="font-size:.6rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-family:\'Instrument Sans\',sans-serif;">📂 Upload Dataset</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
-        "Upload dataset (nama file tidak harus mengandung tahun)",
+        "Upload dataset",
         type=['csv', 'xlsx', 'xls'],
         accept_multiple_files=True,
-        help="Contoh nama file: data_tahun_2021.xlsx, bpjs.csv"
+        help="Kolom: PROGRAM · KASUS · NOMINAL · DATE",
+        label_visibility="collapsed",
     )
     st.markdown("""
-    <div style="font-size:.78rem;color:#64748b;line-height:1.7;margin-top:6px">
-    Kolom yang dibaca:<br>
-    <code>PROGRAM</code> → Kategori<br>
-    <code>KASUS</code> → Jumlah kasus<br>
-    <code>NOMINAL</code> → Nominal (Rp)<br>
-    <code>DATE</code> → Periode (diagregasi/tahun)<br>
-    Prediksi hanya untuk program yang <b>aktif di tahun terbaru</b>.
+    <div style="font-size:.75rem;color:#1e3a5f;line-height:1.8;margin-top:6px;font-family:'DM Mono',monospace;">
+    <code style="color:#334155">PROGRAM</code> → Kategori<br>
+    <code style="color:#334155">KASUS</code> → Jumlah kasus<br>
+    <code style="color:#334155">NOMINAL</code> → Nilai (Rp)<br>
+    <code style="color:#334155">DATE</code> → Periode
     </div>
     """, unsafe_allow_html=True)
+
     st.markdown("---")
+    st.markdown('<div style="font-size:.6rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-family:\'Instrument Sans\',sans-serif;">⚙️ Parameter Model</div>', unsafe_allow_html=True)
     n_lags   = st.slider("Lag features", 1, 4, 2)
     test_pct = st.slider("Test split (%)", 10, 40, 25, 5)
     n_future = st.slider("Prediksi tahun ke depan", 1, 5, 3)
 
     st.markdown("---")
-    st.markdown("**🕑 Riwayat Analisis**")
-    st.caption("Riwayat tersimpan permanen — tidak hilang saat restart.")
+    st.markdown('<div style="font-size:.6rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-family:\'Instrument Sans\',sans-serif;">🕑 Riwayat Analisis</div>', unsafe_allow_html=True)
     history_meta = load_history_meta()
     if history_meta:
         for h in reversed(history_meta):
             col_h, col_del = st.columns([5, 1])
             with col_h:
-                if st.button(h['label'], key=f"hbtn_{h['id']}", width='stretch'):
+                if st.button(h['label'], key=f"hbtn_{h['id']}", use_container_width=True):
                     df_h, res_h, extra_h = load_history_entry(h['id'])
                     if df_h is not None:
                         st.session_state.active_data     = df_h
@@ -1601,19 +1511,20 @@ with st.sidebar:
                     else:
                         st.warning("Data riwayat tidak ditemukan.")
             with col_del:
-                if st.button("🗑", key=f"hdel_{h['id']}", help="Hapus riwayat ini"):
+                if st.button("✕", key=f"hdel_{h['id']}", help="Hapus"):
                     delete_history_entry(h['id'])
                     meta = load_history_meta()
                     meta = [m for m in meta if m['id'] != h['id']]
                     save_history_meta(meta)
                     st.rerun()
-        if st.button("🗑 Hapus Semua Riwayat", width='stretch'):
+        if st.button("✕ Hapus Semua Riwayat", use_container_width=True):
             for h in history_meta:
                 delete_history_entry(h['id'])
             save_history_meta([])
             st.rerun()
     else:
-        st.caption("Belum ada riwayat tersimpan.")
+        st.markdown('<div style="font-size:.75rem;color:#1e3a5f;font-style:italic;padding:8px 0;">Belum ada riwayat.</div>', unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOAD DATA
@@ -1627,18 +1538,17 @@ if uploaded:
         raw = load_raw(f.read(), f.name)
         if raw is not None:
             files_info.append((year_hint, raw, f.name))
-            st.sidebar.success(f"✅ {f.name} → {year_hint}")
+            st.sidebar.success(f"✅ {f.name}")
         else:
             st.sidebar.error(f"❌ {f.name}: gagal dibaca")
 
     if files_info:
         merged, errs = merge_all(files_info)
-        for e in errs:
-            st.sidebar.warning(e)
+        for e in errs: st.sidebar.warning(e)
         if merged is not None and len(merged) > 0:
             dh  = hashlib.md5(merged.to_csv().encode()).hexdigest()[:8]
-            cur = (hashlib.md5(st.session_state.active_data.to_csv().encode())
-                   .hexdigest()[:8] if st.session_state.active_data is not None else None)
+            cur = (hashlib.md5(st.session_state.active_data.to_csv().encode()).hexdigest()[:8]
+                   if st.session_state.active_data is not None else None)
             if cur != dh:
                 st.session_state.active_data    = merged
                 st.session_state.active_results = {}
@@ -1653,7 +1563,7 @@ if uploaded:
             if raw_monthly_frames:
                 rm_combined = pd.concat(raw_monthly_frames, ignore_index=True)
                 st.session_state['raw_monthly'] = rm_combined
-                st.sidebar.success(f"📆 {len(rm_combined)} baris monthly tersimpan")
+                st.sidebar.success(f"📆 {len(rm_combined)} baris monthly")
             else:
                 st.session_state['raw_monthly'] = None
         else:
@@ -1663,39 +1573,39 @@ df            = st.session_state.active_data
 results_cache = st.session_state.active_results
 df_raw_monthly = st.session_state.get('raw_monthly', None)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# EMPTY STATE
+# ══════════════════════════════════════════════════════════════════════════════
+
 if df is None:
     st.markdown("""
-    <div style="text-align:center;padding:80px 0 40px;">
-      <div style="font-size:4rem;margin-bottom:16px;">📊</div>
-      <div style="font-size:2rem;font-weight:800;
-        background:linear-gradient(135deg,#60a5fa,#a78bfa);
-        -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-        margin-bottom:12px;">
-        Dashboard Prediksi Klaim BPJS Ketenagakerjaan
+    <div class="empty-state">
+      <div class="empty-icon">⬡</div>
+      <div class="empty-title">BPJS ML Dashboard</div>
+      <div class="empty-sub">
+        Upload dataset untuk memulai analisis prediktif klaim.
+        Sistem akan otomatis memilih model terbaik per program.
       </div>
-      <div style="color:#475569;max-width:600px;margin:auto;font-size:.95rem;line-height:1.8;">
-        Upload file dataset Anda untuk memulai analisis prediktif klaim.
-      </div>
-    </div>""", unsafe_allow_html=True)
+    </div>
+    """, unsafe_allow_html=True)
 
     f1, f2, f3 = st.columns(3)
     for col, icon, title, desc in [
-        (f1, "🤖", "Metode Adaptif", "Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
-        (f2, "📅", "Kalender Indonesia", "Prophet + Google Calendar Indonesia. Semua hari libur nasional otomatis diambil dari API resmi Google — Nyepi, Paskah, Lebaran, Natal, dan lainnya."),
-        (f3, "📥", "Export Excel", "Export prediksi tahunan & bulanan ke Excel dengan chart otomatis, siap untuk presentasi."),
+        (f1,"🤖","Model Adaptif","Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
+        (f2,"📅","Kalender Indonesia","Prophet + Google Calendar Indonesia. Semua hari libur nasional otomatis diambil dari API resmi Google."),
+        (f3,"📥","Export Excel","Export prediksi tahunan & bulanan ke Excel dengan chart otomatis."),
     ]:
         with col:
-            st.markdown(f'''<div style="background:#0a1628;border:1px solid #1e2d45;
-            border-radius:14px;padding:24px;text-align:center;height:160px;
-            border-top:3px solid #3b82f6;">
-            <div style="font-size:2rem;margin-bottom:8px;">{icon}</div>
-            <div style="font-weight:700;color:#e2e8f0;margin-bottom:8px;font-size:.95rem;">{title}</div>
-            <div style="color:#475569;font-size:.82rem;line-height:1.6;">{desc}</div>
+            st.markdown(f'''<div class="feat-card">
+            <div class="feat-icon">{icon}</div>
+            <div class="feat-title">{title}</div>
+            <div class="feat-desc">{desc}</div>
             </div>''', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="info-box">📋 <b>Format kolom yang didukung:</b> <code>PROGRAM</code> (nama jaminan) · <code>KASUS</code> (jumlah klaim) · <code>NOMINAL</code> (nilai Rp) · <code>DATE</code> (periode)<br>Upload 1+ file CSV/Excel. Nama file tidak harus mengandung tahun.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="info-box">📋 <b>Format kolom:</b> <code>PROGRAM</code> · <code>KASUS</code> · <code>NOMINAL</code> · <code>DATE</code><br>Upload 1+ file CSV/Excel. Nama file tidak harus mengandung tahun.</div>', unsafe_allow_html=True)
     st.stop()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DERIVED META
@@ -1710,64 +1620,44 @@ targets       = ['Kasus'] + (['Nominal'] if has_nom else [])
 single_yr     = len(years) == 1
 prog_changes  = analyze_program_changes(df)
 
-with st.expander("🔍 Info Parsing & Program Aktif (klik untuk cek)", expanded=False):
+with st.expander("🔍 Info Parsing & Program Aktif", expanded=False):
     change_html = ""
     for (y0, y1), ch in prog_changes.items():
-        change_html += f"<b>{y0} → {y1}:</b> &nbsp;"
-        for p in ch['added']:
-            change_html += f'<span class="tag-add">+ {p}</span> '
-        for p in ch['removed']:
-            change_html += f'<span class="tag-rem">– {p}</span> '
-        for p in ch['stable']:
-            change_html += f'<span class="tag-stable">{p}</span> '
+        change_html += f"<b style='color:#64748b'>{y0} → {y1}:</b> &nbsp;"
+        for p in ch['added']:    change_html += f'<span class="tag-add">+ {p}</span> '
+        for p in ch['removed']:  change_html += f'<span class="tag-rem">– {p}</span> '
+        for p in ch['stable']:   change_html += f'<span class="tag-stable">{p}</span> '
         change_html += "<br>"
-
     st.markdown(f"""
     <div class="info-box">
-    📋 <b>Kolom terbaca:</b> {', '.join(df.columns.tolist())}<br>
-    📅 <b>Tahun terdeteksi:</b> {', '.join(map(str, years))}<br>
+    📋 <b>Kolom:</b> {', '.join(df.columns.tolist())}<br>
+    📅 <b>Tahun:</b> {', '.join(map(str, years))}<br>
     🏷️ <b>Semua program ({len(all_progs)}):</b> {', '.join(all_progs)}<br>
-    ✅ <b>Program aktif (tahun {latest_year}) → diprediksi ({len(active_progs)}):</b>
-       {', '.join(active_progs)}<br>
-    📊 <b>Total baris setelah agregasi:</b> {len(df)}<br><br>
-    <b>Perubahan Program per Tahun:</b><br>
-    {change_html if change_html else 'Hanya 1 tahun data.'}
+    ✅ <b>Program aktif tahun {latest_year} ({len(active_progs)}):</b> {', '.join(active_progs)}<br>
+    📊 <b>Total baris:</b> {len(df)}<br><br>
+    <b>Perubahan Program:</b><br>{change_html if change_html else 'Hanya 1 tahun data.'}
     </div>""", unsafe_allow_html=True)
-
-    st.markdown("**Verifikasi Nilai per Tahun per Program (setelah agregasi):**")
     verify_cols = ['Tahun', 'Kategori', 'Kasus']
-    if 'Nominal' in df.columns:
-        verify_cols.append('Nominal')
+    if 'Nominal' in df.columns: verify_cols.append('Nominal')
     vdf = df[verify_cols].copy().sort_values(['Tahun','Kategori'])
     if 'Nominal' in vdf.columns:
-        vdf['Nominal (T)'] = (vdf['Nominal'] / 1e12).round(4)
-        vdf['Nominal (B)'] = (vdf['Nominal'] / 1e9).round(2)
-    st.dataframe(vdf, width='stretch', height=320)
+        vdf['Nominal (T)'] = (vdf['Nominal']/1e12).round(4)
+        vdf['Nominal (B)'] = (vdf['Nominal']/1e9).round(2)
+    st.dataframe(vdf, use_container_width=True, height=320)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# KPIs
+# HERO HEADER
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.markdown("""
-<div style="margin:0 0 16px;padding:24px 28px;
-  background:linear-gradient(135deg,#0a1628 0%,#0d1a0d 100%);
-  border:1px solid #1e2d45;border-radius:16px;
-  border-left:4px solid #3b82f6;">
-  <div style="font-size:1.6rem;font-weight:800;
-    background:linear-gradient(135deg,#60a5fa,#a78bfa);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-    margin-bottom:4px;">
-    📊 Dashboard Prediksi Klaim BPJS Ketenagakerjaan
-  </div>
-  <div style="font-size:.82rem;color:#475569;font-weight:500;">
-    Analisis tren historis &amp; proyeksi menggunakan metode statistik &amp; ML adaptif
-  </div>
+<div class="hero-wrap">
+  <div class="hero-logo">⬡ Dashboard Prediksi Klaim BPJS Ketenagakerjaan</div>
+  <div class="hero-sub">Analisis tren historis &amp; proyeksi — metode statistik &amp; machine learning adaptif</div>
 </div>""", unsafe_allow_html=True)
 
 if single_yr:
-    st.markdown("""<div class="warn">⚠️ <b>Mode 1 Tahun:</b>
-    Prediksi menggunakan ekstrapolasi asumsi pertumbuhan 5%/tahun.
-    Upload data multi-tahun untuk prediksi ML penuh.</div>""", unsafe_allow_html=True)
+    st.markdown('<div class="warn">⚠️ <b>Mode 1 Tahun:</b> Prediksi menggunakan ekstrapolasi asumsi pertumbuhan 5%/tahun. Upload data multi-tahun untuk prediksi ML penuh.</div>', unsafe_allow_html=True)
 
 if prog_changes:
     last_change = list(prog_changes.items())[-1]
@@ -1775,27 +1665,27 @@ if prog_changes:
     if ch['added'] or ch['removed']:
         added_str   = ', '.join(ch['added']) if ch['added'] else '–'
         removed_str = ', '.join(ch['removed']) if ch['removed'] else '–'
-        st.markdown(f"""<div class="warn">
-        📌 <b>Perubahan program {y0}→{y1}:</b>
-        &nbsp; Ditambah: <b style="color:#86efac">{added_str}</b>
-        &nbsp;|&nbsp; Dihapus: <b style="color:#fca5a5">{removed_str}</b>
-        &nbsp;→ Prediksi hanya untuk program aktif tahun {y1}.
-        </div>""", unsafe_allow_html=True)
+        st.markdown(f'<div class="warn">📌 <b>Perubahan {y0}→{y1}:</b> &nbsp; Ditambah: <b style="color:#86efac">{added_str}</b> &nbsp;|&nbsp; Dihapus: <b style="color:#fca5a5">{removed_str}</b></div>', unsafe_allow_html=True)
 
 df_active_only = df[df['Kategori'].isin(active_progs)]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# KPI STRIP
+# ══════════════════════════════════════════════════════════════════════════════
 
 kpi_delta_k = kpi_delta_n = kpi_avg_growth = ""
 if len(years) >= 2:
     yr_kasus = df_active_only.groupby('Tahun')['Kasus'].sum()
     if yr_kasus.iloc[-1] > 0 and yr_kasus.iloc[-2] > 0:
-        delta_k_pct = (yr_kasus.iloc[-1] / yr_kasus.iloc[-2] - 1) * 100
+        delta_k_pct = (yr_kasus.iloc[-1]/yr_kasus.iloc[-2]-1)*100
         sign_k = "▲" if delta_k_pct >= 0 else "▼"
         cls_k  = "delta-pos" if delta_k_pct >= 0 else "delta-neg"
         kpi_delta_k = f'<div class="delta {cls_k}">{sign_k} {abs(delta_k_pct):.1f}% vs {years[-2]}</div>'
     if has_nom:
         yr_nom = df_active_only.groupby('Tahun')['Nominal'].sum()
         if yr_nom.iloc[-1] > 0 and yr_nom.iloc[-2] > 0:
-            delta_n_pct = (yr_nom.iloc[-1] / yr_nom.iloc[-2] - 1) * 100
+            delta_n_pct = (yr_nom.iloc[-1]/yr_nom.iloc[-2]-1)*100
             sign_n = "▲" if delta_n_pct >= 0 else "▼"
             cls_n  = "delta-pos" if delta_n_pct >= 0 else "delta-neg"
             kpi_delta_n = f'<div class="delta {cls_n}">{sign_n} {abs(delta_n_pct):.1f}% vs {years[-2]}</div>'
@@ -1803,64 +1693,40 @@ if len(years) >= 2:
     for i in range(1, len(years)):
         k_prev = df_active_only[df_active_only['Tahun']==years[i-1]]['Kasus'].sum()
         k_curr = df_active_only[df_active_only['Tahun']==years[i]]['Kasus'].sum()
-        if k_prev > 0:
-            growths.append((k_curr/k_prev - 1)*100)
+        if k_prev > 0: growths.append((k_curr/k_prev-1)*100)
     avg_g = np.mean(growths) if growths else 0
     sign_g = "▲" if avg_g >= 0 else "▼"
     cls_g  = "delta-pos" if avg_g >= 0 else "delta-neg"
-    kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn rata-rata</div>'
+    kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn</div>'
 
-tk = int(df_active_only['Kasus'].sum())
+tk        = int(df_active_only['Kasus'].sum())
 tk_latest = int(df_active_only[df_active_only['Tahun']==latest_year]['Kasus'].sum())
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1,c2,c3,c4,c5 = st.columns(5)
 with c1:
-    st.markdown(f'''<div class="kpi">
-    <div class="val">{len(years)}</div>
-    <div class="lbl">📅 Tahun Data</div>
-    <div class="delta delta-neu">{years[0]} – {years[-1]}</div>
-    </div>''', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi"><div class="val">{len(years)}</div><div class="lbl">📅 Tahun Data</div><div class="delta delta-neu">{years[0]} – {years[-1]}</div></div>', unsafe_allow_html=True)
 with c2:
-    st.markdown(f'''<div class="kpi">
-    <div class="val">{len(active_progs)}</div>
-    <div class="lbl">🏷️ Program Aktif</div>
-    <div class="delta delta-neu">{", ".join(active_progs)}</div>
-    </div>''', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi"><div class="val">{len(active_progs)}</div><div class="lbl">🏷️ Program Aktif</div><div class="delta delta-neu">{", ".join(active_progs[:2])}{"…" if len(active_progs)>2 else ""}</div></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'''<div class="kpi">
-    <div class="val">{tk_latest:,}</div>
-    <div class="lbl">📋 Kasus {latest_year}</div>
-    {kpi_delta_k}
-    </div>''', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi"><div class="val">{tk_latest:,}</div><div class="lbl">📋 Kasus {latest_year}</div>{kpi_delta_k}</div>', unsafe_allow_html=True)
 with c4:
     if has_nom:
         tn = df_active_only[df_active_only['Tahun']==latest_year]['Nominal'].sum()/1e9
-        st.markdown(f'''<div class="kpi">
-        <div class="val">Rp{tn:,.1f}B</div>
-        <div class="lbl">💰 Nominal {latest_year}</div>
-        {kpi_delta_n}
-        </div>''', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi"><div class="val">Rp{tn:,.1f}B</div><div class="lbl">💰 Nominal {latest_year}</div>{kpi_delta_n}</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'''<div class="kpi">
-        <div class="val">{latest_year}</div>
-        <div class="lbl">📅 Tahun Terbaru</div>
-        </div>''', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi"><div class="val">{latest_year}</div><div class="lbl">📅 Tahun Terbaru</div></div>', unsafe_allow_html=True)
 with c5:
-    total_all = f"{tk:,}"
-    st.markdown(f'''<div class="kpi">
-    <div class="val">{total_all}</div>
-    <div class="lbl">📊 Total Kasus (semua)</div>
-    {kpi_avg_growth}
-    </div>''', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi"><div class="val">{tk:,}</div><div class="lbl">📊 Total Kasus</div>{kpi_avg_growth}</div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 df_plot = df[df['Kategori'].isin(active_progs)].copy()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
+tab1, tab2, tab3, tab4 = st.tabs(["📈  Overview", "🤖  ML Analysis", "🔮  Prediksi", "📥  Export"])
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1: OVERVIEW
+# TAB 1 — OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
     df_lat = df_plot[df_plot['Tahun'] == latest_year]
@@ -1871,175 +1737,157 @@ with tab1:
         growth_by_prog = {}
         for cp in active_progs:
             cd = df_plot[df_plot['Kategori']==cp].sort_values('Tahun')
-            if len(cd) >= 2 and cd['Kasus'].iloc[-2] > 0:
+            if len(cd)>=2 and cd['Kasus'].iloc[-2]>0:
                 growth_by_prog[cp] = (cd['Kasus'].iloc[-1]/cd['Kasus'].iloc[-2]-1)*100
         fastest = max(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
         fastest_g = growth_by_prog.get(fastest, 0)
         slowest = min(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
         slowest_g = growth_by_prog.get(slowest, 0)
-        total_latest = int(df_lat['Kasus'].sum())
 
-        ia, ib, ic, id_ = st.columns(4)
-        with ia:
-            st.markdown(f'''<div class="insight-card">
-            <div class="ic-title">🏆 Program Terbesar</div>
-            <div class="ic-val">{top_prog}</div>
-            <div class="ic-sub">{top_val:,} kasus di {latest_year}</div>
-            </div>''', unsafe_allow_html=True)
-        with ib:
-            st.markdown(f'''<div class="insight-card">
-            <div class="ic-title">📈 Pertumbuhan Tertinggi</div>
-            <div class="ic-val" style="color:#34d399">{fastest}</div>
-            <div class="ic-sub">+{fastest_g:.1f}% vs tahun lalu</div>
-            </div>''', unsafe_allow_html=True)
-        with ic:
-            st.markdown(f'''<div class="insight-card">
-            <div class="ic-title">📉 Pertumbuhan Terendah</div>
-            <div class="ic-val" style="color:#f87171">{slowest}</div>
-            <div class="ic-sub">{slowest_g:+.1f}% vs tahun lalu</div>
-            </div>''', unsafe_allow_html=True)
-        with id_:
-            st.markdown(f'''<div class="insight-card">
-            <div class="ic-title">📋 Total Kasus {latest_year}</div>
-            <div class="ic-val">{total_latest:,}</div>
-            <div class="ic-sub">{len(active_progs)} program aktif</div>
-            </div>''', unsafe_allow_html=True)
+        ia,ib,ic,id_ = st.columns(4)
+        for col, title, val, sub in [
+            (ia,"🏆 Program Terbesar", top_prog, f"{top_val:,} kasus di {latest_year}"),
+            (ib,"📈 Pertumbuhan Tertinggi", fastest, f"+{fastest_g:.1f}% vs tahun lalu"),
+            (ic,"📉 Pertumbuhan Terendah", slowest, f"{slowest_g:+.1f}% vs tahun lalu"),
+            (id_,"📋 Total Kasus", f"{int(df_lat['Kasus'].sum()):,}", f"{len(active_progs)} program aktif"),
+        ]:
+            with col:
+                st.markdown(f'<div class="insight-card"><div class="ic-title">{title}</div><div class="ic-val">{val}</div><div class="ic-sub">{sub}</div></div>', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
 
     r1, r2 = st.columns(2)
     with r1:
-        st.markdown('<div class="sec">Distribusi Kasus — Semua Tahun (Program Aktif)</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="sec">Distribusi Kasus — Semua Tahun</div>', unsafe_allow_html=True)
         pie_d = df_plot.groupby('Kategori')['Kasus'].sum().reset_index()
-        pie_d['pct'] = pie_d['Kasus'] / pie_d['Kasus'].sum() * 100
-        fig = px.pie(pie_d, names='Kategori', values='Kasus', hole=0.5,
-                     color_discrete_sequence=COLORS,
-                     custom_data=['pct'])
-        fig.update_traces(
-            textinfo='label+percent', textposition='outside',
+        pie_d['pct'] = pie_d['Kasus']/pie_d['Kasus'].sum()*100
+        fig = go.Figure(go.Pie(
+            labels=pie_d['Kategori'], values=pie_d['Kasus'],
+            hole=0.6, textinfo='label+percent', textposition='outside',
+            marker=dict(colors=COLORS[:len(pie_d)], line=dict(color='#020c18', width=2)),
             hovertemplate='<b>%{label}</b><br>Kasus: %{value:,}<br>%{percent}<extra></extra>',
-            textfont_size=11)
-        fig.update_layout(**DARK, showlegend=True, height=400,
-                          legend=dict(orientation='h', y=-0.1, font=dict(size=10)),
-                          margin=dict(t=10, b=60, l=10, r=10))
+        ))
         total_kasus = int(pie_d['Kasus'].sum())
-        fig.add_annotation(text=f"<b>{total_kasus:,}</b><br><span style='font-size:10px'>Total</span>",
-            showarrow=False, font=dict(size=13, color='#e2e8f0'), align='center')
-        st.plotly_chart(fig, width='stretch')
+        fig.add_annotation(text=f"<b style='font-size:18px'>{total_kasus:,}</b><br>Total",
+            showarrow=False, font=dict(size=13, color='#e2e8f0', family='Syne'), align='center')
+        fig.update_layout(**DARK, showlegend=True, height=420,
+            legend=dict(orientation='h', y=-0.1, font=dict(size=10.5, family='Instrument Sans'), bgcolor='rgba(0,0,0,0)'),
+            margin=dict(t=20, b=60, l=10, r=10))
+        st.plotly_chart(fig, use_container_width=True)
 
     with r2:
-        st.markdown(f'<div class="sec">Market Share per Program — {latest_year}</div>',
-                    unsafe_allow_html=True)
-        bar_d = (df_lat.groupby('Kategori')['Kasus'].sum()
-                 .sort_values(ascending=True).reset_index())
-        total_bar = bar_d['Kasus'].sum()
-        bar_d['Share'] = (bar_d['Kasus']/total_bar*100).round(1)
-
+        st.markdown(f'<div class="sec">Market Share — {latest_year}</div>', unsafe_allow_html=True)
+        bar_d = df_lat.groupby('Kategori')['Kasus'].sum().sort_values(ascending=True).reset_index()
+        bar_d['Share'] = (bar_d['Kasus']/bar_d['Kasus'].sum()*100).round(1)
         fig2 = go.Figure()
         for i, row in bar_d.iterrows():
             col_c = COLORS[i % len(COLORS)]
             fig2.add_trace(go.Bar(
                 x=[row['Kasus']], y=[row['Kategori']], orientation='h',
-                name=row['Kategori'],
-                marker_color=col_c,
-                marker_line_width=0,
+                name=row['Kategori'], showlegend=False,
+                marker=dict(color=col_c, line=dict(width=0),
+                    pattern=dict(shape='', bgcolor=hex_to_rgba(col_c,0.15))),
                 text=f"{row['Kasus']:,} ({row['Share']}%)",
-                textposition='outside',
-                textfont=dict(size=11),
-                showlegend=False,
+                textposition='outside', textfont=dict(size=10.5, color='#64748b', family='DM Mono'),
                 hovertemplate=f"<b>{row['Kategori']}</b><br>{row['Kasus']:,} kasus ({row['Share']}%)<extra></extra>"
             ))
-        fig2.update_layout(**DARK, height=400, showlegend=False, barmode='overlay',
-                           margin=dict(t=10, b=10, l=10, r=120),
-                           xaxis=dict(showgrid=True, gridcolor='#0f1923'))
-        st.plotly_chart(fig2, width='stretch')
+        styled_chart(fig2, height=420, legend_bottom=False)
+        fig2.update_layout(showlegend=False, xaxis=dict(showgrid=True), margin=dict(t=20,b=20,l=20,r=130))
+        st.plotly_chart(fig2, use_container_width=True)
 
     if not single_yr:
-        trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
-
+        trend = df_plot.groupby(['Tahun','Kategori'])['Kasus'].sum().reset_index()
         st.markdown('<div class="sec">Tren Kasus per Tahun</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
         for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
             cd = trend[trend['Kategori']==cat].sort_values('Tahun')
             col_c = COLORS[i % len(COLORS)]
             fig3.add_trace(go.Scatter(
-                x=cd['Tahun'], y=cd['Kasus'],
-                name=cat, mode='lines+markers',
-                line=dict(color=col_c, width=2.5),
-                marker=dict(size=9, color=col_c,
-                    line=dict(color='#05090f', width=2)),
-                fill='tozeroy', fillcolor=hex_to_rgba(col_c, 0.05),
+                x=cd['Tahun'], y=cd['Kasus'], name=cat, mode='lines+markers',
+                line=dict(color=col_c, width=2.5, shape='spline'),
+                marker=dict(size=9, color=col_c, line=dict(color='#020c18', width=2.5),
+                    symbol='circle'),
+                fill='tozeroy', fillcolor=hex_to_rgba(col_c, 0.04),
                 hovertemplate=f"<b>{cat}</b><br>Tahun: %{{x}}<br>Kasus: %{{y:,}}<extra></extra>"
             ))
-        styled_chart(fig3, height=400)
-        fig3.update_layout(xaxis=dict(dtick=1, showgrid=True, gridcolor='#0f1923'))
-        st.plotly_chart(fig3, width='stretch')
+        styled_chart(fig3, height=440)
+        fig3.update_layout(xaxis=dict(dtick=1))
+        st.plotly_chart(fig3, use_container_width=True)
 
         t3l, t3r = st.columns(2)
         with t3l:
             st.markdown('<div class="sec">Komposisi Stacked per Tahun</div>', unsafe_allow_html=True)
-            fig4 = px.bar(trend, x='Tahun', y='Kasus', color='Kategori',
-                          barmode='stack', color_discrete_sequence=COLORS)
-            fig4.update_traces(marker_line_width=0)
-            styled_chart(fig4, height=360)
+            fig4 = go.Figure()
+            for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
+                cd = trend[trend['Kategori']==cat].sort_values('Tahun')
+                fig4.add_trace(go.Bar(
+                    x=cd['Tahun'], y=cd['Kasus'], name=cat,
+                    marker_color=COLORS[i % len(COLORS)],
+                    marker_line_width=0,
+                    hovertemplate=f"<b>{cat}</b><br>%{{y:,}}<extra></extra>"
+                ))
+            fig4.update_layout(barmode='stack')
+            styled_chart(fig4, height=380)
             fig4.update_layout(xaxis=dict(dtick=1))
-            st.plotly_chart(fig4, width='stretch')
+            st.plotly_chart(fig4, use_container_width=True)
 
         with t3r:
-            st.markdown('<div class="sec">Heatmap Kasus (Program × Tahun)</div>',
-                        unsafe_allow_html=True)
-            hm_p = (df_plot.groupby(['Kategori', 'Tahun'])['Kasus'].sum()
-                    .reset_index()
-                    .pivot(index='Kategori', columns='Tahun', values='Kasus')
-                    .fillna(0))
-            fig5 = px.imshow(hm_p, color_continuous_scale='Blues',
-                             aspect='auto', text_auto=',')
-            fig5.update_layout(**DARK, height=360, margin=dict(t=10,b=10,l=10,r=10))
-            fig5.update_traces(textfont_size=11)
-            st.plotly_chart(fig5, width='stretch')
+            st.markdown('<div class="sec">Heatmap Kasus (Program × Tahun)</div>', unsafe_allow_html=True)
+            hm_p = (df_plot.groupby(['Kategori','Tahun'])['Kasus'].sum()
+                    .reset_index().pivot(index='Kategori',columns='Tahun',values='Kasus').fillna(0))
+            fig5 = go.Figure(go.Heatmap(
+                z=hm_p.values, x=[str(c) for c in hm_p.columns], y=list(hm_p.index),
+                colorscale=[[0,'#020c18'],[0.3,'#0f2744'],[0.7,'#1d4ed8'],[1,'#38bdf8']],
+                text=[[f'{v:,.0f}' for v in row] for row in hm_p.values],
+                texttemplate='%{text}', textfont=dict(size=10, color='#e2e8f0'),
+                hovertemplate='<b>%{y}</b> · %{x}<br>Kasus: %{z:,}<extra></extra>',
+                colorbar=dict(tickfont=dict(color='#334155',size=9),
+                    title=dict(text='Kasus',font=dict(color='#475569',size=10)),
+                    thickness=10, len=0.8),
+            ))
+            fig5.update_layout(**DARK, height=380, margin=dict(t=20,b=20,l=20,r=80))
+            st.plotly_chart(fig5, use_container_width=True)
 
-        st.markdown('<div class="sec">Year-over-Year Growth & CAGR per Program</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="sec">Year-over-Year Growth per Program</div>', unsafe_allow_html=True)
         yoy = []
         for cat in active_progs:
-            cd = df_plot[df_plot['Kategori'] == cat].sort_values('Tahun')
+            cd = df_plot[df_plot['Kategori']==cat].sort_values('Tahun')
             for i in range(1, len(cd)):
-                prev = cd.iloc[i-1]['Kasus']
-                curr = cd.iloc[i]['Kasus']
-                yoy.append({'Kategori': cat,
-                    'Tahun': int(cd.iloc[i]['Tahun']),
-                    'Growth (%)': round((curr/(prev+1e-9)-1)*100, 2)})
+                prev=cd.iloc[i-1]['Kasus']; curr=cd.iloc[i]['Kasus']
+                yoy.append({'Kategori':cat,'Tahun':int(cd.iloc[i]['Tahun']),'Growth (%)':round((curr/(prev+1e-9)-1)*100,2)})
         if yoy:
             ydf = pd.DataFrame(yoy)
-            fig_y = px.bar(ydf, x='Tahun', y='Growth (%)', color='Kategori',
-                           barmode='group', color_discrete_sequence=COLORS,
-                           text='Growth (%)')
-            fig_y.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
-                                textfont_size=9, marker_line_width=0)
-            fig_y.add_hline(y=0, line_color='#334155', line_width=1.5)
-            styled_chart(fig_y, height=360)
+            fig_y = go.Figure()
+            for i, cat in enumerate(sorted(active_progs)):
+                cd_y = ydf[ydf['Kategori']==cat].sort_values('Tahun')
+                col_c = COLORS[i % len(COLORS)]
+                fig_y.add_trace(go.Bar(
+                    x=cd_y['Tahun'], y=cd_y['Growth (%)'], name=cat,
+                    marker_color=col_c, marker_line_width=0,
+                    text=cd_y['Growth (%)'].apply(lambda v: f'{v:+.1f}%'),
+                    textposition='outside', textfont=dict(size=9, color='#475569', family='DM Mono'),
+                    hovertemplate=f"<b>{cat}</b><br>%{{x}}: %{{y:+.1f}}%<extra></extra>"
+                ))
+            fig_y.add_hline(y=0, line_color='rgba(30,58,95,.8)', line_width=1.5)
+            fig_y.update_layout(barmode='group')
+            styled_chart(fig_y, height=380)
             fig_y.update_layout(xaxis=dict(dtick=1))
-            st.plotly_chart(fig_y, width='stretch')
+            st.plotly_chart(fig_y, use_container_width=True)
 
         if len(years) >= 3:
-            st.markdown('<div class="sec">Distribusi & Variabilitas Kasus per Program</div>',
-                        unsafe_allow_html=True)
+            st.markdown('<div class="sec">Distribusi & Variabilitas per Program</div>', unsafe_allow_html=True)
             fig_box = go.Figure()
             for i, cat in enumerate(sorted(active_progs)):
                 cd = df_plot[df_plot['Kategori']==cat]['Kasus'].values
                 col_c = COLORS[i % len(COLORS)]
                 fig_box.add_trace(go.Box(
                     y=cd, name=cat,
-                    marker_color=col_c,
-                    line_color=col_c,
-                    fillcolor=hex_to_rgba(col_c, 0.15),
-                    boxmean='sd',
+                    marker_color=col_c, line_color=col_c,
+                    fillcolor=hex_to_rgba(col_c, 0.12), boxmean='sd',
                     hovertemplate=f"<b>{cat}</b><br>%{{y:,}}<extra></extra>"
                 ))
-            styled_chart(fig_box, height=340, legend_bottom=False)
-            fig_box.update_layout(showlegend=False,
-                yaxis_title='Kasus', margin=dict(t=20,b=20,l=60,r=20))
-            st.plotly_chart(fig_box, width='stretch')
+            styled_chart(fig_box, height=360, legend_bottom=False)
+            fig_box.update_layout(showlegend=False, yaxis_title='Kasus', margin=dict(t=20,b=20,l=60,r=20))
+            st.plotly_chart(fig_box, use_container_width=True)
 
     if has_nom:
         st.markdown('<div class="sec">Analisis Nominal (Rp)</div>', unsafe_allow_html=True)
@@ -2048,17 +1896,19 @@ with tab1:
             np_d = df_plot.groupby('Kategori')['Nominal'].sum().reset_index()
             np_d['Nominal_B'] = np_d['Nominal']/1e9
             total_nom = np_d['Nominal_B'].sum()
-            fp = px.pie(np_d, names='Kategori', values='Nominal', hole=0.5,
-                        color_discrete_sequence=COLORS)
-            fp.update_traces(textinfo='label+percent', textposition='outside', textfont_size=11)
-            fp.update_layout(**DARK, showlegend=False, height=360,
-                             margin=dict(t=10, b=10, l=10, r=10))
-            fp.add_annotation(text=f"<b>Rp{total_nom:,.1f}B</b><br><span style='font-size:9px'>Total</span>",
-                showarrow=False, font=dict(size=12, color='#e2e8f0'), align='center')
-            st.plotly_chart(fp, width='stretch')
+            fp = go.Figure(go.Pie(
+                labels=np_d['Kategori'], values=np_d['Nominal'], hole=0.6,
+                textinfo='label+percent', textposition='outside',
+                marker=dict(colors=COLORS[:len(np_d)], line=dict(color='#020c18', width=2)),
+                hovertemplate='<b>%{label}</b><br>Rp%{value:,.0f}<extra></extra>',
+            ))
+            fp.add_annotation(text=f"<b>Rp{total_nom:,.1f}B</b><br>Total",
+                showarrow=False, font=dict(size=12, color='#e2e8f0', family='Syne'), align='center')
+            fp.update_layout(**DARK, showlegend=False, height=380, margin=dict(t=20,b=20,l=10,r=10))
+            st.plotly_chart(fp, use_container_width=True)
         with nc2:
             if not single_yr:
-                nt = df_plot.groupby(['Tahun', 'Kategori'])['Nominal'].sum().reset_index()
+                nt = df_plot.groupby(['Tahun','Kategori'])['Nominal'].sum().reset_index()
                 nt['Nominal_B'] = nt['Nominal']/1e9
                 fn = go.Figure()
                 for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
@@ -2068,12 +1918,12 @@ with tab1:
                         x=cd['Tahun'], y=cd['Nominal_B'], name=cat,
                         mode='lines+markers', stackgroup='one',
                         line=dict(color=col_c, width=1.5),
-                        fillcolor=hex_to_rgba(col_c, 0.3),
+                        fillcolor=hex_to_rgba(col_c, 0.25),
                         hovertemplate=f"<b>{cat}</b><br>Rp%{{y:,.1f}}B<extra></extra>"
                     ))
-                styled_chart(fn, height=360)
+                styled_chart(fn, height=380)
                 fn.update_layout(xaxis=dict(dtick=1), yaxis_title='Rp Miliar')
-                st.plotly_chart(fn, width='stretch')
+                st.plotly_chart(fn, use_container_width=True)
             else:
                 nb = df_plot.groupby('Kategori')['Nominal'].sum().reset_index()
                 nb['Nominal_B'] = nb['Nominal']/1e9
@@ -2081,1442 +1931,1019 @@ with tab1:
                 for i, (_, row) in enumerate(nb.sort_values('Nominal_B',ascending=True).iterrows()):
                     fn.add_trace(go.Bar(
                         x=[row['Nominal_B']], y=[row['Kategori']], orientation='h',
-                        name=row['Kategori'], showlegend=False,
-                        marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                        showlegend=False, marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
                         text=f"Rp{row['Nominal_B']:,.1f}B", textposition='outside',
-                        hovertemplate=f"<b>{row['Kategori']}</b><br>Rp{row['Nominal_B']:,.1f}B<extra></extra>"
+                        textfont=dict(size=10.5, color='#64748b', family='DM Mono'),
                     ))
-                styled_chart(fn, height=360, legend_bottom=False)
+                styled_chart(fn, height=380, legend_bottom=False)
                 fn.update_layout(margin=dict(t=10,b=10,l=10,r=100))
-                st.plotly_chart(fn, width='stretch')
+                st.plotly_chart(fn, use_container_width=True)
 
-        if not single_yr and has_nom:
-            st.markdown('<div class="sec">Korelasi Kasus vs Nominal per Program</div>',
-                        unsafe_allow_html=True)
-            corr_data = df_plot.groupby(['Kategori','Tahun']).agg(
-                Kasus=('Kasus','sum'), Nominal=('Nominal','sum')).reset_index()
+        if not single_yr:
+            st.markdown('<div class="sec">Korelasi Kasus vs Nominal</div>', unsafe_allow_html=True)
+            corr_data = df_plot.groupby(['Kategori','Tahun']).agg(Kasus=('Kasus','sum'),Nominal=('Nominal','sum')).reset_index()
             corr_data['Nominal_B'] = corr_data['Nominal']/1e9
-            fig_sc = px.scatter(corr_data, x='Kasus', y='Nominal_B',
-                color='Kategori', size='Kasus', text='Tahun',
-                color_discrete_sequence=COLORS,
+            fig_sc = px.scatter(corr_data, x='Kasus', y='Nominal_B', color='Kategori',
+                size='Kasus', text='Tahun', color_discrete_sequence=COLORS,
                 labels={'Nominal_B':'Nominal (Rp Miliar)','Kasus':'Jumlah Kasus'})
-            fig_sc.update_traces(textposition='top center', textfont_size=9)
-            styled_chart(fig_sc, height=380, legend_bottom=True)
-            st.plotly_chart(fig_sc, width='stretch')
+            fig_sc.update_traces(textposition='top center', textfont=dict(size=9, family='DM Mono'))
+            styled_chart(fig_sc, height=400)
+            st.plotly_chart(fig_sc, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2: ML ANALYSIS
+# TAB 2 — ML ANALYSIS
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
     col_s, _ = st.columns([1, 3])
     with col_s:
         target_ml = st.selectbox("Target Prediksi", targets, key='ml_target')
-        run_btn   = st.button("🚀 Jalankan Analisis ML", type="primary", width='stretch')
+        run_btn   = st.button("🚀  Jalankan Analisis ML", type="primary", use_container_width=True)
 
     ck     = f"{target_ml}_lags{n_lags}_test{test_pct}"
     ml_res = results_cache.get(ck)
 
     if run_btn:
-        with st.spinner(f"Melatih model untuk {len(active_progs)} program..."):
-            ml_res, err = run_ml(df, target_ml, n_lags, test_pct / 100)
+        with st.spinner(f"Melatih model untuk {len(active_progs)} program…"):
+            ml_res, err = run_ml(df, target_ml, n_lags, test_pct/100)
         if err:
             st.error(f"Error: {err}"); ml_res = None
         else:
             results_cache[ck] = ml_res
             st.session_state.active_results = results_cache
-            with st.spinner("Menganalisis model per program..."):
+            with st.spinner("Menganalisis model per program…"):
                 st.session_state[f'per_prog_{target_ml}'] = ml_res
             data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
             eid   = f"{data_hash}_{target_ml}_L{n_lags}_T{test_pct}"
-            label = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
-                     f"{target_ml} | {len(years)}yr | {len(active_progs)} prog")
-            extra_snapshot = {
-                k: st.session_state[k]
-                for k in ['raw_monthly',
-                          'forecast_Kasus', 'forecast_Nominal',
-                          'forecast_monthly_Kasus', 'forecast_monthly_Nominal',
-                          'forecast_annual_Kasus', 'forecast_annual_Nominal',
-                          'last_forecast', 'last_forecast_monthly']
-                if k in st.session_state and st.session_state[k] is not None
-            }
+            label = f"📁 {datetime.now().strftime('%d/%m %H:%M')} | {target_ml} | {len(years)}yr | {len(active_progs)} prog"
+            extra_snapshot = {k: st.session_state[k] for k in
+                ['raw_monthly','forecast_Kasus','forecast_Nominal','forecast_monthly_Kasus',
+                 'forecast_monthly_Nominal','forecast_annual_Kasus','forecast_annual_Nominal',
+                 'last_forecast','last_forecast_monthly']
+                if k in st.session_state and st.session_state[k] is not None}
             add_to_history(label, eid, df.copy(), dict(results_cache), extra_snapshot)
             st.session_state.active_entry_id = eid
 
     if ml_res:
         bpp      = ml_res.get('best_per_program', pd.DataFrame())
         per_prog = ml_res.get('per_prog', {})
-        rdf      = ml_res.get('results_df', pd.DataFrame())
         n_yrs    = len(sorted(df['Tahun'].unique()))
-
         avg_mape = float(bpp['MAPE (%)'].mean()) if not bpp.empty and 'MAPE (%)' in bpp.columns else 0.0
-        mape_grade = ("🟢 Sangat Akurat" if avg_mape < 10 else
-                      "🔵 Akurat" if avg_mape < 20 else
-                      "🟡 Cukup" if avg_mape < 50 else "🔴 Perlu Perbaikan")
-        data_note = f"⚠️ {n_yrs} tahun data — R² tidak bermakna, gunakan MAPE" if n_yrs < 8 else ""
-        mode_note = '&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''
+        mape_grade = ("🟢 Sangat Akurat" if avg_mape<10 else "🔵 Akurat" if avg_mape<20
+                      else "🟡 Cukup" if avg_mape<50 else "🔴 Perlu Perbaikan")
+        data_note  = f"&nbsp;|&nbsp; ⚠️ {n_yrs} tahun → gunakan MAPE" if n_yrs<8 else ""
+        mode_note  = '&nbsp;|&nbsp; ⚠️ Mode 1 Tahun' if single_yr else ''
         st.markdown(
-            f'<div class="badge">'
-            f'🎯 <b>Per-Program Best Model</b> — metode terbaik per program'
+            f'<div class="badge">🎯 <b>Per-Program Best Model</b>'
             f'&nbsp;|&nbsp; Avg MAPE = <b>{avg_mape:.2f}%</b> ({mape_grade})'
-            f'&nbsp;|&nbsp; <b>{len(active_progs)} program</b>'
-            f'{"&nbsp;|&nbsp; " + data_note if data_note else ""}'
-            f'{mode_note}</div>',
+            f'&nbsp;|&nbsp; <b>{len(active_progs)} program</b>{data_note}{mode_note}</div>',
             unsafe_allow_html=True)
 
-        mtab1, mtab2, mtab3, mtab4 = st.tabs([
-            "📊 Perbandingan Model", "🎯 Model per Program",
-            "📝 Conclusion & Metrics", "🔮 Prophet + Kalender"
-        ])
+        mtab1, mtab2, mtab3, mtab4 = st.tabs(["📊  Perbandingan", "🎯  Model per Program", "📝  Conclusion", "🔮  Prophet + Kalender"])
 
         with mtab1:
-            st.markdown('<div class="sec">Model Terbaik per Program (Ringkasan)</div>',
-                        unsafe_allow_html=True)
+            st.markdown('<div class="sec">Model Terbaik per Program</div>', unsafe_allow_html=True)
             if not bpp.empty:
                 def badge_r2(v):
-                    return "🟢" if v>0.8 else "🔵" if v>0.6 else "🟡" if v>0.3 else "🔴"
+                    return "🟢" if v and v>0.8 else "🔵" if v and v>0.6 else "🟡" if v and v>0.3 else "🔴"
                 def badge_mape(v):
-                    return "🟢" if v<10 else "🔵" if v<20 else "🟡" if v<50 else "🔴"
+                    return "🟢" if v and v<10 else "🔵" if v and v<20 else "🟡" if v and v<50 else "🔴"
                 bpp_disp = bpp.copy()
-                bpp_disp['Kualitas R²']   = bpp_disp['R2'].apply(badge_r2)
-                bpp_disp['Kualitas MAPE'] = bpp_disp['MAPE (%)'].apply(badge_mape)
+                bpp_disp['R²'] = bpp_disp['R2'].apply(badge_r2)
+                bpp_disp['MAPE Grade'] = bpp_disp['MAPE (%)'].apply(badge_mape)
                 st.dataframe(
                     bpp_disp.style
-                       .highlight_max(subset=['R2'], color='#14532d')
-                       .highlight_min(subset=['MAPE (%)'], color='#14532d')
+                       .highlight_max(subset=['R2'], color='#0a2a12')
+                       .highlight_min(subset=['MAPE (%)'], color='#0a2a12')
                        .format({'R2':'{:.4f}','MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}),
-                    width='stretch', height=260)
+                    use_container_width=True, height=280)
 
                 ml_ta, ml_tb = st.columns(2)
                 with ml_ta:
-                    if not bpp.empty and 'MAPE (%)' in bpp.columns:
-                        bpp_sorted = bpp.sort_values('MAPE (%)')
-                        fig_bpp_mp = go.Figure()
-                        for i, (_, row) in enumerate(bpp_sorted.iterrows()):
-                            mape_v = row['MAPE (%)']
-                            col_c  = ('#34d399' if mape_v < 10 else '#60a5fa' if mape_v < 20
-                                      else '#fbbf24' if mape_v < 50 else '#f87171')
-                            fig_bpp_mp.add_trace(go.Bar(
-                                x=[mape_v], y=[row['Program']], orientation='h',
-                                name=row['Program'], showlegend=False,
-                                marker_color=col_c, marker_line_width=0,
-                                text=f"{mape_v:.1f}% ({row['Model']})",
-                                textposition='outside', textfont_size=10,
-                                hovertemplate=f"<b>{row['Program']}</b><br>MAPE: {mape_v:.2f}%<br>Model: {row['Model']}<extra></extra>"
-                            ))
-                        fig_bpp_mp.add_vline(x=20, line_dash='dash',
-                            line_color='rgba(251,191,36,0.6)', line_width=1.5,
-                            annotation_text='Target <20%', annotation_font_color='#fbbf24',
-                            annotation_font_size=10)
-                        fig_bpp_mp.update_layout(**DARK, height=360, showlegend=False,
-                            title='MAPE per Program (lebih rendah = lebih baik)',
-                            xaxis_title='MAPE (%)', margin=dict(t=50,b=20,l=20,r=120))
-                        st.plotly_chart(fig_bpp_mp, width='stretch')
+                    bpp_sorted = bpp.sort_values('MAPE (%)').copy() if not bpp.empty else bpp
+                    fig_bm = go.Figure()
+                    for i, (_, row) in enumerate(bpp_sorted.iterrows()):
+                        mv   = row['MAPE (%)']
+                        col_c = ('#34d399' if mv<10 else '#38bdf8' if mv<20 else '#fbbf24' if mv<50 else '#f87171')
+                        fig_bm.add_trace(go.Bar(
+                            x=[mv], y=[row['Program']], orientation='h', showlegend=False,
+                            marker=dict(color=col_c, line=dict(width=0)),
+                            text=f"{mv:.1f}%  ·  {row['Model']}",
+                            textposition='outside', textfont=dict(size=9.5, color='#64748b', family='DM Mono'),
+                            hovertemplate=f"<b>{row['Program']}</b><br>MAPE: {mv:.2f}%<br>Model: {row['Model']}<extra></extra>"
+                        ))
+                    fig_bm.add_vline(x=20, line_dash='dash', line_color='rgba(251,191,36,.4)', line_width=1.5,
+                        annotation_text='Target <20%', annotation_font=dict(color='#fbbf24', size=9, family='DM Mono'),
+                        annotation_position='top')
+                    styled_chart(fig_bm, height=380, title='MAPE per Program (lebih rendah = lebih baik)', legend_bottom=False)
+                    fig_bm.update_layout(xaxis_title='MAPE (%)', margin=dict(t=50,b=20,l=20,r=140))
+                    st.plotly_chart(fig_bm, use_container_width=True)
 
                 with ml_tb:
                     if not bpp.empty:
                         type_counts = bpp['Model'].value_counts().reset_index()
-                        type_counts.columns = ['Model', 'Count']
-                        fig_mt = px.pie(type_counts, names='Model', values='Count',
-                            hole=0.5, color_discrete_sequence=COLORS,
-                            title='Distribusi Model Terbaik')
-                        fig_mt.update_traces(textinfo='label+percent', textposition='outside',
-                            textfont_size=10)
-                        fig_mt.update_layout(**DARK, height=360, showlegend=False,
+                        type_counts.columns = ['Model','Count']
+                        fig_mt = go.Figure(go.Pie(
+                            labels=type_counts['Model'], values=type_counts['Count'],
+                            hole=0.55, textinfo='label+percent', textposition='outside',
+                            marker=dict(colors=COLORS[:len(type_counts)], line=dict(color='#020c18',width=2)),
+                        ))
+                        fig_mt.update_layout(**DARK, height=380, showlegend=False,
+                            title=dict(text='Distribusi Model Terbaik',font=dict(size=12,color='#64748b'),x=0),
                             margin=dict(t=50,b=20,l=20,r=20))
-                        st.plotly_chart(fig_mt, width='stretch')
-            else:
-                st.info("Jalankan Analisis ML untuk melihat hasil.")
+                        st.plotly_chart(fig_mt, use_container_width=True)
 
-            if not bpp.empty and 'R2' in bpp.columns:
                 mc1, mc2 = st.columns(2)
                 bpp_plot = bpp.dropna(subset=['R2','MAPE (%)'])
                 with mc1:
                     if not bpp_plot.empty:
-                        fig_r2 = px.bar(bpp_plot, x='Program', y='R2', color='Model',
-                                        color_discrete_sequence=COLORS,
-                                        title='R² per Program (LOO-CV)')
-                        fig_r2.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
-                                         annotation_text='Target 0.8')
-                        fig_r2.update_layout(**DARK, height=360, margin=dict(b=60, t=40))
-                        st.plotly_chart(fig_r2, width='stretch')
+                        fig_r2 = go.Figure()
+                        for i, (_, row) in enumerate(bpp_plot.iterrows()):
+                            fig_r2.add_trace(go.Bar(
+                                x=[row['Program']], y=[row['R2']], name=row['Model'],
+                                marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                                text=f"{row['R2']:.3f}", textposition='outside',
+                                textfont=dict(size=9, color='#64748b', family='DM Mono'),
+                            ))
+                        fig_r2.add_hline(y=0.8, line_dash='dot', line_color='rgba(52,211,153,.4)',
+                            annotation_text='0.8', annotation_font=dict(color='#34d399',size=9,family='DM Mono'))
+                        styled_chart(fig_r2, height=360, title='R² per Program (LOO-CV)')
+                        st.plotly_chart(fig_r2, use_container_width=True)
                 with mc2:
                     if not bpp_plot.empty:
-                        fig_mp = px.bar(bpp_plot, x='Program', y='MAPE (%)', color='Model',
-                                        color_discrete_sequence=COLORS,
-                                        title='MAPE % per Program (lebih rendah = lebih baik)')
-                        fig_mp.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
-                                         annotation_text='Threshold 20%')
-                        fig_mp.update_layout(**DARK, height=360, margin=dict(b=60, t=40))
-                        st.plotly_chart(fig_mp, width='stretch')
+                        fig_mp = go.Figure()
+                        for i, (_, row) in enumerate(bpp_plot.iterrows()):
+                            fig_mp.add_trace(go.Bar(
+                                x=[row['Program']], y=[row['MAPE (%)']], name=row['Model'],
+                                marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                                text=f"{row['MAPE (%)']:.1f}%", textposition='outside',
+                                textfont=dict(size=9, color='#64748b', family='DM Mono'),
+                            ))
+                        fig_mp.add_hline(y=20, line_dash='dot', line_color='rgba(251,191,36,.4)',
+                            annotation_text='20%', annotation_font=dict(color='#fbbf24',size=9,family='DM Mono'))
+                        styled_chart(fig_mp, height=360, title='MAPE % per Program')
+                        st.plotly_chart(fig_mp, use_container_width=True)
 
-            if not single_yr and per_prog:
-                st.markdown('<div class="sec">Trend Historis per Program</div>',
-                            unsafe_allow_html=True)
-                fig_av = go.Figure()
-                for i, (cat, info) in enumerate(per_prog.items()):
-                    hist = info.get('history', [])
-                    if len(hist) < 2:
-                        continue
-                    fig_av.add_trace(go.Scatter(
-                        y=hist, name=cat, mode='lines+markers',
-                        line=dict(color=COLORS[i % len(COLORS)], width=2),
-                        marker=dict(size=6)
-                    ))
-                fig_av.update_layout(**DARK, height=360, hovermode='x unified',
-                                     legend=dict(orientation='h', y=-0.25),
-                                     margin=dict(t=20, b=100),
-                                     yaxis_title=target_ml, xaxis_title='Index Tahun')
-                st.plotly_chart(fig_av, width='stretch')
+                if not single_yr and per_prog:
+                    st.markdown('<div class="sec">Tren Historis per Program</div>', unsafe_allow_html=True)
+                    fig_av = go.Figure()
+                    for i, (cat, info) in enumerate(per_prog.items()):
+                        hist = info.get('history', [])
+                        if len(hist) < 2: continue
+                        col_c = COLORS[i % len(COLORS)]
+                        fig_av.add_trace(go.Scatter(
+                            y=hist, name=cat, mode='lines+markers',
+                            line=dict(color=col_c, width=2.5, shape='spline'),
+                            marker=dict(size=7, color=col_c, line=dict(color='#020c18',width=2)),
+                            fill='tozeroy', fillcolor=hex_to_rgba(col_c, 0.05),
+                        ))
+                    styled_chart(fig_av, height=380)
+                    fig_av.update_layout(yaxis_title=target_ml, xaxis_title='Index Tahun')
+                    st.plotly_chart(fig_av, use_container_width=True)
 
-                tree_models = ('Random Forest','Gradient Boosting','Decision Tree',
-                               'Extra Trees','XGBoost','LightGBM')
-                lnames = [f'Lag_{j}' for j in range(1, n_lags+1)]
-                extras = ['MA3','Std3','MA6','Std6','Trend','Trend2','Min6','Max6','cat_id']
-                for i, (cat, info) in enumerate(per_prog.items()):
-                    mdl_name = info.get('best_name','')
-                    mdl_obj  = info.get('best_model', None)
-                    if mdl_name in tree_models and mdl_obj is not None:
-                        try:
-                            fi_vals = mdl_obj.feature_importances_
-                            nf = len(fi_vals)
-                            fnames = (lnames + extras)[:nf]
-                            while len(fnames) < nf:
-                                fnames.append(f'feat_{len(fnames)}')
-                            fi_df = pd.DataFrame({'Feature': fnames, 'Importance': fi_vals})\
-                                      .sort_values('Importance', ascending=False).head(8)
-                            fig_fi = px.bar(fi_df, x='Importance', y='Feature',
-                                            orientation='h', color='Importance',
-                                            color_continuous_scale='Viridis',
-                                            title=f'Feature Importance — {cat} ({mdl_name})')
-                            fig_fi.update_layout(**DARK, height=300,
-                                                 coloraxis_showscale=False,
-                                                 margin=dict(l=100,t=40,b=20))
-                            st.plotly_chart(fig_fi, width='stretch')
-                        except:
-                            pass
+                    tree_models = ('Random Forest','Gradient Boosting','Decision Tree','Extra Trees','XGBoost','LightGBM')
+                    lnames = [f'Lag_{j}' for j in range(1, n_lags+1)]
+                    extras = ['MA3','Std3','MA6','Std6','Trend','Trend2','Min6','Max6','cat_id']
+                    for i, (cat, info) in enumerate(per_prog.items()):
+                        mdl_name = info.get('best_name','')
+                        mdl_obj  = info.get('best_model', None)
+                        if mdl_name in tree_models and mdl_obj is not None:
+                            try:
+                                fi_vals = mdl_obj.feature_importances_
+                                nf = len(fi_vals)
+                                fnames = (lnames + extras)[:nf]
+                                while len(fnames)<nf: fnames.append(f'feat_{len(fnames)}')
+                                fi_df = pd.DataFrame({'Feature':fnames,'Importance':fi_vals})\
+                                          .sort_values('Importance',ascending=False).head(8)
+                                fig_fi = go.Figure(go.Bar(
+                                    x=fi_df['Importance'], y=fi_df['Feature'], orientation='h',
+                                    marker=dict(color=COLORS[i%len(COLORS)], line=dict(width=0)),
+                                    text=fi_df['Importance'].apply(lambda v: f'{v:.3f}'),
+                                    textposition='outside', textfont=dict(size=9, color='#64748b', family='DM Mono'),
+                                ))
+                                styled_chart(fig_fi, height=300, title=f'Feature Importance — {cat} ({mdl_name})', legend_bottom=False)
+                                fig_fi.update_layout(margin=dict(l=100,t=50,b=20))
+                                st.plotly_chart(fig_fi, use_container_width=True)
+                            except: pass
 
         with mtab2:
             det = ml_res.get('detail', pd.DataFrame())
             if bpp.empty:
                 st.info("Klik **Jalankan Analisis ML** untuk melihat model terbaik per program.")
             else:
-                st.markdown('<div class="sec">Model Terbaik per Program</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="sec">Model Terbaik per Program</div>', unsafe_allow_html=True)
                 st.dataframe(
                     bpp.style
-                       .highlight_max(subset=['R2'], color='#14532d')
-                       .highlight_min(subset=['MAPE (%)'], color='#14532d')
-                       .format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
-                                'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
-                    width='stretch', height=260)
+                       .highlight_max(subset=['R2'], color='#0a2a12')
+                       .highlight_min(subset=['MAPE (%)'], color='#0a2a12')
+                       .format({'R2':'{:.4f}','MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}),
+                    use_container_width=True, height=280)
 
-                st.markdown('<div class="sec">Heatmap R² — Semua Model × Semua Program</div>',
-                            unsafe_allow_html=True)
-                heat = det.pivot_table(index='Model', columns='Program',
-                                       values='R2', aggfunc='mean').fillna(0)
-                fig_heat = px.imshow(heat, color_continuous_scale='Blues',
-                                     aspect='auto', text_auto='.3f',
-                                     title='R² per Model per Program (lebih biru = lebih baik)')
-                fig_heat.update_layout(**DARK, height=400, margin=dict(t=50, b=20))
-                st.plotly_chart(fig_heat, width='stretch')
+                st.markdown('<div class="sec">Heatmap R² — Semua Model × Semua Program</div>', unsafe_allow_html=True)
+                heat = det.pivot_table(index='Model',columns='Program',values='R2',aggfunc='mean').fillna(0)
+                fig_heat = go.Figure(go.Heatmap(
+                    z=heat.values, x=list(heat.columns), y=list(heat.index),
+                    colorscale=[[0,'#020c18'],[0.3,'#0f2744'],[0.7,'#1d4ed8'],[1,'#38bdf8']],
+                    text=[[f'{v:.3f}' for v in row] for row in heat.values],
+                    texttemplate='%{text}', textfont=dict(size=10.5,color='#e2e8f0'),
+                    hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>R²: %{z:.4f}<extra></extra>',
+                    colorbar=dict(tickfont=dict(color='#334155',size=9),title=dict(text='R²',font=dict(color='#475569',size=10)),thickness=10),
+                ))
+                fig_heat.update_layout(**DARK, height=420, margin=dict(t=20,b=20,l=20,r=60))
+                st.plotly_chart(fig_heat, use_container_width=True)
 
-                st.markdown('<div class="sec">R² Model Terbaik per Program</div>',
-                            unsafe_allow_html=True)
-                fig_bpp = px.bar(bpp, x='Program', y='R2', color='Model',
-                                 text='Model', color_discrete_sequence=COLORS,
-                                 title='Model Terbaik & R² per Program')
-                fig_bpp.add_hline(y=0.8, line_dash='dash', line_color='#34d399',
-                                  annotation_text='Target R²=0.8')
-                fig_bpp.update_traces(textposition='outside')
-                fig_bpp.update_layout(**DARK, height=400, margin=dict(t=50, b=40))
-                st.plotly_chart(fig_bpp, width='stretch')
-
-                st.markdown('<div class="sec">MAPE % Model Terbaik per Program</div>',
-                            unsafe_allow_html=True)
-                fig_mape = px.bar(bpp, x='Program', y='MAPE (%)', color='Model',
-                                  color_discrete_sequence=COLORS,
-                                  title='MAPE % per Program (lebih rendah = lebih baik)')
-                fig_mape.add_hline(y=20, line_dash='dash', line_color='#fbbf24',
-                                   annotation_text='Threshold 20%')
-                fig_mape.update_layout(**DARK, height=380, margin=dict(t=50, b=40))
-                st.plotly_chart(fig_mape, width='stretch')
+                mc_a, mc_b = st.columns(2)
+                with mc_a:
+                    fig_bpp = go.Figure()
+                    for i,(_, row) in enumerate(bpp.iterrows()):
+                        fig_bpp.add_trace(go.Bar(
+                            x=[row['Program']], y=[row['R2']], name=row['Model'],
+                            marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                            text=row['Model'], textposition='outside',
+                            textfont=dict(size=9,color='#64748b',family='DM Mono'),
+                        ))
+                    fig_bpp.add_hline(y=0.8, line_dash='dot', line_color='rgba(52,211,153,.4)')
+                    styled_chart(fig_bpp, height=380, title='Model Terbaik & R²')
+                    st.plotly_chart(fig_bpp, use_container_width=True)
+                with mc_b:
+                    fig_mape = go.Figure()
+                    for i,(_, row) in enumerate(bpp.iterrows()):
+                        fig_mape.add_trace(go.Bar(
+                            x=[row['Program']], y=[row['MAPE (%)']], name=row['Model'],
+                            marker_color=COLORS[i%len(COLORS)], marker_line_width=0,
+                        ))
+                    fig_mape.add_hline(y=20, line_dash='dot', line_color='rgba(251,191,36,.4)')
+                    styled_chart(fig_mape, height=380, title='MAPE % per Program')
+                    st.plotly_chart(fig_mape, use_container_width=True)
 
                 with st.expander("📋 Tabel Detail Semua Model × Semua Program"):
                     st.dataframe(
-                        det.sort_values(['Program','R2'], ascending=[True,False])
-                           .style.format({'R2': '{:.4f}', 'MAPE (%)': '{:.2f}',
-                                          'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}),
-                        width='stretch', height=400)
+                        det.sort_values(['Program','R2'],ascending=[True,False])
+                           .style.format({'R2':'{:.4f}','MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}),
+                        use_container_width=True, height=400)
 
         with mtab3:
             conclusions = build_conclusion(ml_res, ml_res, df, target_ml, n_future)
             if conclusions:
-                st.markdown('<div class="sec">Kesimpulan & Rekomendasi Otomatis</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="sec">Kesimpulan & Rekomendasi</div>', unsafe_allow_html=True)
 
                 if not bpp.empty and 'MAPE (%)' in bpp.columns:
-                    best_prog  = bpp.loc[bpp['MAPE (%)'].idxmin(), 'Program']
+                    best_prog  = bpp.loc[bpp['MAPE (%)'].idxmin(),'Program']
                     best_mape  = bpp['MAPE (%)'].min()
-                    worst_prog = bpp.loc[bpp['MAPE (%)'].idxmax(), 'Program']
+                    worst_prog = bpp.loc[bpp['MAPE (%)'].idxmax(),'Program']
                     worst_mape = bpp['MAPE (%)'].max()
                     avg_m = bpp['MAPE (%)'].mean()
-                    overall_grade = ("🟢 Sangat Baik" if avg_m < 10 else
-                                     "🔵 Baik" if avg_m < 20 else
-                                     "🟡 Cukup" if avg_m < 50 else "🔴 Perlu Data Lebih Banyak")
-                    data_note = (f"Catatan: {n_yrs} tahun data → metode statistik digunakan (Holt/SES/WMA). "
-                                 if n_yrs < 8 else f"Data {n_yrs} tahun → ML tersedia. ")
-                    st.markdown(f"""
-                    <div class="success-box">
-                    🔍 <b>Auto-Insight:</b> Kualitas prediksi keseluruhan: <b>{overall_grade}</b> (Avg MAPE {avg_m:.1f}%).
+                    overall_grade = ("🟢 Sangat Baik" if avg_m<10 else "🔵 Baik" if avg_m<20
+                                     else "🟡 Cukup" if avg_m<50 else "🔴 Perlu Data Lebih")
+                    data_note = (f"Catatan: {n_yrs} tahun → metode statistik. " if n_yrs<8 else f"Data {n_yrs} tahun → ML tersedia. ")
+                    st.markdown(f"""<div class="success-box">
+                    🔍 <b>Auto-Insight:</b> Kualitas keseluruhan: <b>{overall_grade}</b> (Avg MAPE {avg_m:.1f}%).
                     Terbaik: <b>{best_prog}</b> ({best_mape:.1f}%) · Perlu perhatian: <b>{worst_prog}</b> ({worst_mape:.1f}%).
-                    {data_note}
-                    Gunakan <b>Tab Prediksi</b> untuk proyeksi tahunan dan <b>Prophet + Kalender</b> untuk analisis bulanan musiman.
-                    </div>""", unsafe_allow_html=True)
+                    {data_note}</div>""", unsafe_allow_html=True)
 
                 for icon, title, text in conclusions:
-                    st.markdown(f"""
-                    <div style="background:linear-gradient(135deg,#0a1628,#0d1a0d);
-                                border:1px solid #1e3a5f;border-radius:14px;
-                                padding:18px 22px;margin:10px 0;
-                                border-left:3px solid #3b82f6;">
-                        <div style="font-size:.65rem;font-weight:700;color:#334155;
-                                    text-transform:uppercase;letter-spacing:2px;
-                                    margin-bottom:8px;">{icon} {title}</div>
-                        <div style="color:#e2e8f0;font-size:.9rem;line-height:1.75;">{text}</div>
+                    st.markdown(f"""<div class="concl-card">
+                    <div class="ct">{icon} {title}</div>
+                    <div class="cv">{text}</div>
                     </div>""", unsafe_allow_html=True)
 
-                st.markdown('<div class="sec">Radar Chart — Profil Kualitas per Program</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="sec">Radar — Profil Kualitas per Program</div>', unsafe_allow_html=True)
                 if not bpp.empty and 'MAPE (%)' in bpp.columns:
                     rdf_r = bpp.dropna(subset=['MAPE (%)','MAE','RMSE']).copy()
-                    rdf_r['MAPE_n']  = (1 - (rdf_r['MAPE (%)'] / 100).clip(0, 1))
-                    rdf_r['MAE_n']   = 1 - (rdf_r['MAE'] / (rdf_r['MAE'].max() + 1e-9))
-                    rdf_r['RMSE_n']  = 1 - (rdf_r['RMSE'] / (rdf_r['RMSE'].max() + 1e-9))
-                    mape_med = rdf_r['MAPE (%)'].median()
-                    rdf_r['STAB_n'] = 1 - np.abs(rdf_r['MAPE (%)'] - mape_med) / (mape_med + 1e-9)
-                    rdf_r['STAB_n'] = rdf_r['STAB_n'].clip(0, 1)
-
-                    cats_radar = ['Akurasi\n(1−MAPE)', 'Presisi\n(1−MAE)',
-                                  'Konsistensi\n(1−RMSE)', 'Stabilitas']
+                    rdf_r['MAPE_n']  = (1-(rdf_r['MAPE (%)']/100).clip(0,1))
+                    rdf_r['MAE_n']   = 1-(rdf_r['MAE']/(rdf_r['MAE'].max()+1e-9))
+                    rdf_r['RMSE_n']  = 1-(rdf_r['RMSE']/(rdf_r['RMSE'].max()+1e-9))
+                    mape_med         = rdf_r['MAPE (%)'].median()
+                    rdf_r['STAB_n']  = (1-np.abs(rdf_r['MAPE (%)']-mape_med)/(mape_med+1e-9)).clip(0,1)
+                    cats_radar = ['Akurasi (1−MAPE)','Presisi (1−MAE)','Konsistensi (1−RMSE)','Stabilitas']
                     fig_radar = go.Figure()
                     for i, row in rdf_r.iterrows():
-                        vals  = [row['MAPE_n'], row['MAE_n'], row['RMSE_n'], row['STAB_n']]
+                        vals  = [row['MAPE_n'],row['MAE_n'],row['RMSE_n'],row['STAB_n']]
                         vals += [vals[0]]
                         col_c = COLORS[i % len(COLORS)]
                         label = f"{row['Program']} ({row['Model']})"
                         fig_radar.add_trace(go.Scatterpolar(
                             r=vals, theta=cats_radar+[cats_radar[0]],
-                            fill='toself', name=label, opacity=0.65,
+                            fill='toself', name=label, opacity=0.6,
                             line=dict(color=col_c, width=2),
-                            fillcolor=hex_to_rgba(col_c, 0.15)
+                            fillcolor=hex_to_rgba(col_c, 0.12)
                         ))
                     fig_radar.update_layout(
-                        **DARK, height=500,
+                        **DARK, height=520,
                         polar=dict(
                             radialaxis=dict(visible=True, range=[0,1],
-                                gridcolor='#1e2d45', tickfont=dict(color='#475569', size=9),
+                                gridcolor='#0a1a2e', tickfont=dict(color='#334155',size=9,family='DM Mono'),
                                 tickvals=[0.2,0.4,0.6,0.8,1.0]),
-                            angularaxis=dict(gridcolor='#1e2d45', tickfont=dict(size=11)),
-                            bgcolor='#05090f',
+                            angularaxis=dict(gridcolor='#0a1a2e', tickfont=dict(size=11,color='#64748b',family='Instrument Sans')),
+                            bgcolor='rgba(2,12,24,0)',
                         ),
-                        legend=dict(orientation='h', y=-0.15, font=dict(size=11)),
-                        margin=dict(t=30, b=80)
+                        legend=dict(orientation='h',y=-0.15,font=dict(size=11,family='Instrument Sans'),bgcolor='rgba(0,0,0,0)'),
+                        margin=dict(t=30,b=80)
                     )
-                    st.plotly_chart(fig_radar, width='stretch')
+                    st.plotly_chart(fig_radar, use_container_width=True)
 
-                st.markdown('<div class="sec">Scorecard per Program</div>',
-                            unsafe_allow_html=True)
-
+                st.markdown('<div class="sec">Scorecard per Program</div>', unsafe_allow_html=True)
                 if n_yrs < 8:
-                    st.info(f"""ℹ️ **Catatan data kecil ({n_yrs} tahun):** R² tidak bermakna secara statistik
-                    dengan data < 8 tahun — gunakan **MAPE** sebagai acuan utama akurasi prediksi.""")
+                    st.info(f"ℹ️ **Catatan data kecil ({n_yrs} tahun):** Gunakan **MAPE** sebagai acuan utama akurasi.")
 
                 def grade_mape(v):
-                    if v is None or np.isnan(v): return "⚪ N/A"
-                    return "🟢 Sangat Akurat (<10%)" if v<10 else "🔵 Akurat (10-20%)" if v<20 else "🟡 Cukup (20-50%)" if v<50 else "🔴 Tidak Akurat (>50%)"
+                    if v is None or (isinstance(v,float) and np.isnan(v)): return "⚪ N/A"
+                    return "🟢 Sangat Akurat (<10%)" if v<10 else "🔵 Akurat (10-20%)" if v<20 else "🟡 Cukup (20-50%)" if v<50 else "🔴 Tidak Akurat"
 
                 sc_df = bpp.copy() if not bpp.empty else pd.DataFrame()
                 if not sc_df.empty:
                     sc_df['Grade MAPE'] = sc_df['MAPE (%)'].apply(grade_mape)
                     cols_show = ['Program','Model','MAPE (%)','MAE','RMSE','Grade MAPE']
-                    if n_yrs >= 8:
-                        cols_show = ['Program','Model','R2','MAPE (%)','MAE','RMSE','Grade MAPE']
-                    fmt = {'MAPE (%)': '{:.2f}', 'MAE': '{:,.0f}', 'RMSE': '{:,.0f}'}
-                    if 'R2' in cols_show:
-                        fmt['R2'] = '{:.4f}'
+                    if n_yrs >= 8: cols_show = ['Program','Model','R2','MAPE (%)','MAE','RMSE','Grade MAPE']
+                    fmt = {'MAPE (%)':'{:.2f}','MAE':'{:,.0f}','RMSE':'{:,.0f}'}
+                    if 'R2' in cols_show: fmt['R2']='{:.4f}'
                     st.dataframe(
-                        sc_df[cols_show].style
-                            .highlight_min(subset=['MAPE (%)'], color='#14532d')
-                            .format(fmt),
-                        width='stretch', height=280)
+                        sc_df[cols_show].style.highlight_min(subset=['MAPE (%)'],color='#0a2a12').format(fmt),
+                        use_container_width=True, height=280)
 
-        # ── Sub-tab 4: Prophet + Indonesian Calendar ──────────────────────
+        # ── Sub-tab 4: Prophet ────────────────────────────────────────────────
         with mtab4:
             df_raw_m_p = st.session_state.get('raw_monthly', None)
             if not PROPHET_OK:
-                st.warning("""
-                **Prophet belum terinstall.** Tambahkan ke `requirements.txt`:
-                ```
-                prophet
-                ```
-                """)
-            elif df_raw_m_p is None or len(df_raw_m_p) == 0:
-                st.warning("Upload dataset dengan data bulanan terlebih dahulu untuk menggunakan Prophet.")
+                st.warning("**Prophet belum terinstall.** Tambahkan `prophet` ke `requirements.txt`.")
+            elif df_raw_m_p is None or len(df_raw_m_p)==0:
+                st.warning("Upload dataset bulanan terlebih dahulu untuk menggunakan Prophet.")
             else:
-                # ── LOAD HOLIDAYS — lazy, bukan module level ──────────────
                 if 'holiday_df' not in st.session_state or st.session_state.get('holiday_df') is None:
-                    with st.spinner("Mengambil kalender hari libur Indonesia dari Google Calendar API..."):
+                    with st.spinner("Mengambil kalender hari libur Indonesia dari Google Calendar API…"):
                         h_df, h_status, h_ok = build_holiday_df()
                         st.session_state['holiday_df']     = h_df
                         st.session_state['holiday_status'] = h_status
                         st.session_state['holiday_ok']     = h_ok
                 else:
                     h_df     = st.session_state['holiday_df']
-                    h_status = st.session_state.get('holiday_status', '')
-                    h_ok     = st.session_state.get('holiday_ok', False)
+                    h_status = st.session_state.get('holiday_status','')
+                    h_ok     = st.session_state.get('holiday_ok',False)
 
-                n_holidays = len(h_df) if h_ok and len(h_df) > 0 else 0
-                n_htypes   = h_df['holiday'].nunique() if n_holidays > 0 else 0
+                n_holidays = len(h_df) if h_ok and len(h_df)>0 else 0
+                n_htypes   = h_df['holiday'].nunique() if n_holidays>0 else 0
 
-                col_hdr, col_refresh = st.columns([5, 1])
+                col_hdr, col_refresh = st.columns([5,1])
                 with col_refresh:
-                    if st.button("🔄 Refresh Kalender", help="Paksa ambil ulang dari Google Calendar API"):
+                    if st.button("🔄 Refresh", help="Ambil ulang dari Google Calendar API"):
                         fetch_google_holidays.clear()
-                        st.session_state.pop('holiday_df', None)
-                        st.session_state.pop('holiday_status', None)
-                        st.session_state.pop('holiday_ok', None)
+                        for k in ('holiday_df','holiday_status','holiday_ok'):
+                            st.session_state.pop(k, None)
                         st.rerun()
 
-                if h_ok and n_holidays > 0:
+                if h_ok and n_holidays>0:
                     sample_names = sorted(h_df['holiday'].unique())[:10]
                     sample_str   = ' · '.join(f'<code>{n}</code>' for n in sample_names)
-                    if h_df['holiday'].nunique() > 10:
-                        sample_str += f' · <i>dan {h_df["holiday"].nunique() - 10} lainnya</i>'
-                    st.markdown(f"""<div class="success-box">
-                    ✅ <b>Google Calendar API berhasil.</b> {h_status}<br>
-                    🏷️ Contoh: {sample_str}
-                    </div>""", unsafe_allow_html=True)
+                    if h_df['holiday'].nunique()>10: sample_str += f' · <i>+{h_df["holiday"].nunique()-10}</i>'
+                    st.markdown(f'<div class="success-box">✅ <b>Google Calendar OK.</b> {h_status}<br>🏷️ {sample_str}</div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""<div class="warn">
-                    {h_status}<br>
-                    Cek: (1) GCAL_KEY di Streamlit Secrets sudah benar,
-                    (2) Google Calendar API aktif di Google Cloud Console,
-                    (3) Quota API belum habis.
-                    Prophet tetap bisa dijalankan <b>tanpa holiday effect</b>.
-                    </div>""", unsafe_allow_html=True)
+                    st.markdown(f'<div class="warn">{h_status}<br>Cek GCAL_KEY di Streamlit Secrets. Prophet tetap bisa jalan <b>tanpa holiday effect</b>.</div>', unsafe_allow_html=True)
 
-                st.markdown(f"""<div class="info-box">
-                🔮 <b>Prophet</b> dipilih karena lebih cocok dari SARIMA untuk data BPJS:<br>
-                • Menangani <b>efek hari libur secara eksplisit</b> — semua nama dan tanggal dibaca langsung dari Google Calendar<br>
-                • Tidak perlu data stasioner — cocok untuk klaim yang terus tumbuh<br>
-                • Trend + Seasonality + Holiday dipisah secara interpretable<br><br>
-                📅 <b>Sumber kalender:</b> Google Calendar API Indonesia (2019–2028, auto-refresh 24 jam).<br>
-                Status: {h_status}
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f'<div class="info-box">🔮 <b>Prophet</b> menangani efek hari libur secara eksplisit, trend non-stasioner, dan seasonality tahunan.<br>📅 Status kalender: {h_status}</div>', unsafe_allow_html=True)
 
-                # Target Prophet mengikuti target ML yang dipilih user
                 target_prophet = target_ml
-                st.markdown(
-                    f'<div class="info-box" style="padding:10px 16px;margin-bottom:10px">'
-                    f'🎯 <b>Target Prophet:</b> <code>{target_prophet}</code> '
-                    f'— sinkron dengan <b>Target Prediksi</b> yang dipilih di atas'
-                    f'</div>',
-                    unsafe_allow_html=True)
+                st.markdown(f'<div class="info-box" style="padding:10px 16px;margin-bottom:10px">🎯 <b>Target Prophet:</b> <code>{target_prophet}</code> — sinkron dengan target di atas</div>', unsafe_allow_html=True)
                 n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
-
-                holidays_for_prophet = h_df if (h_ok and n_holidays > 0) else None
-
+                holidays_for_prophet = h_df if (h_ok and n_holidays>0) else None
                 use_holidays = st.checkbox(
-                    f"Gunakan kalender hari libur Indonesia dari Google Calendar "
-                    f"({n_holidays} hari libur, {n_htypes} jenis)",
-                    value=(n_holidays > 0),
-                    disabled=(n_holidays == 0),
-                )
+                    f"Gunakan kalender hari libur Indonesia ({n_holidays} hari libur, {n_htypes} jenis)",
+                    value=(n_holidays>0), disabled=(n_holidays==0))
+                if not use_holidays: holidays_for_prophet = None
 
-                if not use_holidays:
-                    holidays_for_prophet = None
-
-                # ── Auto-run: jalankan Prophet otomatis jika target/bulan berubah ──
                 cache_key = f"prophet_{target_prophet}_{n_months_prophet}"
-                cached    = st.session_state.get('prophet_cache', {})
+                cached    = st.session_state.get('prophet_cache',{})
+                need_run  = cache_key not in cached
 
-                need_run = cache_key not in cached
-
-                col_btn1, col_btn2 = st.columns([3, 1])
+                col_btn1, col_btn2 = st.columns([3,1])
                 with col_btn1:
-                    manual_run = st.button(
-                        "🔮 Jalankan / Refresh Prophet (Semua Program)",
-                        type="primary", width='stretch',
-                        help="Klik untuk paksa ulang training Prophet"
-                    )
+                    manual_run = st.button("🔮  Jalankan / Refresh Prophet", type="primary",
+                        use_container_width=True, help="Paksa ulang training Prophet")
                 with col_btn2:
                     if cache_key in cached:
-                        st.markdown(
-                            f'<div style="color:#34d399;font-size:.8rem;padding-top:8px">'
-                            f'✅ Cache: {target_prophet}</div>',
-                            unsafe_allow_html=True)
+                        st.markdown('<div style="color:#34d399;font-size:.78rem;padding-top:8px;font-family:\'DM Mono\',monospace;">✅ Cached</div>', unsafe_allow_html=True)
 
                 if need_run or manual_run:
-                    run_errors = {}
-                    run_results = {}
-                    with st.spinner(f"Melatih Prophet untuk semua program — {target_prophet}..."):
+                    run_errors={}; run_results={}
+                    with st.spinner(f"Melatih Prophet — {target_prophet}…"):
                         for cp in active_progs:
-                            pr, pe = run_prophet(
-                                df_raw_m_p, target_prophet, cp,
-                                n_months_prophet, holidays_for_prophet
-                            )
-                            if pe:
-                                run_errors[cp] = pe
-                            else:
-                                run_results[cp] = pr
-                    if run_errors:
-                        st.warning("Beberapa program gagal: " + ", ".join(
-                            f"{k}: {v}" for k, v in run_errors.items()))
+                            pr, pe = run_prophet(df_raw_m_p, target_prophet, cp, n_months_prophet, holidays_for_prophet)
+                            if pe: run_errors[cp]=pe
+                            else:  run_results[cp]=pr
+                    if run_errors: st.warning("Beberapa program gagal: "+", ".join(f"{k}: {v}" for k,v in run_errors.items()))
                     if run_results:
-                        cached[cache_key] = {
-                            'results': run_results,
-                            'meta': {
-                                'target': target_prophet,
-                                'use_holidays': use_holidays,
-                                'n_months': n_months_prophet,
-                            }
-                        }
-                        st.session_state['prophet_cache'] = cached
+                        cached[cache_key]={'results':run_results,'meta':{'target':target_prophet,'use_holidays':use_holidays,'n_months':n_months_prophet}}
+                        st.session_state['prophet_cache']=cached
 
-                entry         = cached.get(cache_key, {})
-                all_p_results = entry.get('results', {})
-                p_meta        = entry.get('meta', {})
+                entry=cached.get(cache_key,{}); all_p_results=entry.get('results',{})
 
                 if all_p_results:
                     tgt_label = target_prophet
-
-                    st.markdown(
-                        f'<div class="sec">Forecast Prophet — Semua Program ({tgt_label})</div>',
-                        unsafe_allow_html=True)
+                    st.markdown(f'<div class="sec">Forecast Prophet — Semua Program ({tgt_label})</div>', unsafe_allow_html=True)
 
                     def hex_rgba(hex_c, alpha):
-                        hex_c = hex_c.lstrip('#')
-                        r,g,b = int(hex_c[0:2],16), int(hex_c[2:4],16), int(hex_c[4:6],16)
+                        hex_c=hex_c.lstrip('#'); r,g,b=int(hex_c[0:2],16),int(hex_c[2:4],16),int(hex_c[4:6],16)
                         return f'rgba({r},{g},{b},{alpha})'
 
-                    all_y_vals = []
-                    for cp, pr in all_p_results.items():
-                        all_y_vals += list(pr['history']['y'].dropna())
-                    global_ymin = max(0, min(all_y_vals) * 0.85) if all_y_vals else 0
+                    all_y_vals=[]
+                    for cp,pr in all_p_results.items(): all_y_vals+=list(pr['history']['y'].dropna())
+                    global_ymin = max(0, min(all_y_vals)*0.85) if all_y_vals else 0
 
-                    fig_p_all    = go.Figure()
-                    last_hist_ds = None
-
-                    for i, (cp, pr) in enumerate(all_p_results.items()):
-                        fc_df   = pr['forecast'].copy()
-                        hist_df = pr['history'].copy()
-                        col_c   = COLORS[i % len(COLORS)]
-                        cutoff  = hist_df['ds'].max()
-                        last_hist_ds = cutoff
-
-                        last_actual   = float(hist_df['y'].iloc[-1])
-                        fc_future     = fc_df[fc_df['ds'] > cutoff].copy()
-                        fc_future['yhat']       = fc_future['yhat'].clip(lower=0)
-                        fc_future['yhat_lower'] = fc_future['yhat_lower'].clip(lower=0)
-                        fc_future['yhat_upper'] = fc_future['yhat_upper'].clip(lower=0)
+                    fig_p_all=go.Figure(); last_hist_ds=None
+                    for i,(cp,pr) in enumerate(all_p_results.items()):
+                        fc_df=pr['forecast'].copy(); hist_df=pr['history'].copy()
+                        col_c=COLORS[i%len(COLORS)]; cutoff=hist_df['ds'].max(); last_hist_ds=cutoff
+                        fc_future=fc_df[fc_df['ds']>cutoff].copy()
+                        for col in ['yhat','yhat_lower','yhat_upper']: fc_future[col]=fc_future[col].clip(lower=0)
 
                         fig_p_all.add_trace(go.Scatter(
-                            x=hist_df['ds'], y=hist_df['y'],
-                            name=f'{cp} Aktual',
-                            mode='lines+markers',
-                            legendgroup=cp,
-                            line=dict(color=col_c, width=2.5),
+                            x=hist_df['ds'], y=hist_df['y'], name=f'{cp} Aktual',
+                            mode='lines+markers', legendgroup=cp,
+                            line=dict(color=col_c, width=2.5, shape='spline'),
                             marker=dict(size=5),
-                            fill='tozeroy',
-                            fillcolor=hex_rgba(col_c, 0.04),
+                            fill='tozeroy', fillcolor=hex_rgba(col_c,0.04),
                             hovertemplate=f'<b>{cp}</b><br>%{{x|%b %Y}}<br>{tgt_label}: %{{y:,.0f}}<extra></extra>'))
 
                         fig_p_all.add_trace(go.Scatter(
-                            x=list(fc_future['ds']) + list(fc_future['ds'][::-1]),
-                            y=list(fc_future['yhat_upper']) + list(fc_future['yhat_lower'][::-1]),
-                            fill='toself',
-                            fillcolor=hex_rgba(col_c, 0.08),
+                            x=list(fc_future['ds'])+list(fc_future['ds'][::-1]),
+                            y=list(fc_future['yhat_upper'])+list(fc_future['yhat_lower'][::-1]),
+                            fill='toself', fillcolor=hex_rgba(col_c,0.07),
                             line=dict(color='rgba(0,0,0,0)'),
                             legendgroup=cp, showlegend=False, hoverinfo='skip'))
 
                         fig_p_all.add_trace(go.Scatter(
                             x=fc_future['ds'], y=fc_future['yhat'],
-                            name=f'{cp} Prediksi',
-                            mode='lines+markers',
-                            legendgroup=cp,
+                            name=f'{cp} Prediksi', mode='lines+markers', legendgroup=cp,
                             line=dict(color=col_c, width=2, dash='dash'),
-                            marker=dict(size=6, symbol='diamond'),
+                            marker=dict(size=7, symbol='diamond'),
                             hovertemplate=f'<b>{cp} (Prediksi)</b><br>%{{x|%b %Y}}<br>{tgt_label}: %{{y:,.0f}}<extra></extra>'))
 
                     if last_hist_ds is not None:
-                        fig_p_all.add_vline(
-                            x=last_hist_ds.timestamp()*1000,
-                            line_dash='dot', line_color='rgba(148,163,184,0.4)',
-                            line_width=1.5,
+                        fig_p_all.add_vline(x=last_hist_ds.timestamp()*1000,
+                            line_dash='dot', line_color='rgba(100,116,139,.3)', line_width=1.5,
                             annotation_text='← Aktual | Prediksi →',
-                            annotation_font=dict(size=10, color='#94a3b8'),
+                            annotation_font=dict(size=10,color='#475569',family='Instrument Sans'),
                             annotation_position='top')
 
-                    fig_p_all.update_layout(
-                        **DARK,
-                        title=dict(
-                            text=f'Forecast Prophet — {tgt_label} per Program',
-                            font=dict(size=14, color='#e2e8f0'), x=0),
-                        height=520,
-                        hovermode='x unified',
-                        legend=dict(orientation='h', y=-0.22, font=dict(size=10),
-                                    groupclick='toggleitem'),
-                        margin=dict(t=50, b=130),
-                        xaxis_title='Periode',
-                        yaxis_title=tgt_label,
-                        xaxis=dict(showgrid=True, gridcolor='#0f1923'),
-                        yaxis=dict(
-                            showgrid=True, gridcolor='#0f1923',
-                            rangemode='nonnegative',
-                            range=[global_ymin, None]))
-                    st.plotly_chart(fig_p_all, width='stretch')
+                    fig_p_all.update_layout(**DARK, height=540, hovermode='x unified',
+                        legend=dict(orientation='h',y=-0.22,font=dict(size=10.5,family='Instrument Sans'),groupclick='toggleitem',bgcolor='rgba(0,0,0,0)'),
+                        margin=dict(t=30,b=130),
+                        xaxis=dict(showgrid=True,gridcolor='rgba(14,30,56,.8)'),
+                        yaxis=dict(showgrid=True,gridcolor='rgba(10,20,40,.9)',rangemode='nonnegative',range=[global_ymin,None]),
+                        xaxis_title='Periode', yaxis_title=tgt_label)
+                    st.plotly_chart(fig_p_all, use_container_width=True)
 
-                    st.markdown('<div class="sec">Tabel Prediksi per Program</div>',
-                                unsafe_allow_html=True)
+                    st.markdown('<div class="sec">Tabel Prediksi per Program</div>', unsafe_allow_html=True)
                     prog_tabs = st.tabs(list(all_p_results.keys()))
-                    for tab_i, (cp, pr) in zip(prog_tabs, all_p_results.items()):
+                    for tab_i,(cp,pr) in zip(prog_tabs, all_p_results.items()):
                         with tab_i:
-                            fc_df   = pr['forecast']
-                            hist_df = pr['history']
-                            fc_fut  = fc_df[fc_df['ds'] > hist_df['ds'].max()][
-                                ['ds','yhat','yhat_lower','yhat_upper']].copy()
-                            fc_fut.columns = ['Periode','Prediksi','Batas Bawah','Batas Atas']
-                            fc_fut['Periode'] = fc_fut['Periode'].dt.strftime('%Y-%m')
+                            fc_df=pr['forecast']; hist_df=pr['history']
+                            fc_fut=fc_df[fc_df['ds']>hist_df['ds'].max()][['ds','yhat','yhat_lower','yhat_upper']].copy()
+                            fc_fut.columns=['Periode','Prediksi','Batas Bawah','Batas Atas']
+                            fc_fut['Periode']=fc_fut['Periode'].dt.strftime('%Y-%m')
                             for col in ['Prediksi','Batas Bawah','Batas Atas']:
-                                fc_fut[col] = fc_fut[col].apply(lambda x: f"{max(0,x):,.0f}")
-                            st.dataframe(fc_fut, width='stretch', height=320)
+                                fc_fut[col]=fc_fut[col].apply(lambda x: f"{max(0,x):,.0f}")
+                            st.dataframe(fc_fut, use_container_width=True, height=320)
 
-                    # ── Holiday Effects ──────────────────────────────────────
-                    st.markdown('<div class="sec">Efek Hari Libur per Program</div>',
-                                unsafe_allow_html=True)
+                    # ── Holiday Effects ───────────────────────────────────────
+                    st.markdown('<div class="sec">Efek Hari Libur per Program</div>', unsafe_allow_html=True)
 
-                    def _sanitize_prophet_name(name: str) -> str:
-                        return re.sub(r'[^\w]', '_', str(name))
+                    def _sanitize_prophet_name(name: str):
+                        return re.sub(r'[^\w]','_',str(name))
 
                     def _extract_holiday_effects(pr):
-                        model   = pr.get('model')
-                        hist_df = pr.get('history')
-                        fc_df   = pr.get('forecast', pd.DataFrame())
-                        if model is None or hist_df is None or fc_df is None or len(fc_df) == 0:
-                            return {}
-                        avg_y  = float(hist_df['y'].mean()) if len(hist_df) > 0 else 1.0
-                        s_mode = getattr(model, 'seasonality_mode', 'additive')
-
-                        # Dapatkan nama holiday dari model
-                        holiday_names = []
-                        try:
-                            holiday_names = list(model.train_holiday_names)
-                        except Exception:
-                            pass
-                        if not holiday_names:
-                            try:
-                                holiday_names = list(model.holidays['holiday'].unique())
-                            except Exception:
-                                pass
-                        if not holiday_names:
-                            return {}
-
-                        forecast_cols = set(fc_df.columns)
-                        effects = {}
-
+                        model=pr.get('model'); hist_df=pr.get('history'); fc_df=pr.get('forecast',pd.DataFrame())
+                        if model is None or hist_df is None or fc_df is None or len(fc_df)==0: return {}
+                        avg_y=float(hist_df['y'].mean()) if len(hist_df)>0 else 1.0
+                        s_mode=getattr(model,'seasonality_mode','additive')
+                        holiday_names=[]
+                        try: holiday_names=list(model.train_holiday_names)
+                        except:
+                            try: holiday_names=list(model.holidays['holiday'].unique())
+                            except: pass
+                        if not holiday_names: return {}
+                        forecast_cols=set(fc_df.columns); effects={}
                         for orig_name in holiday_names:
-                            # Prophet modern (>=1.1) menyimpan kolom dengan NAMA ASLI (tidak di-sanitize)
-                            # Coba nama asli dulu, lalu fallback ke sanitized
-                            col = None
-                            candidates = [
-                                orig_name,                                      # nama asli persis
-                                re.sub(r'[^\w]', '_', orig_name),              # sanitized _ 
-                                orig_name.replace("'", '').replace(' ', '_'),  # apostrop dihapus
-                            ]
+                            col=None
+                            candidates=[orig_name,re.sub(r'[^\w]','_',orig_name),orig_name.replace("'",'').replace(' ','_')]
                             for c in candidates:
-                                if (c in forecast_cols
-                                        and not c.endswith('_lower')
-                                        and not c.endswith('_upper')):
-                                    col = c
-                                    break
-
-                            if col is None:
-                                continue
-
-                            col_vals    = fc_df[col]
-                            active_mask = col_vals.abs() > 1e-9
-                            if active_mask.sum() == 0:
-                                continue
-                            raw_eff = float(col_vals[active_mask].mean())
-                            if s_mode == 'multiplicative':
-                                pct = raw_eff * 100.0
-                            else:
-                                pct = (raw_eff / (avg_y + 1e-9)) * 100.0
-                            effects[orig_name] = pct
+                                if c in forecast_cols and not c.endswith('_lower') and not c.endswith('_upper'): col=c; break
+                            if col is None: continue
+                            col_vals=fc_df[col]; active_mask=col_vals.abs()>1e-9
+                            if active_mask.sum()==0: continue
+                            raw_eff=float(col_vals[active_mask].mean())
+                            pct=raw_eff*100.0 if s_mode=='multiplicative' else (raw_eff/(avg_y+1e-9))*100.0
+                            effects[orig_name]=pct
                         return effects
 
                     def _cat_holiday(name):
-                        nl = name.lower()
-                        if any(k in nl for k in ['idul fitri','lebaran','eid al-fitr','eid ul-fitr','eid al fitr']): return 'Idul Fitri'
-                        if any(k in nl for k in ['idul adha','eid al-adha','eid ul-adha','eid al adha']): return 'Idul Adha'
+                        nl=name.lower()
+                        if any(k in nl for k in ['idul fitri','lebaran','eid al-fitr']): return 'Idul Fitri'
+                        if any(k in nl for k in ['idul adha','eid al-adha']): return 'Idul Adha'
                         if any(k in nl for k in ['ramad','puasa']): return 'Ramadhan'
                         if any(k in nl for k in ['natal','christmas']): return 'Natal'
                         if any(k in nl for k in ["new year's",'tahun baru masehi']) and not any(x in nl for x in ['islam','imlek','chinese','hijri','lunar']): return 'Tahun Baru'
                         if any(k in nl for k in ['imlek','chinese new year','lunar new year']): return 'Imlek'
-                        if any(k in nl for k in ['nyepi','day of silence','hindu new year']): return 'Nyepi'
-                        if any(k in nl for k in ["isra","mi'raj",'miraj',"prophet's ascension"]): return "Isra Mi'raj"
-                        if any(k in nl for k in ['waisak','vesak','buddha']): return 'Waisak'
-                        if any(k in nl for k in ['good friday','wafat','easter','paskah','kenaikan yesus']): return 'Paskah/Wafat'
-                        if any(k in nl for k in ['maulid','mawlid',"prophet's birthday"]): return 'Maulid Nabi'
-                        if any(k in nl for k in ['muharram','islamic new year','hijri new year','tahun baru islam']): return 'Tahun Baru Islam'
-                        if any(k in nl for k in ['buruh','labor day','labour day','may day']): return 'Hari Buruh'
+                        if any(k in nl for k in ['nyepi','day of silence']): return 'Nyepi'
+                        if any(k in nl for k in ["isra","mi'raj",'miraj']): return "Isra Mi'raj"
+                        if any(k in nl for k in ['waisak','vesak']): return 'Waisak'
+                        if any(k in nl for k in ['good friday','wafat','easter','paskah']): return 'Paskah/Wafat'
+                        if any(k in nl for k in ['maulid','mawlid']): return 'Maulid Nabi'
+                        if any(k in nl for k in ['muharram','islamic new year']): return 'Tahun Baru Islam'
+                        if any(k in nl for k in ['buruh','labor day','may day']): return 'Hari Buruh'
                         if any(k in nl for k in ['pancasila']): return 'Hari Pancasila'
-                        if any(k in nl for k in ['kemerdekaan','independence day','hut ri']): return 'HUT RI'
-                        if any(k in nl for k in ['cuti bersama','joint holiday','collective leave']): return 'Cuti Bersama'
-                        if any(k in nl for k in ['election','pemilu','pilpres']): return 'Pemilu'
-                        if any(k in nl for k in ['kenaikan','ascension of jesus','corpus']): return 'Hari Kenaikan'
-                        if any(k in nl for k in ['tahun baru','new year']) and not any(x in nl for x in ['islam','imlek','chinese','hijri']): return 'Tahun Baru'
+                        if any(k in nl for k in ['kemerdekaan','independence']): return 'HUT RI'
+                        if any(k in nl for k in ['cuti bersama']): return 'Cuti Bersama'
+                        if any(k in nl for k in ['election','pemilu']): return 'Pemilu'
+                        if any(k in nl for k in ['tahun baru','new year']) and not any(x in nl for x in ['islam','imlek','chinese']): return 'Tahun Baru'
                         return name[:30]
 
-                    heff_rows = []
-                    for cp, pr in all_p_results.items():
-                        hist_df_p = pr.get('history', pd.DataFrame())
-                        avg_y_p   = float(hist_df_p['y'].mean()) if len(hist_df_p) > 0 else 1.0
-                        eff_map   = _extract_holiday_effects(pr)
-                        for hname, pct in eff_map.items():
-                            heff_rows.append({'Program': cp, 'Holiday': hname,
-                                              'Efek_pct': pct, 'avg_y': avg_y_p})
+                    heff_rows=[]
+                    for cp,pr in all_p_results.items():
+                        hist_df_p=pr.get('history',pd.DataFrame())
+                        avg_y_p=float(hist_df_p['y'].mean()) if len(hist_df_p)>0 else 1.0
+                        eff_map=_extract_holiday_effects(pr)
+                        for hname,pct in eff_map.items():
+                            heff_rows.append({'Program':cp,'Holiday':hname,'Efek_pct':pct,'avg_y':avg_y_p})
 
                     if not heff_rows:
-                        if not use_holidays:
-                            st.info("Holiday effect tidak aktif. Aktifkan checkbox kalender hari libur dan jalankan ulang Prophet.")
-                        elif n_holidays == 0:
-                            st.markdown('''<div class="warn">
-                            ⚠️ <b>Tidak ada data hari libur.</b> Pastikan GCAL_KEY sudah diset dengan benar
-                            di Streamlit Secrets agar Prophet bisa mempelajari efek hari libur Indonesia.
-                            </div>''', unsafe_allow_html=True)
-                        else:
-                            st.info("Efek hari libur tidak terdeteksi. Kemungkinan data bulanan belum cukup (minimal 12–24 bulan).")
+                        if not use_holidays: st.info("Holiday effect tidak aktif. Aktifkan checkbox kalender.")
+                        elif n_holidays==0: st.markdown('<div class="warn">⚠️ Tidak ada data hari libur. Pastikan GCAL_KEY di Streamlit Secrets.</div>', unsafe_allow_html=True)
+                        else: st.info("Efek hari libur tidak terdeteksi. Data bulanan minimal 12–24 bulan.")
                     else:
-                        heff_df = pd.DataFrame(heff_rows)
-                        heff_df['Kategori'] = heff_df['Holiday'].apply(_cat_holiday)
+                        heff_df=pd.DataFrame(heff_rows)
+                        heff_df['Kategori']=heff_df['Holiday'].apply(_cat_holiday)
+                        heff_grp=(heff_df.groupby(['Program','Kategori'])
+                                  .agg(Efek_pct=('Efek_pct','mean'),avg_y=('avg_y','first'),n_events=('Efek_pct','count'))
+                                  .reset_index())
+                        top_cats=(heff_grp.groupby('Kategori')['Efek_pct'].apply(lambda x:x.abs().mean())
+                                  .nlargest(12).index.tolist())
+                        heff_grp=heff_grp[heff_grp['Kategori'].isin(top_cats)].copy()
+                        programs_list=sorted(heff_grp['Program'].unique())
+                        max_abs_pct=heff_grp['Efek_pct'].abs().max()
 
-                        heff_grp = (heff_df
-                                    .groupby(['Program','Kategori'])
-                                    .agg(Efek_pct=('Efek_pct', 'mean'),
-                                         avg_y=('avg_y', 'first'),
-                                         n_events=('Efek_pct', 'count'))
-                                    .reset_index())
-
-                        top_cats = (heff_grp.groupby('Kategori')['Efek_pct']
-                                    .apply(lambda x: x.abs().mean())
-                                    .nlargest(12).index.tolist())
-                        heff_grp = heff_grp[heff_grp['Kategori'].isin(top_cats)].copy()
-
-                        programs_list = sorted(heff_grp['Program'].unique())
-                        max_abs_pct   = heff_grp['Efek_pct'].abs().max()
-
-                        if len(heff_grp) == 0 or max_abs_pct < 0.01:
-                            st.markdown('''<div class="warn">
-                            ⚠️ <b>Efek hari libur sangat kecil.</b>
-                            Tambah data bulanan (minimal 24 bulan) agar Prophet bisa belajar pola holiday.
-                            </div>''', unsafe_allow_html=True)
+                        if len(heff_grp)==0 or max_abs_pct<0.01:
+                            st.markdown('<div class="warn">⚠️ Efek sangat kecil. Tambah data bulanan minimal 24 bulan.</div>', unsafe_allow_html=True)
                         else:
-                            n_cats_shown = len(top_cats)
-                            n_total_hols = heff_df['Kategori'].nunique()
-                            st.markdown(
-                                f'<div class="info-box">'
-                                f'📊 Menampilkan <b>{n_cats_shown} jenis hari libur</b> '
-                                f'(dari {n_total_hols} total). '
-                                f'Efek diekstrak dari parameter posterior Prophet per program.'
-                                f'</div>',
-                                unsafe_allow_html=True)
+                            n_cats_shown=len(top_cats); n_total_hols=heff_df['Kategori'].nunique()
+                            st.markdown(f'<div class="info-box">📊 Menampilkan <b>{n_cats_shown} jenis hari libur</b> (dari {n_total_hols} total). Efek diekstrak dari parameter posterior Prophet.</div>', unsafe_allow_html=True)
 
-                            cat_order = (heff_grp.groupby('Kategori')['Efek_pct']
-                                         .apply(lambda x: x.abs().mean())
-                                         .sort_values(ascending=False)
-                                         .index.tolist())
+                            cat_order=(heff_grp.groupby('Kategori')['Efek_pct'].apply(lambda x:x.abs().mean())
+                                       .sort_values(ascending=False).index.tolist())
 
-                            # ── Grouped Bar Chart ────────────────────────────────
-                            st.markdown('<div class="sec">Efek Hari Libur per Program (% dari rata-rata klaim bulanan)</div>', unsafe_allow_html=True)
-
-                            fig_bar_h = go.Figure()
-                            for pi, prog in enumerate(programs_list):
-                                pdata_prog = (heff_grp[heff_grp['Program'] == prog]
-                                              .set_index('Kategori')['Efek_pct'])
-                                y_vals = [float(pdata_prog.get(c, np.nan)) for c in cat_order]
+                            st.markdown('<div class="sec">Efek Hari Libur per Program (% dari rata-rata klaim)</div>', unsafe_allow_html=True)
+                            fig_bar_h=go.Figure()
+                            for pi,prog in enumerate(programs_list):
+                                pdata_prog=(heff_grp[heff_grp['Program']==prog].set_index('Kategori')['Efek_pct'])
+                                y_vals=[float(pdata_prog.get(c,np.nan)) for c in cat_order]
                                 fig_bar_h.add_trace(go.Bar(
-                                    name=prog,
-                                    y=cat_order,
-                                    x=y_vals,
-                                    orientation='h',
-                                    marker_color=COLORS[pi % len(COLORS)],
-                                    marker_line_width=0,
+                                    name=prog, y=cat_order, x=y_vals, orientation='h',
+                                    marker=dict(color=COLORS[pi%len(COLORS)], line=dict(width=0)),
                                     text=[f'{v:+.1f}%' if not np.isnan(v) else '' for v in y_vals],
                                     textposition='outside',
-                                    textfont=dict(size=9, color='#94a3b8'),
-                                    hovertemplate=(
-                                        f'<b>{prog}</b><br>'
-                                        'Holiday: %{y}<br>'
-                                        'Efek: <b>%{x:+.2f}%</b><extra></extra>'
-                                    ),
+                                    textfont=dict(size=9, color='#64748b', family='DM Mono'),
+                                    hovertemplate=f'<b>{prog}</b><br>Holiday: %{{y}}<br>Efek: <b>%{{x:+.2f}}%</b><extra></extra>',
                                 ))
-
-                            x_max = max(1.0, max_abs_pct * 1.45)
-                            fig_bar_h.add_vline(x=0, line_color='rgba(255,255,255,0.25)', line_width=1.5)
+                            x_max=max(1.0, max_abs_pct*1.45)
+                            fig_bar_h.add_vline(x=0, line_color='rgba(30,58,95,.4)', line_width=1.5)
                             fig_bar_h.update_layout(
-                                **DARK,
-                                barmode='group',
-                                height=max(420, len(cat_order) * 44 + 140),
-                                xaxis=dict(
-                                    range=[-x_max, x_max],
-                                    showgrid=True, gridcolor='#0f1923',
-                                    zeroline=False,
-                                    ticksuffix='%',
-                                    tickfont=dict(size=10, color='#64748b'),
-                                    title='Efek (%)',
-                                ),
-                                yaxis=dict(
-                                    categoryorder='array',
-                                    categoryarray=cat_order[::-1],
-                                    tickfont=dict(size=11.5, color='#e2e8f0'),
-                                    showgrid=True, gridcolor='#0f1923',
-                                ),
-                                legend=dict(orientation='h', y=-0.12, font=dict(size=11)),
-                                margin=dict(t=30, b=80, l=160, r=60),
-                                title=dict(
-                                    text='Efek Hari Libur — positif = klaim naik, negatif = klaim turun',
-                                    font=dict(size=13, color='#e2e8f0'), x=0),
+                                **DARK, barmode='group',
+                                height=max(440, len(cat_order)*44+140),
+                                xaxis=dict(range=[-x_max,x_max],showgrid=True,gridcolor='rgba(14,30,56,.8)',
+                                    zeroline=False,ticksuffix='%',tickfont=dict(size=10,color='#475569',family='DM Mono'),title='Efek (%)'),
+                                yaxis=dict(categoryorder='array',categoryarray=cat_order[::-1],
+                                    tickfont=dict(size=11,color='#e2e8f0',family='Instrument Sans'),showgrid=True,gridcolor='rgba(10,20,40,.8)'),
+                                legend=dict(orientation='h',y=-0.12,font=dict(size=11,family='Instrument Sans'),bgcolor='rgba(0,0,0,0)'),
+                                margin=dict(t=40,b=80,l=160,r=60),
+                                title=dict(text='positif = klaim naik, negatif = klaim turun',font=dict(size=12,color='#475569'),x=0),
                             )
-                            st.plotly_chart(fig_bar_h, width='stretch')
+                            st.plotly_chart(fig_bar_h, use_container_width=True)
 
-                            # ── Heatmap ──────────────────────────────────────────
+                            # Heatmap
                             st.markdown('<div class="sec">Heatmap Intensitas Efek Holiday</div>', unsafe_allow_html=True)
-
-                            hm_pivot = (heff_grp
-                                        .pivot_table(index='Kategori', columns='Program',
-                                                     values='Efek_pct', aggfunc='mean')
-                                        .reindex(cat_order)
-                                        .fillna(0))
-
-                            zmax = float(hm_pivot.abs().max().max())
-                            zmax = max(zmax, 0.1)  # avoid zero division
-
-                            fig_hm = go.Figure(go.Heatmap(
-                                z=hm_pivot.values,
-                                x=list(hm_pivot.columns),
-                                y=list(hm_pivot.index),
-                                colorscale=[
-                                    [0.0,  '#7f1d1d'],
-                                    [0.25, '#f87171'],
-                                    [0.5,  '#0f172a'],
-                                    [0.75, '#4ade80'],
-                                    [1.0,  '#14532d'],
-                                ],
-                                zmid=0,
-                                zmin=-zmax,
-                                zmax=zmax,
+                            hm_pivot=(heff_grp.pivot_table(index='Kategori',columns='Program',values='Efek_pct',aggfunc='mean')
+                                      .reindex(cat_order).fillna(0))
+                            zmax=float(hm_pivot.abs().max().max()); zmax=max(zmax,0.1)
+                            fig_hm=go.Figure(go.Heatmap(
+                                z=hm_pivot.values, x=list(hm_pivot.columns), y=list(hm_pivot.index),
+                                colorscale=[[0,'#450a0a'],[0.25,'#f87171'],[0.5,'#020c18'],[0.75,'#34d399'],[1,'#052e16']],
+                                zmid=0, zmin=-zmax, zmax=zmax,
                                 text=[[f'{v:+.1f}%' for v in row] for row in hm_pivot.values],
-                                texttemplate='%{text}',
-                                textfont=dict(size=11, color='white'),
+                                texttemplate='%{text}', textfont=dict(size=11,color='white'),
                                 hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><extra></extra>',
-                                colorbar=dict(
-                                    title=dict(
-                                        text='Efek (%)',
-                                        font=dict(color='#94a3b8', size=11),
-                                    ),
-                                    ticksuffix='%',
-                                    tickfont=dict(color='#94a3b8', size=10),
-                                ),
+                                colorbar=dict(title=dict(text='Efek (%)',font=dict(color='#64748b',size=10)),
+                                    ticksuffix='%',tickfont=dict(color='#64748b',size=9),thickness=10),
                             ))
-                            fig_hm.update_layout(
-                                **DARK,
-                                height=max(320, len(cat_order) * 38 + 100),
-                                margin=dict(t=30, b=40, l=160, r=60),
-                                xaxis=dict(tickfont=dict(size=11, color='#93c5fd'), side='top'),
-                                yaxis=dict(
-                                    categoryorder='array',
-                                    categoryarray=cat_order[::-1],
-                                    tickfont=dict(size=11, color='#e2e8f0')),
-                                title=dict(text='Intensitas Efek: merah=klaim turun, hijau=klaim naik',
-                                           font=dict(size=12, color='#94a3b8'), x=0),
-                            )
-                            st.plotly_chart(fig_hm, width='stretch')
+                            fig_hm.update_layout(**DARK, height=max(340,len(cat_order)*38+100),
+                                margin=dict(t=20,b=40,l=160,r=60),
+                                xaxis=dict(tickfont=dict(size=11,color='#7dd3fc',family='Instrument Sans'),side='top'),
+                                yaxis=dict(categoryorder='array',categoryarray=cat_order[::-1],tickfont=dict(size=11,color='#e2e8f0',family='Instrument Sans')))
+                            st.plotly_chart(fig_hm, use_container_width=True)
 
-                            # ── Scorecard Cards ──────────────────────────────────
-                            st.markdown('<div class="sec">Ringkasan Efek per Program</div>',
-                                        unsafe_allow_html=True)
-
-                            card_cols = st.columns(len(programs_list))
-                            for ci, prog in enumerate(programs_list):
-                                prog_data = heff_grp[heff_grp['Program'] == prog].copy()
-                                avg_y_p   = float(prog_data['avg_y'].iloc[0]) if len(prog_data) > 0 else 1.0
-                                col_c     = COLORS[ci % len(COLORS)]
-
-                                pos_data = prog_data[prog_data['Efek_pct'] > 0.1].sort_values('Efek_pct', ascending=False)
-                                neg_data = prog_data[prog_data['Efek_pct'] < -0.1].sort_values('Efek_pct', ascending=True)
-                                net_prog = float(prog_data['Efek_pct'].sum())
+                            # Cards
+                            st.markdown('<div class="sec">Ringkasan Efek per Program</div>', unsafe_allow_html=True)
+                            card_cols=st.columns(len(programs_list))
+                            for ci,prog in enumerate(programs_list):
+                                prog_data=heff_grp[heff_grp['Program']==prog].copy()
+                                avg_y_p=float(prog_data['avg_y'].iloc[0]) if len(prog_data)>0 else 1.0
+                                col_c=COLORS[ci%len(COLORS)]
+                                pos_data=prog_data[prog_data['Efek_pct']>0.1].sort_values('Efek_pct',ascending=False)
+                                neg_data=prog_data[prog_data['Efek_pct']<-0.1].sort_values('Efek_pct')
+                                net_prog=float(prog_data['Efek_pct'].sum())
 
                                 def _pill_p(v):
-                                    return (f'<span style="color:#34d399;font-weight:700">{v:+.1f}%</span>'
-                                            if v > 0 else
-                                            f'<span style="color:#f87171;font-weight:700">{v:+.1f}%</span>')
+                                    return (f'<span style="color:#34d399;font-weight:700;font-family:\'DM Mono\',monospace">{v:+.1f}%</span>'
+                                            if v>0 else f'<span style="color:#f87171;font-weight:700;font-family:\'DM Mono\',monospace">{v:+.1f}%</span>')
+                                def _dk(v):
+                                    dk=abs(v/100.0*avg_y_p)
+                                    return f'<span style="color:#334155;font-size:.68rem;font-family:\'DM Mono\',monospace"> (~{dk:,.0f})</span>' if dk>=1 else ''
 
-                                def _delta_kasus(v):
-                                    dk = abs(v / 100.0 * avg_y_p)
-                                    if dk < 1: return ''
-                                    return f'<span style="color:#475569;font-size:.7rem"> (~{dk:,.0f} kasus)</span>'
+                                up_html=''.join(
+                                    f'<div style="display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:.78rem;gap:4px;">'
+                                    f'<span><span style="color:#34d399;margin-right:4px">▲</span><span style="color:#cbd5e1;font-family:\'Instrument Sans\',sans-serif">{row.Kategori}</span>{_dk(row.Efek_pct)}</span>'
+                                    f'{_pill_p(row.Efek_pct)}</div>'
+                                    for row in pos_data.head(3).itertuples()
+                                ) if len(pos_data)>0 else '<div style="color:#1e3a5f;font-size:.78rem;font-style:italic">—</div>'
 
-                                if len(pos_data) > 0:
-                                    up_html = ''.join(
-                                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
-                                        f'<span><span style="color:#34d399;margin-right:4px">▲</span>'
-                                        f'<span style="color:#e2e8f0">{row.Kategori}</span>'
-                                        f'{_delta_kasus(row.Efek_pct)}</span>'
-                                        f'{_pill_p(row.Efek_pct)}</div>'
-                                        for row in pos_data.head(3).itertuples()
-                                    )
-                                else:
-                                    up_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek positif</div>'
+                                dn_html=''.join(
+                                    f'<div style="display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:.78rem;gap:4px;">'
+                                    f'<span><span style="color:#f87171;margin-right:4px">▼</span><span style="color:#cbd5e1;font-family:\'Instrument Sans\',sans-serif">{row.Kategori}</span>{_dk(row.Efek_pct)}</span>'
+                                    f'{_pill_p(row.Efek_pct)}</div>'
+                                    for row in neg_data.head(3).itertuples()
+                                ) if len(neg_data)>0 else '<div style="color:#1e3a5f;font-size:.78rem;font-style:italic">—</div>'
 
-                                if len(neg_data) > 0:
-                                    dn_html = ''.join(
-                                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
-                                        f'<span><span style="color:#f87171;margin-right:4px">▼</span>'
-                                        f'<span style="color:#e2e8f0">{row.Kategori}</span>'
-                                        f'{_delta_kasus(row.Efek_pct)}</span>'
-                                        f'{_pill_p(row.Efek_pct)}</div>'
-                                        for row in neg_data.head(3).itertuples()
-                                    )
-                                else:
-                                    dn_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek negatif</div>'
-
-                                if abs(net_prog) < 0.5:
-                                    badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
-                                elif net_prog > 0:
-                                    badge = f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem">Net +{net_prog:.1f}%</span>'
-                                else:
-                                    badge = f'<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem">Net {net_prog:.1f}%</span>'
+                                if abs(net_prog)<0.5: badge=f'<span style="background:#0a1a2e;color:#475569;padding:2px 8px;border-radius:6px;font-size:.7rem;font-family:\'DM Mono\',monospace">Netral</span>'
+                                elif net_prog>0: badge=f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.7rem;font-family:\'DM Mono\',monospace">Net +{net_prog:.1f}%</span>'
+                                else: badge=f'<span style="background:#1a0505;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.7rem;font-family:\'DM Mono\',monospace">Net {net_prog:.1f}%</span>'
 
                                 with card_cols[ci]:
                                     st.markdown(f'''
-                                    <div style="background:#0a1628;border:1px solid {col_c}40;
-                                    border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;">
+                                    <div style="background:#061120;border:1px solid {col_c}30;
+                                    border-top:2px solid {col_c};border-radius:14px;padding:16px 18px;">
                                       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                                        <span style="font-size:.75rem;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;">{prog}</span>
+                                        <span style="font-size:.62rem;color:#334155;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;font-family:\'Instrument Sans\',sans-serif;">{prog}</span>
                                         {badge}
                                       </div>
-                                      <div style="font-size:.65rem;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📈 Klaim Naik Saat</div>
+                                      <div style="font-size:.58rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-family:\'Instrument Sans\',sans-serif;">📈 Klaim Naik Saat</div>
                                       {up_html}
-                                      <div style="border-top:1px solid #1e2d45;margin:10px 0;"></div>
-                                      <div style="font-size:.65rem;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📉 Klaim Turun Saat</div>
+                                      <div style="border-top:1px solid #0a1a2e;margin:10px 0;"></div>
+                                      <div style="font-size:.58rem;color:#1e3a5f;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-family:\'Instrument Sans\',sans-serif;">📉 Klaim Turun Saat</div>
                                       {dn_html}
                                     </div>''', unsafe_allow_html=True)
 
-                            with st.expander("📋 Tabel Detail Efek Semua Holiday × Semua Program"):
-                                detail_tbl = (heff_grp.copy()
-                                              .sort_values(['Kategori','Efek_pct'], ascending=[True,False])
-                                              .rename(columns={'Kategori': 'Hari Libur',
-                                                               'Efek_pct': 'Efek (%)',
-                                                               'n_events': 'Jumlah Event'}))
-                                detail_tbl['Efek (%)'] = detail_tbl['Efek (%)'].round(2)
-                                detail_tbl['Arah'] = detail_tbl['Efek (%)'].apply(
-                                    lambda v: '▲ Naik' if v > 0.1 else ('▼ Turun' if v < -0.1 else '– Netral'))
+                            with st.expander("📋 Tabel Detail Efek Semua Holiday × Program"):
+                                detail_tbl=(heff_grp.copy()
+                                            .sort_values(['Kategori','Efek_pct'],ascending=[True,False])
+                                            .rename(columns={'Kategori':'Hari Libur','Efek_pct':'Efek (%)','n_events':'Jumlah Event'}))
+                                detail_tbl['Efek (%)']=detail_tbl['Efek (%)'].round(2)
+                                detail_tbl['Arah']=detail_tbl['Efek (%)'].apply(lambda v:'▲ Naik' if v>0.1 else ('▼ Turun' if v<-0.1 else '– Netral'))
                                 st.dataframe(
                                     detail_tbl[['Program','Hari Libur','Efek (%)','Arah','Jumlah Event']]
-                                    .style
-                                    .format({'Efek (%)': '{:+.2f}%'}),
-                                    width='stretch', height=360)
+                                    .style.format({'Efek (%)':'{:+.2f}%'}),
+                                    use_container_width=True, height=360)
 
-                            st.markdown("""<div class="info-box" style="margin-top:16px">
-                            📊 <b>Cara baca:</b> Efek = % perubahan klaim dibanding rata-rata bulan normal.<br>
-                            Contoh: <b>JKK +12% saat Idul Fitri</b> → klaim JKK rata-rata 12% lebih tinggi di bulan tersebut.<br>
-                            Efek diekstrak dari <b>parameter posterior Prophet</b>. Nama hari libur dari <b>Google Calendar API Indonesia</b>.
-                            </div>""", unsafe_allow_html=True)
+                            st.markdown('<div class="info-box">📊 <b>Cara baca:</b> Efek = % perubahan klaim vs rata-rata bulan normal. Efek diekstrak dari parameter posterior Prophet. Nama hari libur dari Google Calendar API Indonesia.</div>', unsafe_allow_html=True)
 
     else:
         st.info("Klik **Jalankan Analisis ML** untuk memulai.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3: PREDIKSI
+# TAB 3 — PREDIKSI
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
     p1, _ = st.columns([1, 3])
     with p1:
         target_pred = st.selectbox("Target", targets, key='pred_tgt')
-        run_pred    = st.button("🔮 Hitung Prediksi", type="primary", width='stretch')
+        run_pred    = st.button("🔮  Hitung Prediksi", type="primary", use_container_width=True)
 
     ck_p    = f"{target_pred}_lags{n_lags}_test{test_pct}"
     ml_pred = results_cache.get(ck_p)
 
     if run_pred:
         if ml_pred is None:
-            with st.spinner("Melatih model..."):
-                ml_pred, err = run_ml(df, target_pred, n_lags, test_pct / 100)
-            if err:
-                st.error(err)
-                ml_pred = None
+            with st.spinner("Melatih model…"):
+                ml_pred, err = run_ml(df, target_pred, n_lags, test_pct/100)
+            if err: st.error(err); ml_pred=None
             else:
-                results_cache[ck_p] = ml_pred
-                st.session_state.active_results = results_cache
+                results_cache[ck_p]=ml_pred
+                st.session_state.active_results=results_cache
 
-    fut         = None
-    fut_monthly = None
-
+    fut=None; fut_monthly=None
     if ml_pred:
-        with st.spinner("Menghitung proyeksi..."):
+        with st.spinner("Menghitung proyeksi…"):
             fut = forecast(df, ml_pred, n_future)
-
         df_raw_m = st.session_state.get('raw_monthly', None)
-        if df_raw_m is not None and len(df_raw_m) > 0:
+        if df_raw_m is not None and len(df_raw_m)>0:
             if target_pred in df_raw_m.columns:
-                try:
-                    fut_monthly = compute_monthly_breakdown(df_raw_m, fut, target_pred)
-                except Exception as e:
-                    st.warning(f"Gagal hitung prediksi bulanan: {e}")
-                    fut_monthly = None
+                try: fut_monthly=compute_monthly_breakdown(df_raw_m, fut, target_pred)
+                except Exception as e: st.warning(f"Gagal hitung prediksi bulanan: {e}"); fut_monthly=None
 
-        st.session_state['last_forecast']                          = fut
-        st.session_state['last_forecast_monthly']                  = fut_monthly
-        st.session_state[f'forecast_{target_pred}']                = fut
-        st.session_state[f'forecast_monthly_{target_pred}']        = fut_monthly
-        st.session_state[f'forecast_annual_{target_pred}']         = fut
+        st.session_state['last_forecast']=fut
+        st.session_state['last_forecast_monthly']=fut_monthly
+        st.session_state[f'forecast_{target_pred}']=fut
+        st.session_state[f'forecast_monthly_{target_pred}']=fut_monthly
+        st.session_state[f'forecast_annual_{target_pred}']=fut
 
-        data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
-        eid_pred  = f"{data_hash}_{target_pred}_L{n_lags}_T{test_pct}"
-        label_pred = (f"📁 {datetime.now().strftime('%d/%m %H:%M')} | "
-                      f"{target_pred} | {len(years)}yr | {len(active_progs)} prog")
-        extra_snapshot = {
-            k: st.session_state[k]
-            for k in ['raw_monthly',
-                      'forecast_Kasus', 'forecast_Nominal',
-                      'forecast_monthly_Kasus', 'forecast_monthly_Nominal',
-                      'forecast_annual_Kasus', 'forecast_annual_Nominal',
-                      'last_forecast', 'last_forecast_monthly']
-            if k in st.session_state and st.session_state[k] is not None
-        }
+        data_hash=hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
+        eid_pred=f"{data_hash}_{target_pred}_L{n_lags}_T{test_pct}"
+        label_pred=f"📁 {datetime.now().strftime('%d/%m %H:%M')} | {target_pred} | {len(years)}yr | {len(active_progs)} prog"
+        extra_snapshot={k:st.session_state[k] for k in
+            ['raw_monthly','forecast_Kasus','forecast_Nominal','forecast_monthly_Kasus',
+             'forecast_monthly_Nominal','forecast_annual_Kasus','forecast_annual_Nominal',
+             'last_forecast','last_forecast_monthly']
+            if k in st.session_state and st.session_state[k] is not None}
         add_to_history(label_pred, eid_pred, df.copy(), dict(results_cache), extra_snapshot)
 
-        future_yrs = sorted(fut['Tahun'].unique())
-        yr_range   = f"{future_yrs[0]}-{future_yrs[-1]}"
-        prog_list  = ", ".join(ml_pred['active_programs'])
-        mode_note  = " | Mode 1 dataset (estimasi 5%/thn)" if single_yr else ""
-
-        per_prog_info = ml_pred.get('per_prog', {})
+        future_yrs=sorted(fut['Tahun'].unique()); yr_range=f"{future_yrs[0]}-{future_yrs[-1]}"
+        per_prog_info=ml_pred.get('per_prog',{})
         if per_prog_info:
-            model_parts = " | ".join(
-                f"<b>{cat}</b>→{info['best_name']}"
-                for cat, info in per_prog_info.items()
-            )
-            badge_html = (
-                '<div class="badge">'
-                + "🎯 <b>Per-Program Model</b>: " + model_parts
-                + " &nbsp;|&nbsp; Proyeksi <b>" + str(n_future) + " tahun</b> (" + yr_range + ")"
-                + mode_note
-                + "</div>"
-            )
+            model_parts=" | ".join(f"<b>{cat}</b>→{info['best_name']}" for cat,info in per_prog_info.items())
+            st.markdown(f'<div class="badge">🎯 <b>Per-Program:</b> {model_parts} &nbsp;|&nbsp; Proyeksi <b>{n_future} tahun</b> ({yr_range})</div>', unsafe_allow_html=True)
         else:
-            best_used = ml_pred['best_name']
-            badge_html = (
-                '<div class="badge">'
-                + "Model: <b>" + best_used + "</b>"
-                + " &nbsp;|&nbsp; Proyeksi <b>" + str(n_future) + " tahun</b> (" + yr_range + ")"
-                + " &nbsp;|&nbsp; Program: <b>" + prog_list + "</b>"
-                + mode_note
-                + "</div>"
-            )
-        st.markdown(badge_html, unsafe_allow_html=True)
+            st.markdown(f'<div class="badge">Model: <b>{ml_pred["best_name"]}</b> &nbsp;|&nbsp; Proyeksi <b>{n_future} tahun</b> ({yr_range})</div>', unsafe_allow_html=True)
 
-        ptab_yr, ptab_mo = st.tabs(["📅 Prediksi Tahunan", "📆 Prediksi Bulanan"])
+        ptab_yr, ptab_mo = st.tabs(["📅  Prediksi Tahunan", "📆  Prediksi Bulanan"])
 
         with ptab_yr:
-            hist = df_plot.groupby(['Tahun', 'Kategori'])[target_pred].sum().reset_index()
-            hist['Jenis'] = 'Historis (Aktual)'
-            fut_yr        = fut.copy()
-            fut_yr['Jenis'] = 'Prediksi'
+            hist = df_plot.groupby(['Tahun','Kategori'])[target_pred].sum().reset_index()
+            fut_yr = fut.copy(); fut_yr['Jenis']='Prediksi'
 
-            st.markdown('<div class="sec">Tren Historis (Aktual) vs Prediksi</div>',
-                        unsafe_allow_html=True)
-
-            fig_main = go.Figure()
-            cat_color = {c: COLORS[i % len(COLORS)]
-                         for i, c in enumerate(sorted(hist['Kategori'].unique()))}
+            st.markdown('<div class="sec">Tren Aktual vs Prediksi</div>', unsafe_allow_html=True)
+            fig_main=go.Figure()
+            cat_color={c:COLORS[i%len(COLORS)] for i,c in enumerate(sorted(hist['Kategori'].unique()))}
 
             for cat in sorted(hist['Kategori'].unique()):
-                col = cat_color[cat]
-
-                h = hist[hist['Kategori'] == cat].sort_values('Tahun')
+                col=cat_color[cat]
+                h=hist[hist['Kategori']==cat].sort_values('Tahun')
                 if len(h):
                     fig_main.add_trace(go.Scatter(
-                        x=h['Tahun'], y=h[target_pred],
-                        name=cat + " (Aktual)",
-                        mode='lines+markers',
-                        line=dict(color=col, width=2.5),
-                        marker=dict(size=8, symbol='circle'),
+                        x=h['Tahun'], y=h[target_pred], name=cat+" (Aktual)",
+                        mode='lines+markers', line=dict(color=col, width=2.5, shape='spline'),
+                        marker=dict(size=9, color=col, line=dict(color='#020c18',width=2.5)),
                         legendgroup=cat,
+                        fill='tozeroy', fillcolor=hex_to_rgba(col, 0.05),
                     ))
-
-                p = fut_yr[fut_yr['Kategori'] == cat].sort_values('Tahun')
+                p=fut_yr[fut_yr['Kategori']==cat].sort_values('Tahun')
                 if len(p):
-                    x_p = list(p['Tahun'])
-                    y_p = list(p[target_pred])
+                    x_p=list(p['Tahun']); y_p=list(p[target_pred])
                     if len(h):
-                        last_h = h.sort_values('Tahun').iloc[-1]
-                        x_p = [int(last_h['Tahun'])] + x_p
-                        y_p = [float(last_h[target_pred])] + y_p
+                        last_h=h.sort_values('Tahun').iloc[-1]
+                        x_p=[int(last_h['Tahun'])]+x_p; y_p=[float(last_h[target_pred])]+y_p
                     fig_main.add_trace(go.Scatter(
-                        x=x_p, y=y_p,
-                        name=cat + " (Prediksi)",
-                        mode='lines+markers',
-                        line=dict(color=col, width=2.5, dash='dash'),
-                        marker=dict(size=10, symbol='diamond'),
+                        x=x_p, y=y_p, name=cat+" (Prediksi)",
+                        mode='lines+markers', line=dict(color=col, width=2.5, dash='dash'),
+                        marker=dict(size=10, color=col, symbol='diamond', line=dict(color='#020c18',width=2)),
                         legendgroup=cat,
                     ))
 
-            fig_main.add_vrect(
-                x0=latest_year + 0.3, x1=future_yrs[-1] + 0.7,
-                fillcolor=hex_to_rgba('#3b82f6', 0.05),
-                line_width=0,
+            future_yrs2=sorted(fut['Tahun'].unique())
+            fig_main.add_vrect(x0=latest_year+0.3, x1=future_yrs2[-1]+0.7,
+                fillcolor='rgba(59,130,246,0.04)', line_width=0,
                 annotation_text="▶ Zona Prediksi",
                 annotation_position="top left",
-                annotation_font=dict(color='#60a5fa', size=11, family='Inter'),
-            )
-            fig_main.add_vline(
-                x=latest_year + 0.5,
-                line_dash='dot', line_color=hex_to_rgba('#60a5fa', 0.6), line_width=1.5,
-                annotation_text=f"← {latest_year} | {future_yrs[0]} →",
-                annotation_font=dict(color='#475569', size=9),
-                annotation_position="bottom right"
-            )
+                annotation_font=dict(color='#334155',size=10,family='Instrument Sans'))
+            fig_main.add_vline(x=latest_year+0.5, line_dash='dot',
+                line_color='rgba(59,130,246,.3)', line_width=1.5,
+                annotation_text=f"← {latest_year} | {future_yrs2[0]} →",
+                annotation_font=dict(color='#334155',size=9,family='DM Mono'),
+                annotation_position="bottom right")
 
-            styled_chart(fig_main, height=540, legend_bottom=True, margin_b=140)
-            fig_main.update_layout(
-                xaxis=dict(dtick=1, showgrid=True, gridcolor='#0f1923'),
-                yaxis_title=target_pred, xaxis_title='Tahun',
-                hoverlabel=dict(bgcolor='#0d1f35', font_size=12))
-            st.plotly_chart(fig_main, width='stretch')
+            styled_chart(fig_main, height=560, legend_bottom=True, margin_b=150)
+            fig_main.update_layout(xaxis=dict(dtick=1), yaxis_title=target_pred, xaxis_title='Tahun')
+            st.plotly_chart(fig_main, use_container_width=True)
 
-            per_prog_inf = ml_pred.get('per_prog', {})
-            if per_prog_inf:
-                cards_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">'
-                mape_grade = lambda m: (
-                    'mpill-green' if m < 10 else 'mpill-blue' if m < 20
-                    else 'mpill-yellow' if m < 50 else 'mpill-red')
-                for cat, info in per_prog_inf.items():
-                    mape_v = info.get('metrics', {}).get('MAPE (%)', None)
-                    pill_cls = mape_grade(mape_v) if mape_v is not None else 'mpill-blue'
-                    mape_txt = f"MAPE: {mape_v:.1f}%" if mape_v is not None else ""
-                    cards_html += (
-                        f'<div style="background:#0d1f35;border:1px solid #1e3a5f;'
-                        f'border-radius:10px;padding:10px 14px;min-width:120px;">'
-                        f'<div style="font-size:.65rem;color:#475569;font-weight:700;'
-                        f'text-transform:uppercase;letter-spacing:1px;">{cat}</div>'
-                        f'<div style="font-size:.9rem;font-weight:600;color:#e2e8f0;margin:4px 0;">'
-                        f'{info["best_name"]}</div>'
-                        f'<span class="mpill {pill_cls}">{mape_txt}</span>'
-                        f'</div>'
-                    )
-                cards_html += '</div>'
+            if per_prog_info:
+                mape_grade_fn = lambda m: 'mpill-green' if m and m<10 else 'mpill-blue' if m and m<20 else 'mpill-yellow' if m and m<50 else 'mpill-red'
+                cards_html='<div style="display:flex;flex-wrap:wrap;gap:10px;margin:14px 0;">'
+                for cat,info in per_prog_info.items():
+                    mape_v=info.get('metrics',{}).get('MAPE (%)',None)
+                    pill_cls=mape_grade_fn(mape_v)
+                    mape_txt=f"MAPE: {mape_v:.1f}%" if mape_v is not None else ""
+                    cards_html+=(f'<div class="prog-card">'
+                                 f'<div class="pc-name">{cat}</div>'
+                                 f'<div class="pc-model">{info["best_name"]}</div>'
+                                 f'<span class="mpill {pill_cls}">{mape_txt}</span>'
+                                 f'</div>')
+                cards_html+='</div>'
                 st.markdown(cards_html, unsafe_allow_html=True)
 
-            st.markdown('<div class="sec">Nilai Prediksi per Tahun per Program</div>',
-                        unsafe_allow_html=True)
-            fig_bar = px.bar(
-                fut, x='Tahun', y=target_pred, color='Kategori',
-                barmode='group', color_discrete_sequence=COLORS,
-                text=target_pred,
-            )
-            fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='outside',
-                marker_line_width=0, textfont_size=9)
-            styled_chart(fig_bar, height=400)
+            st.markdown('<div class="sec">Nilai Prediksi per Tahun per Program</div>', unsafe_allow_html=True)
+            fig_bar=go.Figure()
+            for i,cat in enumerate(sorted(fut['Kategori'].unique())):
+                cd=fut[fut['Kategori']==cat].sort_values('Tahun')
+                fig_bar.add_trace(go.Bar(
+                    x=cd['Tahun'], y=cd[target_pred], name=cat,
+                    marker=dict(color=COLORS[i%len(COLORS)], line=dict(width=0)),
+                    text=cd[target_pred].apply(lambda v: f'{v:,.0f}'),
+                    textposition='outside', textfont=dict(size=9,color='#64748b',family='DM Mono'),
+                ))
+            fig_bar.update_layout(barmode='group')
+            styled_chart(fig_bar, height=420)
             fig_bar.update_layout(xaxis=dict(dtick=1))
-            st.plotly_chart(fig_bar, width='stretch')
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-            if len(future_yrs) >= 2:
-                st.markdown('<div class="sec">Total Klaim Prediksi — Waterfall per Tahun</div>',
-                            unsafe_allow_html=True)
-                tot_by_yr = fut.groupby('Tahun')[target_pred].sum().reset_index()
-                tot_by_yr['delta'] = tot_by_yr[target_pred].diff().fillna(0)
-                measures = ['absolute'] + ['relative'] * (len(tot_by_yr)-1)
-                wf_y_vals = [tot_by_yr[target_pred].iloc[0]] + tot_by_yr['delta'].iloc[1:].tolist()
-                fig_wf = go.Figure(go.Waterfall(
-                    orientation='v',
-                    measure=measures,
-                    x=[str(y) for y in tot_by_yr['Tahun'].tolist()],
-                    y=wf_y_vals,
+            if len(future_yrs2)>=2:
+                st.markdown('<div class="sec">Waterfall — Total Klaim Prediksi per Tahun</div>', unsafe_allow_html=True)
+                tot_by_yr=fut.groupby('Tahun')[target_pred].sum().reset_index()
+                tot_by_yr['delta']=tot_by_yr[target_pred].diff().fillna(0)
+                measures=['absolute']+['relative']*(len(tot_by_yr)-1)
+                wf_y_vals=[tot_by_yr[target_pred].iloc[0]]+tot_by_yr['delta'].iloc[1:].tolist()
+                fig_wf=go.Figure(go.Waterfall(
+                    orientation='v', measure=measures,
+                    x=[str(y) for y in tot_by_yr['Tahun'].tolist()], y=wf_y_vals,
                     textposition='outside',
-                    text=[f"{v:+,.0f}" if i > 0 else f"{v:,.0f}" for i, v in enumerate(wf_y_vals)],
-                    connector=dict(line=dict(color='#1e3a5f', width=1.5)),
+                    text=[f"{v:+,.0f}" if i>0 else f"{v:,.0f}" for i,v in enumerate(wf_y_vals)],
+                    connector=dict(line=dict(color='#0a1a2e',width=1.5)),
                     increasing=dict(marker_color='#34d399'),
                     decreasing=dict(marker_color='#f87171'),
-                    totals=dict(marker_color='#60a5fa')
+                    totals=dict(marker_color='#38bdf8')
                 ))
-                fig_wf.update_layout(**DARK, height=340, margin=dict(t=20,b=40,l=60,r=20),
-                    showlegend=False, yaxis_title=target_pred)
-                st.plotly_chart(fig_wf, width='stretch')
+                fig_wf.update_layout(**DARK, height=360, showlegend=False,
+                    yaxis_title=target_pred, margin=dict(t=20,b=40,l=60,r=20))
+                st.plotly_chart(fig_wf, use_container_width=True)
 
-            st.markdown('<div class="sec">Distribusi per Tahun Prediksi</div>',
-                        unsafe_allow_html=True)
-            ncols = min(len(future_yrs), 3)
-            pcols = st.columns(ncols)
-            for i, fy in enumerate(future_yrs):
-                with pcols[i % ncols]:
-                    fy_d = fut[fut['Tahun'] == fy]
-                    fp   = px.pie(fy_d, names='Kategori', values=target_pred,
-                                  hole=0.4, title=str(fy),
-                                  color_discrete_sequence=COLORS)
-                    fp.update_traces(textinfo='label+percent', textposition='outside')
-                    fp.update_layout(**DARK, showlegend=False, height=300,
-                                     margin=dict(t=40, b=10, l=10, r=10))
-                    st.plotly_chart(fp, width='stretch')
+            st.markdown('<div class="sec">Distribusi per Tahun Prediksi</div>', unsafe_allow_html=True)
+            ncols=min(len(future_yrs2),3)
+            pcols=st.columns(ncols)
+            for i,fy in enumerate(future_yrs2):
+                with pcols[i%ncols]:
+                    fy_d=fut[fut['Tahun']==fy]
+                    fp=go.Figure(go.Pie(
+                        labels=fy_d['Kategori'], values=fy_d[target_pred], hole=0.55,
+                        textinfo='label+percent', textposition='outside',
+                        marker=dict(colors=COLORS[:len(fy_d)], line=dict(color='#020c18',width=2)),
+                    ))
+                    fp.update_layout(**DARK, showlegend=False, height=320,
+                        title=dict(text=str(fy),font=dict(size=14,color='#64748b',family='Syne'),x=0.5),
+                        margin=dict(t=40,b=10,l=10,r=10))
+                    st.plotly_chart(fp, use_container_width=True)
 
-            if len(future_yrs) > 1:
-                st.markdown('<div class="sec">Estimasi Pertumbuhan Total (%)</div>',
-                            unsafe_allow_html=True)
-                grow = []
+            if len(future_yrs2)>1:
+                st.markdown('<div class="sec">Estimasi Pertumbuhan Total (%)</div>', unsafe_allow_html=True)
+                grow=[]
                 for cat in ml_pred['active_programs']:
-                    cd = fut[fut['Kategori'] == cat][target_pred].values
-                    if len(cd) >= 2:
-                        g = (cd[-1] / (cd[0] + 1e-9) - 1) * 100
-                        grow.append({'Kategori': cat, 'Pertumbuhan (%)': round(g, 2)})
+                    cd=fut[fut['Kategori']==cat][target_pred].values
+                    if len(cd)>=2: grow.append({'Kategori':cat,'Pertumbuhan (%)':round((cd[-1]/(cd[0]+1e-9)-1)*100,2)})
                 if grow:
-                    gdf = pd.DataFrame(grow).sort_values('Pertumbuhan (%)', ascending=True)
-                    fig_g = px.bar(gdf, x='Pertumbuhan (%)', y='Kategori',
-                                   orientation='h', color='Pertumbuhan (%)',
-                                   color_continuous_scale='RdYlGn',
-                                   text='Pertumbuhan (%)')
-                    fig_g.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-                    fig_g.update_layout(**DARK, coloraxis_showscale=False,
-                                        height=max(260, len(active_progs) * 44 + 80),
-                                        margin=dict(l=10, t=10, b=10, r=90))
-                    st.plotly_chart(fig_g, width='stretch')
+                    gdf=pd.DataFrame(grow).sort_values('Pertumbuhan (%)',ascending=True)
+                    fig_g=go.Figure()
+                    for i,(_, row) in enumerate(gdf.iterrows()):
+                        fig_g.add_trace(go.Bar(
+                            x=[row['Pertumbuhan (%)']], y=[row['Kategori']], orientation='h',
+                            name=row['Kategori'], showlegend=False,
+                            marker=dict(color='#34d399' if row['Pertumbuhan (%)']>=0 else '#f87171', line=dict(width=0)),
+                            text=f"{row['Pertumbuhan (%)']:+.1f}%",
+                            textposition='outside', textfont=dict(size=10,color='#64748b',family='DM Mono'),
+                        ))
+                    fig_g.add_vline(x=0, line_color='rgba(30,58,95,.8)', line_width=1.5)
+                    styled_chart(fig_g, height=max(280, len(active_progs)*50+80), legend_bottom=False)
+                    fig_g.update_layout(margin=dict(l=10,t=10,b=10,r=100))
+                    st.plotly_chart(fig_g, use_container_width=True)
 
-            st.markdown('<div class="sec">Tabel Prediksi Tahunan</div>',
-                        unsafe_allow_html=True)
-            tbl = fut[['Kategori', 'Tahun', target_pred]].copy().sort_values(['Kategori', 'Tahun'])
-            fmt = 'Rp {:,.0f}' if target_pred == 'Nominal' else '{:,.0f}'
-            tbl[target_pred] = tbl[target_pred].apply(lambda x: fmt.format(x))
-            st.dataframe(tbl, width='stretch')
+            st.markdown('<div class="sec">Tabel Prediksi Tahunan</div>', unsafe_allow_html=True)
+            tbl=fut[['Kategori','Tahun',target_pred]].copy().sort_values(['Kategori','Tahun'])
+            fmt='Rp {:,.0f}' if target_pred=='Nominal' else '{:,.0f}'
+            tbl[target_pred]=tbl[target_pred].apply(lambda x: fmt.format(x))
+            st.dataframe(tbl, use_container_width=True)
 
         with ptab_mo:
-            if fut_monthly is not None and len(fut_monthly) > 0:
-                st.markdown(
-                    '<div class="info-box">'
-                    'Prediksi bulanan dihitung dengan mendistribusikan total tahunan '
-                    'menggunakan pola musiman dari data historis.'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
+            if fut_monthly is not None and len(fut_monthly)>0:
+                st.markdown('<div class="info-box">Prediksi bulanan dihitung dengan mendistribusikan total tahunan menggunakan pola musiman historis.</div>', unsafe_allow_html=True)
 
-                st.markdown('<div class="sec">Tren Bulanan: Aktual vs Prediksi</div>',
-                            unsafe_allow_html=True)
-
-                df_raw_m2 = st.session_state.get('raw_monthly', None)
-                fig_mo    = go.Figure()
-
-                for i, cat in enumerate(sorted(ml_pred['active_programs'])):
-                    col = COLORS[i % len(COLORS)]
-
+                st.markdown('<div class="sec">Tren Bulanan: Aktual vs Prediksi</div>', unsafe_allow_html=True)
+                df_raw_m2=st.session_state.get('raw_monthly',None)
+                fig_mo=go.Figure()
+                for i,cat in enumerate(sorted(ml_pred['active_programs'])):
+                    col=COLORS[i%len(COLORS)]
                     if df_raw_m2 is not None and target_pred in df_raw_m2.columns:
-                        cat_raw = (df_raw_m2[df_raw_m2['Kategori'] == cat]
-                                   .sort_values(['Tahun', 'Bulan']).copy())
+                        cat_raw=(df_raw_m2[df_raw_m2['Kategori']==cat].sort_values(['Tahun','Bulan']).copy())
                         if len(cat_raw):
-                            cat_raw['Periode'] = (
-                                cat_raw['Tahun'].astype(str) + '-'
-                                + cat_raw['Bulan'].astype(str).str.zfill(2)
-                            )
-                            fig_mo.add_trace(go.Scatter(
-                                x=cat_raw['Periode'],
-                                y=cat_raw[target_pred],
-                                name=cat + " (Aktual)",
-                                mode='lines+markers',
-                                line=dict(color=col, width=2),
-                                marker=dict(size=5, symbol='circle'),
-                                legendgroup=cat,
-                            ))
-
-                    cat_pred_mo = (fut_monthly[fut_monthly['Kategori'] == cat]
-                                   .sort_values(['Tahun', 'Bulan']))
+                            cat_raw['Periode']=cat_raw['Tahun'].astype(str)+'-'+cat_raw['Bulan'].astype(str).str.zfill(2)
+                            fig_mo.add_trace(go.Scatter(x=cat_raw['Periode'],y=cat_raw[target_pred],
+                                name=cat+" (Aktual)",mode='lines+markers',legendgroup=cat,
+                                line=dict(color=col,width=2),marker=dict(size=5)))
+                    cat_pred_mo=(fut_monthly[fut_monthly['Kategori']==cat].sort_values(['Tahun','Bulan']))
                     if len(cat_pred_mo):
-                        fig_mo.add_trace(go.Scatter(
-                            x=cat_pred_mo['Periode'],
-                            y=cat_pred_mo[target_pred],
-                            name=cat + " (Prediksi)",
-                            mode='lines+markers',
-                            line=dict(color=col, width=2, dash='dash'),
-                            marker=dict(size=7, symbol='diamond'),
-                            legendgroup=cat,
-                        ))
-
-                fig_mo.update_layout(
-                    **DARK, height=520, hovermode='x unified',
+                        fig_mo.add_trace(go.Scatter(x=cat_pred_mo['Periode'],y=cat_pred_mo[target_pred],
+                            name=cat+" (Prediksi)",mode='lines+markers',legendgroup=cat,
+                            line=dict(color=col,width=2,dash='dash'),marker=dict(size=7,symbol='diamond')))
+                fig_mo.update_layout(**DARK, height=540, hovermode='x unified',
                     xaxis_tickangle=-45,
-                    legend=dict(orientation='h', y=-0.35, groupclick='toggleitem', font=dict(size=11)),
-                    margin=dict(b=150, t=20, l=70, r=20),
-                    yaxis_title=target_pred,
-                    xaxis_title='Periode (YYYY-MM)',
-                )
-                st.plotly_chart(fig_mo, width='stretch')
+                    legend=dict(orientation='h',y=-0.35,groupclick='toggleitem',font=dict(size=11,family='Instrument Sans'),bgcolor='rgba(0,0,0,0)'),
+                    margin=dict(b=150,t=20,l=70,r=20),
+                    yaxis_title=target_pred, xaxis_title='Periode (YYYY-MM)',
+                    xaxis=dict(showgrid=True,gridcolor='rgba(14,30,56,.8)'),
+                    yaxis=dict(showgrid=True,gridcolor='rgba(10,20,40,.9)'))
+                st.plotly_chart(fig_mo, use_container_width=True)
 
-                st.markdown('<div class="sec">Detail Prediksi Bulanan per Program</div>',
-                            unsafe_allow_html=True)
-                sel_cat = st.selectbox(
-                    "Pilih Program", sorted(ml_pred['active_programs']), key='mo_cat_sel'
-                )
-                cat_mo = (fut_monthly[fut_monthly['Kategori'] == sel_cat]
-                          .sort_values(['Tahun', 'Bulan']))
-
-                fig_cat = go.Figure()
-                col_sel = COLORS[sorted(ml_pred['active_programs']).index(sel_cat) % len(COLORS)]
-
+                st.markdown('<div class="sec">Detail Prediksi Bulanan per Program</div>', unsafe_allow_html=True)
+                sel_cat=st.selectbox("Pilih Program", sorted(ml_pred['active_programs']), key='mo_cat_sel')
+                cat_mo=fut_monthly[fut_monthly['Kategori']==sel_cat].sort_values(['Tahun','Bulan'])
+                fig_cat=go.Figure()
+                col_sel=COLORS[sorted(ml_pred['active_programs']).index(sel_cat)%len(COLORS)]
                 if df_raw_m2 is not None and target_pred in df_raw_m2.columns:
-                    h_mo = (df_raw_m2[df_raw_m2['Kategori'] == sel_cat]
-                            .sort_values(['Tahun', 'Bulan']).copy())
+                    h_mo=(df_raw_m2[df_raw_m2['Kategori']==sel_cat].sort_values(['Tahun','Bulan']).copy())
                     if len(h_mo):
-                        h_mo['Periode'] = (
-                            h_mo['Tahun'].astype(str) + '-'
-                            + h_mo['Bulan'].astype(str).str.zfill(2)
-                        )
-                        fig_cat.add_trace(go.Bar(
-                            x=h_mo['Periode'], y=h_mo[target_pred],
-                            name='Aktual', marker_color=col_sel, opacity=0.7,
-                        ))
+                        h_mo['Periode']=h_mo['Tahun'].astype(str)+'-'+h_mo['Bulan'].astype(str).str.zfill(2)
+                        fig_cat.add_trace(go.Bar(x=h_mo['Periode'],y=h_mo[target_pred],
+                            name='Aktual',marker=dict(color=col_sel,opacity=0.6,line=dict(width=0))))
+                fig_cat.add_trace(go.Bar(x=cat_mo['Periode'],y=cat_mo[target_pred],
+                    name='Prediksi',marker=dict(color=col_sel,opacity=1,line=dict(width=0),
+                    pattern=dict(shape='/'))))
+                fig_cat.update_layout(**DARK, height=420, barmode='group', xaxis_tickangle=-45,
+                    legend=dict(orientation='h',bgcolor='rgba(0,0,0,0)'),
+                    margin=dict(b=100,t=20),
+                    title=dict(text=f"{sel_cat} — Aktual & Prediksi Bulanan",font=dict(size=12,color='#64748b'),x=0))
+                st.plotly_chart(fig_cat, use_container_width=True)
 
-                fig_cat.add_trace(go.Bar(
-                    x=cat_mo['Periode'], y=cat_mo[target_pred],
-                    name='Prediksi',
-                    marker_color=col_sel,
-                    marker_pattern_shape='/',
-                ))
-                fig_cat.update_layout(
-                    **DARK, height=400, barmode='group',
-                    xaxis_tickangle=-45,
-                    legend=dict(orientation='h'),
-                    margin=dict(b=100, t=20),
-                    title=f"{sel_cat} — Aktual Bulanan & Prediksi",
-                )
-                st.plotly_chart(fig_cat, width='stretch')
-
-                st.markdown('<div class="sec">Tabel Prediksi Bulanan Lengkap</div>',
-                            unsafe_allow_html=True)
-                tbl_mo = (fut_monthly[['Kategori', 'Tahun', 'Bulan', 'Periode', target_pred]]
-                          .copy().sort_values(['Kategori', 'Tahun', 'Bulan']))
-                fmt = 'Rp {:,.0f}' if target_pred == 'Nominal' else '{:,.0f}'
-                tbl_mo[target_pred] = tbl_mo[target_pred].apply(lambda x: fmt.format(x))
-                st.dataframe(tbl_mo, width='stretch', height=420)
-
+                st.markdown('<div class="sec">Tabel Prediksi Bulanan Lengkap</div>', unsafe_allow_html=True)
+                tbl_mo=(fut_monthly[['Kategori','Tahun','Bulan','Periode',target_pred]]
+                        .copy().sort_values(['Kategori','Tahun','Bulan']))
+                fmt='Rp {:,.0f}' if target_pred=='Nominal' else '{:,.0f}'
+                tbl_mo[target_pred]=tbl_mo[target_pred].apply(lambda x: fmt.format(x))
+                st.dataframe(tbl_mo, use_container_width=True, height=420)
             else:
-                df_raw_debug = st.session_state.get('raw_monthly', None)
-                if df_raw_debug is None:
-                    st.warning("Data bulanan belum tersimpan. Upload ulang file dataset.")
-                elif target_pred not in df_raw_debug.columns:
-                    st.warning(f"Kolom {target_pred} tidak ditemukan di data bulanan.")
-                else:
-                    st.warning("Terjadi kesalahan saat menghitung prediksi bulanan. Coba klik Hitung Prediksi ulang.")
-
+                df_raw_debug=st.session_state.get('raw_monthly',None)
+                if df_raw_debug is None: st.warning("Data bulanan belum tersimpan. Upload ulang file dataset.")
+                elif target_pred not in df_raw_debug.columns: st.warning(f"Kolom {target_pred} tidak ditemukan di data bulanan.")
+                else: st.warning("Terjadi kesalahan. Coba klik Hitung Prediksi ulang.")
     else:
         st.info("Klik **Hitung Prediksi** — model ML akan dilatih otomatis jika belum ada.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 4: EXPORT
+# TAB 4 — EXPORT
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
     st.markdown('<div class="sec">Export Laporan</div>', unsafe_allow_html=True)
     ec1, ec2 = st.columns(2)
 
-    best_ml             = next((v for v in results_cache.values() if v), None)
-    last_fut            = st.session_state.get('last_forecast', None)
-    fut_ann_kasus       = st.session_state.get('forecast_annual_Kasus',   None)
-    fut_ann_nominal     = st.session_state.get('forecast_annual_Nominal', None)
-    fut_mo_kasus        = st.session_state.get('forecast_monthly_Kasus',   None)
-    fut_mo_nominal      = st.session_state.get('forecast_monthly_Nominal', None)
+    best_ml         = next((v for v in results_cache.values() if v), None)
+    last_fut        = st.session_state.get('last_forecast', None)
+    fut_ann_kasus   = st.session_state.get('forecast_annual_Kasus',   None)
+    fut_ann_nominal = st.session_state.get('forecast_annual_Nominal', None)
+    fut_mo_kasus    = st.session_state.get('forecast_monthly_Kasus',   None)
+    fut_mo_nominal  = st.session_state.get('forecast_monthly_Nominal', None)
 
     if fut_ann_kasus is None and fut_ann_nominal is None and last_fut is not None:
-        tc_lf = [c for c in last_fut.columns if c not in ['Kategori','Tahun','Type']]
+        tc_lf=[c for c in last_fut.columns if c not in ['Kategori','Tahun','Type']]
         if tc_lf:
-            if tc_lf[0] == 'Kasus':
-                fut_ann_kasus = last_fut
-            else:
-                fut_ann_nominal = last_fut
+            if tc_lf[0]=='Kasus': fut_ann_kasus=last_fut
+            else: fut_ann_nominal=last_fut
 
     if fut_mo_kasus is None and fut_mo_nominal is None:
-        lm = st.session_state.get('last_forecast_monthly', None)
-        if lm is not None and len(lm) > 0:
-            tc_lm = [c for c in lm.columns if c not in
-                     ['Kategori','Tahun','Bulan','Periode','Type']]
+        lm=st.session_state.get('last_forecast_monthly',None)
+        if lm is not None and len(lm)>0:
+            tc_lm=[c for c in lm.columns if c not in ['Kategori','Tahun','Bulan','Periode','Type']]
             if tc_lm:
-                if tc_lm[0] == 'Kasus':
-                    fut_mo_kasus = lm
-                else:
-                    fut_mo_nominal = lm
+                if tc_lm[0]=='Kasus': fut_mo_kasus=lm
+                else: fut_mo_nominal=lm
 
-    has_mo_kasus   = fut_mo_kasus   is not None and len(fut_mo_kasus)   > 0
-    has_mo_nominal = fut_mo_nominal is not None and len(fut_mo_nominal) > 0
+    has_ann_k  = fut_ann_kasus   is not None and len(fut_ann_kasus)>0
+    has_ann_n  = fut_ann_nominal is not None and len(fut_ann_nominal)>0
+    has_mo_k   = fut_mo_kasus   is not None and len(fut_mo_kasus)>0
+    has_mo_n   = fut_mo_nominal is not None and len(fut_mo_nominal)>0
 
     with ec1:
         st.markdown("**📊 Excel dengan Chart Terintegrasi**")
         st.caption("Sheet: Data Gabungan · Pivot Kasus · Prediksi Tahunan · Prediksi Bulanan · Bulanan Detail · ML Results")
+        st.markdown(f"""<div class="export-box">
+        <b>Prediksi Tahunan:</b><br>
+        <span class="{'ok' if has_ann_k else 'nok'}">{'✅' if has_ann_k else '⬜'} Kasus tahunan {'siap ('+str(len(fut_ann_kasus))+' baris)' if has_ann_k else 'belum ada'}</span><br>
+        <span class="{'ok' if has_ann_n else 'nok'}">{'✅' if has_ann_n else '⬜'} Nominal tahunan {'siap ('+str(len(fut_ann_nominal))+' baris)' if has_ann_n else 'belum ada'}</span><br>
+        <br><b>Prediksi Bulanan:</b><br>
+        <span class="{'ok' if has_mo_k else 'nok'}">{'✅' if has_mo_k else '⬜'} Kasus bulanan {'siap ('+str(len(fut_mo_kasus))+' baris)' if has_mo_k else 'belum ada'}</span><br>
+        <span class="{'ok' if has_mo_n else 'nok'}">{'✅' if has_mo_n else '⬜'} Nominal bulanan {'siap ('+str(len(fut_mo_nominal))+' baris)' if has_mo_n else 'belum ada'}</span>
+        </div>""", unsafe_allow_html=True)
 
-        has_ann_k = fut_ann_kasus   is not None and len(fut_ann_kasus)   > 0
-        has_ann_n = fut_ann_nominal is not None and len(fut_ann_nominal) > 0
-
-        status_html = '<div class="info-box">'
-        status_html += '<b>Prediksi Tahunan:</b><br>'
-        status_html += (f'✅ Kasus tahunan siap ({len(fut_ann_kasus)} baris)<br>'
-                        if has_ann_k else '⚠️ Kasus tahunan belum ada<br>')
-        status_html += (f'✅ Nominal tahunan siap ({len(fut_ann_nominal)} baris)<br>'
-                        if has_ann_n else '⚠️ Nominal tahunan belum ada<br>')
-        status_html += '<br><b>Prediksi Bulanan:</b><br>'
-        status_html += (f'✅ Kasus bulanan siap ({len(fut_mo_kasus)} baris)<br>'
-                        if has_mo_kasus else '⚠️ Kasus bulanan belum ada<br>')
-        status_html += (f'✅ Nominal bulanan siap ({len(fut_mo_nominal)} baris)'
-                        if has_mo_nominal else '⚠️ Nominal bulanan belum ada')
-        status_html += '</div>'
-        st.markdown(status_html, unsafe_allow_html=True)
-
-        if st.button("⚙️ Generate Excel", width='stretch'):
-            with st.spinner("Membuat Excel..."):
-                xlsx = export_excel(
-                    df, best_ml, last_fut,
-                    fut_kasus=fut_ann_kasus,
-                    fut_nominal=fut_ann_nominal,
-                    fut_monthly_kasus=fut_mo_kasus,
-                    fut_monthly_nominal=fut_mo_nominal,
-                )
-            st.download_button(
-                "⬇️ Download Excel", data=xlsx,
+        if st.button("⚙️  Generate Excel", use_container_width=True):
+            with st.spinner("Membuat Excel…"):
+                xlsx=export_excel(df, best_ml, last_fut,
+                    fut_kasus=fut_ann_kasus, fut_nominal=fut_ann_nominal,
+                    fut_monthly_kasus=fut_mo_kasus, fut_monthly_nominal=fut_mo_nominal)
+            st.download_button("⬇️  Download Excel", data=xlsx,
                 file_name=f"BPJS_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width='stretch')
+                use_container_width=True)
 
     with ec2:
         st.markdown("**📄 CSV Data Gabungan**")
-        df_sorted = df.sort_values(['Tahun', 'Kategori']).reset_index(drop=True)
-        st.download_button(
-            "⬇️ Download CSV", data=df_sorted.to_csv(index=False),
+        df_sorted=df.sort_values(['Tahun','Kategori']).reset_index(drop=True)
+        st.download_button("⬇️  Download CSV", data=df_sorted.to_csv(index=False),
             file_name=f"BPJS_Data_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv", width='stretch')
+            mime="text/csv", use_container_width=True)
 
-        if has_mo_kasus or has_mo_nominal:
-            st.markdown("**📄 CSV Prediksi Bulanan (Gabungan)**")
-            frames_csv = []
-            if has_mo_kasus:
-                frames_csv.append(fut_mo_kasus.assign(Target='Kasus'))
-            if has_mo_nominal:
-                frames_csv.append(fut_mo_nominal.assign(Target='Nominal'))
-            combined_csv = (pd.concat(frames_csv, ignore_index=True)
-                            .sort_values(['Tahun', 'Bulan', 'Kategori', 'Target'])
-                            .reset_index(drop=True))
-            st.download_button(
-                "⬇️ Download CSV Bulanan", data=combined_csv.to_csv(index=False),
+        if has_mo_k or has_mo_n:
+            st.markdown("<br>**📄 CSV Prediksi Bulanan**")
+            frames_csv=[]
+            if has_mo_k: frames_csv.append(fut_mo_kasus.assign(Target='Kasus'))
+            if has_mo_n: frames_csv.append(fut_mo_nominal.assign(Target='Nominal'))
+            combined_csv=(pd.concat(frames_csv,ignore_index=True)
+                          .sort_values(['Tahun','Bulan','Kategori','Target']).reset_index(drop=True))
+            st.download_button("⬇️  Download CSV Bulanan", data=combined_csv.to_csv(index=False),
                 file_name=f"BPJS_Bulanan_{datetime.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv", width='stretch')
+                mime="text/csv", use_container_width=True)
 
     st.markdown('<div class="sec">Preview Data Aktif</div>', unsafe_allow_html=True)
-    st.info(f"**{len(df)} baris** | "
-            f"**{len(active_progs)} program aktif** ({', '.join(active_progs)}) | "
-            f"**Tahun: {', '.join(map(str, years))}**")
-    st.dataframe(df, width='stretch', height=360)
+    st.markdown(f'<div class="info-box"><b>{len(df)} baris</b> · <b>{len(active_progs)} program aktif</b> ({", ".join(active_progs)}) · <b>Tahun: {", ".join(map(str, years))}</b></div>', unsafe_allow_html=True)
+    st.dataframe(df, use_container_width=True, height=360)
