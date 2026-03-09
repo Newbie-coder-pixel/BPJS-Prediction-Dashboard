@@ -958,6 +958,7 @@ def fetch_google_holidays(year_start: int = 2019, year_end: int = 2028) -> list:
     return all_rows
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
 def build_holiday_df() -> pd.DataFrame:
     """
     Build DataFrame hari libur dari Google Calendar API murni.
@@ -2791,28 +2792,44 @@ with tab2:
                     # Prophet multiplicative: efek adalah proporsi (0.1 = +10%)
                     # Kita konversi keduanya ke % agar mudah dibaca
                     heff_all = []
-                    holiday_names = list(INDONESIAN_HOLIDAYS['holiday'].unique()) if len(INDONESIAN_HOLIDAYS) > 0 else []
                     for cp, pr in all_p_results.items():
                         fc_rep   = pr['forecast']
                         hist_df  = pr['history']
+                        model    = pr.get('model')
                         avg_y    = float(hist_df['y'].mean()) if len(hist_df) > 0 else 1.0
-                        s_mode   = pr.get('model').seasonality_mode if pr.get('model') else 'additive'
+                        s_mode   = model.seasonality_mode if model else 'additive'
 
-                        for hname in holiday_names:
-                            if hname in fc_rep.columns:
-                                raw_eff = float(fc_rep[hname].mean())
-                                # Konversi ke % perubahan
-                                if s_mode == 'multiplicative':
-                                    pct = raw_eff * 100.0          # sudah proporsional
-                                else:
-                                    pct = (raw_eff / (avg_y + 1e-9)) * 100.0   # additive ÷ mean
-                                heff_all.append({
-                                    'Program'  : cp,
-                                    'Hari Libur': hname,
-                                    'Efek_raw' : raw_eff,
-                                    'Efek_pct' : pct,           # dalam %
-                                    'avg_y'    : avg_y,
-                                })
+                        # Prophet menyimpan efek per holiday sebagai kolom di forecast
+                        # Nama kolom = nama holiday (dari holidays_df['holiday'])
+                        if model and hasattr(model, 'train_holiday_names'):
+                            holiday_cols = model.train_holiday_names or []
+                        else:
+                            # Fallback: cek semua kolom forecast yang ada di daftar holiday
+                            all_h_names = set(INDONESIAN_HOLIDAYS['holiday'].unique()) if len(INDONESIAN_HOLIDAYS) > 0 else set()
+                            holiday_cols = [c for c in fc_rep.columns if c in all_h_names]
+
+                        for hname in holiday_cols:
+                            if hname not in fc_rep.columns:
+                                continue
+                            # Ambil hanya baris di mana holiday ini aktif (bukan 0)
+                            col_vals = fc_rep[hname]
+                            active = col_vals[col_vals.abs() > 1e-9]
+                            if len(active) == 0:
+                                raw_eff = float(col_vals.mean())
+                            else:
+                                raw_eff = float(active.mean())
+                            # Konversi ke %
+                            if s_mode == 'multiplicative':
+                                pct = raw_eff * 100.0
+                            else:
+                                pct = (raw_eff / (avg_y + 1e-9)) * 100.0
+                            heff_all.append({
+                                'Program'  : cp,
+                                'Hari Libur': hname,
+                                'Efek_raw' : raw_eff,
+                                'Efek_pct' : pct,
+                                'avg_y'    : avg_y,
+                            })
 
                     if heff_all:
                         heff_df = pd.DataFrame(heff_all)
@@ -2820,27 +2837,50 @@ with tab2:
                         # Grouping semantik
                         def _cat_holiday(name):
                             nl = name.lower()
-                            if 'idul fitri' in nl or 'lebaran' in nl or 'eid al-fitr' in nl: return 'Idul Fitri'
-                            if 'idul adha' in nl or 'eid al-adha' in nl: return 'Idul Adha'
-                            if 'ramad' in nl or 'puasa' in nl: return 'Ramadhan'
-                            if 'natal' in nl or 'christmas' in nl: return 'Natal'
-                            if 'tahun baru' in nl and 'islam' not in nl and 'imlek' not in nl and 'chinese' not in nl: return 'Tahun Baru'
-                            if 'imlek' in nl or 'chinese new year' in nl or 'lunar' in nl: return 'Imlek'
-                            if 'nyepi' in nl or 'silence' in nl or "bali's day" in nl: return 'Nyepi'
-                            if 'isra' in nl or "mi'raj" in nl or 'miraj' in nl or 'ascension of the prophet' in nl: return "Isra Mi'raj"
-                            if 'waisak' in nl or 'vesak' in nl or 'buddha' in nl: return 'Waisak'
-                            if 'kenaikan' in nl or 'good friday' in nl or 'wafat' in nl or 'easter' in nl or 'paskah' in nl: return 'Paskah / Wafat'
-                            if 'maulid' in nl or 'muhammad' in nl or 'nabi' in nl: return 'Maulid Nabi'
-                            if 'muharram' in nl or 'tahun baru islam' in nl or 'islamic new year' in nl: return 'Tahun Baru Islam'
-                            if 'buruh' in nl or 'labor' in nl or 'labour' in nl: return 'Hari Buruh'
-                            if 'pancasila' in nl: return 'Hari Pancasila'
-                            if 'kemerdekaan' in nl or 'independence' in nl or 'hut ri' in nl: return 'HUT RI'
-                            if 'cuti bersama' in nl or 'joint holiday' in nl: return 'Cuti Bersama'
-                            if 'election' in nl or 'pemilu' in nl: return 'Pemilu'
+                            # Idul Fitri / Lebaran (EN & ID)
+                            if any(k in nl for k in ['idul fitri', 'lebaran', 'eid al-fitr', 'eid ul-fitr', 'eid ul fitr', 'eid al fitr']): return 'Idul Fitri'
+                            # Idul Adha
+                            if any(k in nl for k in ['idul adha', 'eid al-adha', 'eid ul-adha', 'eid al adha', 'eid ul adha', 'sacrifice']): return 'Idul Adha'
+                            # Ramadhan
+                            if any(k in nl for k in ['ramad', 'puasa', 'ramadan']): return 'Ramadhan'
+                            # Natal / Christmas
+                            if any(k in nl for k in ['natal', 'christmas', 'xmas']): return 'Natal'
+                            # Tahun Baru (bukan Islam/Imlek)
+                            if any(k in nl for k in ["new year's day", "tahun baru"]) and 'islam' not in nl and 'imlek' not in nl and 'chinese' not in nl and 'hijri' not in nl and 'lunar' not in nl: return 'Tahun Baru'
+                            # Imlek
+                            if any(k in nl for k in ['imlek', 'chinese new year', 'lunar new year', 'chinese lunar']): return 'Imlek'
+                            # Nyepi
+                            if any(k in nl for k in ['nyepi', 'silence', "bali's day", 'day of silence', 'hindu new year']): return 'Nyepi'
+                            # Isra Mi'raj
+                            if any(k in nl for k in ['isra', "mi'raj", 'miraj', 'ascension of the prophet', "prophet's ascension", 'laylat']): return "Isra Mi'raj"
+                            # Waisak
+                            if any(k in nl for k in ['waisak', 'vesak', 'buddha', 'buddhist', 'birth of the buddha']): return 'Waisak'
+                            # Paskah / Good Friday
+                            if any(k in nl for k in ['kenaikan', 'good friday', 'wafat kristus', 'easter', 'paskah', 'ascension of jesus', 'ascension day']): return 'Paskah / Wafat'
+                            # Maulid Nabi
+                            if any(k in nl for k in ['maulid', 'mawlid', 'muhammad', 'nabi', "prophet's birthday", "prophet muhammad's birthday"]): return 'Maulid Nabi'
+                            # Tahun Baru Islam
+                            if any(k in nl for k in ['muharram', 'tahun baru islam', 'islamic new year', 'hijri new year', 'islamic hijri']): return 'Tahun Baru Islam'
+                            # Hari Buruh
+                            if any(k in nl for k in ['buruh', 'labor day', 'labour day', 'workers', 'may day']): return 'Hari Buruh'
+                            # Pancasila
+                            if any(k in nl for k in ['pancasila', 'pancasila day']): return 'Hari Pancasila'
+                            # HUT RI / Independence
+                            if any(k in nl for k in ['kemerdekaan', 'independence day', 'hut ri', 'indonesia independence', 'national day']): return 'HUT RI'
+                            # Cuti Bersama
+                            if any(k in nl for k in ['cuti bersama', 'joint holiday', 'collective leave']): return 'Cuti Bersama'
+                            # Pemilu
+                            if any(k in nl for k in ['election', 'pemilu', 'pilpres', 'pileg', 'pilkada']): return 'Pemilu'
+                            # Hari Anak Nasional
+                            if any(k in nl for k in ['children', 'anak nasional']): return 'Hari Anak'
                             return None
 
                         heff_df['Kategori'] = heff_df['Hari Libur'].apply(_cat_holiday)
-                        heff_df = heff_df[heff_df['Kategori'].notna()]
+                        # Untuk holiday yang tidak masuk kategori, pakai nama aslinya (disingkat 25 char)
+                        heff_df['Kategori'] = heff_df.apply(
+                            lambda r: r['Kategori'] if pd.notna(r['Kategori']) else r['Hari Libur'][:30],
+                            axis=1
+                        )
 
                         # Rata-rata % per program × kategori
                         heff_grp = (heff_df.groupby(['Program','Kategori'])
@@ -2856,7 +2896,12 @@ with tab2:
                         heff_grp = heff_grp[heff_grp['Kategori'].isin(top_cats)].copy()
 
                         if len(heff_grp) == 0:
-                            st.info("Tidak ada efek hari libur yang terdeteksi.")
+                            # Debug info: tampilkan nama holiday yang ada di model
+                            all_detected = list(set(r['Hari Libur'] for r in heff_all)) if heff_all else []
+                            if all_detected:
+                                st.info(f"Holiday terdeteksi ({len(all_detected)}), tapi efeknya tidak signifikan atau tidak cocok dengan kategori yang dikenal.\n\nContoh nama: {', '.join(all_detected[:5])}")
+                            else:
+                                st.info("Tidak ada efek hari libur yang terdeteksi. Pastikan data minimal 24 bulan agar Prophet bisa belajar pola holiday.")
                         else:
                             programs_list  = sorted(heff_grp['Program'].unique())
                             max_abs_pct    = heff_grp['Efek_pct'].abs().max()
