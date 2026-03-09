@@ -15,27 +15,6 @@ import warnings, io, hashlib, re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-import streamlit as st
-
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-
-    if not st.session_state.authenticated:
-        st.markdown("## 🔒 BPJS ML Dashboard — Login")
-        password = st.text_input("Masukkan password:", type="password")
-        if st.button("Login"):
-            if password == "bpjs2026":   # ← ganti password di sini
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Password salah!")
-        st.stop()
-
-check_password()
-
-# === sisa kode app.py di bawah sini ===
-
 # XGBoost (optional)
 try:
     from xgboost import XGBRegressor
@@ -123,9 +102,12 @@ a[href*="streamlit.io"]{pointer-events:none !important;
 .css-14xtw13{display:none !important;}
 .e8zbici0{display:none !important;}
 .e1fqkh3o0{display:none !important;}
-/* Selector universal — semua elemen fixed di pojok kanan bawah */
-div[style*="position: fixed"][style*="bottom"][style*="right"]{
+/* Selector universal — semua elemen fixed di pojok kanan bawah
+   KECUALI tombol collapse sidebar Streamlit (stSidebarCollapsedControl) */
+div[style*="position: fixed"][style*="bottom"][style*="right"]:not([data-testid="stSidebarCollapsedControl"]):not([class*="stSidebarCollapsedControl"]){
   display:none !important;}
+/* Sembunyikan badge streamlit via data-testid spesifik jika ada */
+[data-testid="stDeployButton"]{display:none !important;}
 
 /* ── KPI Cards ── */
 .kpi{
@@ -926,7 +908,7 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 # ══════════════════════════════════════════════════════════════════════════════
 
 GCAL_ID  = "en.indonesian%23holiday%40group.v.calendar.google.com"
-GCAL_KEY = st.secrets["GCAL_KEY"]
+GCAL_KEY = "AIzaSyD1gERwlm6R_mnm6Jd1sap3dFuPz0hpBfQ"
 
 # Window overrides: hari libur tertentu punya dampak lebih luas pada klaim BPJS
 _WINDOW_RULES = {
