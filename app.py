@@ -63,10 +63,10 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:#05090f;color:#e2e8f0;}
 
 /* ══════════════════════════════════════════════
-   SEMBUNYIKAN SEMUA UI BAWAAN STREAMLIT
+   SEMBUNYIKAN UI BAWAAN STREAMLIT — AMAN UNTUK SIDEBAR
    ══════════════════════════════════════════════ */
 
-/* Toolbar kanan atas (⋮ menu, share, star) */
+/* Toolbar kanan atas */
 [data-testid="stToolbar"]{display:none !important;}
 [data-testid="stToolbarActions"]{display:none !important;}
 #MainMenu{display:none !important;}
@@ -76,40 +76,26 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 [data-testid="stHeader"]{display:none !important;}
 header[data-testid="stHeader"]{display:none !important;}
 
-/* Footer "Made with Streamlit" */
+/* Footer */
 footer{display:none !important;}
-footer a{display:none !important;}
 
-/* Tombol "Manage app" kanan bawah */
+/* Tombol deploy/manage */
 [data-testid="manage-app-button"]{display:none !important;}
-.stAppDeployButton{display:none !important;}
 [data-testid="stAppDeployButton"]{display:none !important;}
+[data-testid="stDeployButton"]{display:none !important;}
+.stAppDeployButton{display:none !important;}
 
-/* Status widget (running/stop indicator) */
+/* Status widget */
 [data-testid="stStatusWidget"]{display:none !important;}
 
-/* ── BADGE STREAMLIT KANAN BAWAH (logo merah) ── */
-/* Ini yang membuka share.streamlit.io/user/... */
+/* Badge lama (class statis) */
 .viewerBadge_container__1QSob{display:none !important;}
 .viewerBadge_link__1S137{display:none !important;}
 #stDecoration{display:none !important;}
 [data-testid="stDecoration"]{display:none !important;}
-/* Badge baru Streamlit (class berubah-ubah, pakai wildcard) */
-a[href*="streamlit.io"]{pointer-events:none !important;
-  display:none !important;}
-/* Container pojok kanan bawah yang wrap badge — class lama */
-.css-1dp5vir{display:none !important;}
-.css-14xtw13{display:none !important;}
-.e8zbici0{display:none !important;}
-.e1fqkh3o0{display:none !important;}
-/* Badge & deploy button — spesifik, TIDAK pakai fixed-position selector
-   agar tombol sidebar tidak ikut tersembunyi */
-[data-testid="stDeployButton"]{display:none !important;}
-[data-testid="stAppViewBlockContainer"] ~ div a[href*="streamlit.io"]{display:none !important;}
-/* Pastikan sidebar SELALU terlihat */
-section[data-testid="stSidebar"]{display:block !important;visibility:visible !important;}
-[data-testid="stSidebarCollapsedControl"]{display:flex !important;visibility:visible !important;}
-[data-testid="stSidebarNav"]{display:block !important;}
+
+/* JANGAN pakai a[href*="streamlit.io"] — bisa kena sidebar toggle */
+/* Badge ditangani oleh JavaScript MutationObserver di bawah */
 
 /* ── KPI Cards ── */
 .kpi{
