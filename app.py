@@ -2533,9 +2533,29 @@ with tab2:
                 if not use_holidays:
                     holidays_for_prophet = None
 
-                if st.button("🔮 Jalankan Prophet (Semua Program)", type="primary", width='stretch'):
-                    all_p_results = {}
-                    prog_errors   = {}
+                # ── Auto-run: jalankan Prophet otomatis jika target/bulan berubah ──
+                cache_key = f"prophet_{target_prophet}_{n_months_prophet}"
+                cached    = st.session_state.get('prophet_cache', {})
+
+                need_run = cache_key not in cached
+
+                col_btn1, col_btn2 = st.columns([3, 1])
+                with col_btn1:
+                    manual_run = st.button(
+                        "🔮 Jalankan / Refresh Prophet (Semua Program)",
+                        type="primary", width='stretch',
+                        help="Klik untuk paksa ulang training Prophet"
+                    )
+                with col_btn2:
+                    if cache_key in cached:
+                        st.markdown(
+                            f'<div style="color:#34d399;font-size:.8rem;padding-top:8px">'
+                            f'✅ Cache: {target_prophet}</div>',
+                            unsafe_allow_html=True)
+
+                if need_run or manual_run:
+                    run_errors = {}
+                    run_results = {}
                     with st.spinner(f"Melatih Prophet untuk semua program — {target_prophet}..."):
                         for cp in active_progs:
                             pr, pe = run_prophet(
@@ -2543,24 +2563,28 @@ with tab2:
                                 n_months_prophet, holidays_for_prophet
                             )
                             if pe:
-                                prog_errors[cp] = pe
+                                run_errors[cp] = pe
                             else:
-                                all_p_results[cp] = pr
-                    if prog_errors:
+                                run_results[cp] = pr
+                    if run_errors:
                         st.warning("Beberapa program gagal: " + ", ".join(
-                            f"{k}: {v}" for k,v in prog_errors.items()))
-                    if all_p_results:
-                        st.session_state['prophet_all_results'] = all_p_results
-                        st.session_state['prophet_meta'] = {
-                            'target': target_prophet,
-                            'use_holidays': use_holidays,
-                            'n_months': n_months_prophet
+                            f"{k}: {v}" for k, v in run_errors.items()))
+                    if run_results:
+                        cached[cache_key] = {
+                            'results': run_results,
+                            'meta': {
+                                'target': target_prophet,
+                                'use_holidays': use_holidays,
+                                'n_months': n_months_prophet,
+                            }
                         }
+                        st.session_state['prophet_cache'] = cached
 
-                all_p_results = st.session_state.get('prophet_all_results', {})
-                p_meta        = st.session_state.get('prophet_meta', {})
+                entry         = cached.get(cache_key, {})
+                all_p_results = entry.get('results', {})
+                p_meta        = entry.get('meta', {})
 
-                if all_p_results and p_meta.get('target') == target_prophet:
+                if all_p_results:
                     tgt_label = target_prophet
 
                     st.markdown(
@@ -2679,6 +2703,8 @@ with tab2:
                             return {}
                         avg_y  = float(hist_df['y'].mean()) if len(hist_df) > 0 else 1.0
                         s_mode = getattr(model, 'seasonality_mode', 'additive')
+
+                        # Dapatkan nama holiday dari model
                         holiday_names = []
                         try:
                             holiday_names = list(model.train_holiday_names)
@@ -2691,15 +2717,29 @@ with tab2:
                                 pass
                         if not holiday_names:
                             return {}
+
                         forecast_cols = set(fc_df.columns)
                         effects = {}
+
                         for orig_name in holiday_names:
-                            san = _sanitize_prophet_name(orig_name)
-                            col = san if (san in forecast_cols
-                                          and not san.endswith('_lower')
-                                          and not san.endswith('_upper')) else None
+                            # Prophet modern (>=1.1) menyimpan kolom dengan NAMA ASLI (tidak di-sanitize)
+                            # Coba nama asli dulu, lalu fallback ke sanitized
+                            col = None
+                            candidates = [
+                                orig_name,                                      # nama asli persis
+                                re.sub(r'[^\w]', '_', orig_name),              # sanitized _ 
+                                orig_name.replace("'", '').replace(' ', '_'),  # apostrop dihapus
+                            ]
+                            for c in candidates:
+                                if (c in forecast_cols
+                                        and not c.endswith('_lower')
+                                        and not c.endswith('_upper')):
+                                    col = c
+                                    break
+
                             if col is None:
                                 continue
+
                             col_vals    = fc_df[col]
                             active_mask = col_vals.abs() > 1e-9
                             if active_mask.sum() == 0:
