@@ -40,7 +40,7 @@ except ImportError:
     except ImportError:
         PROPHET_OK = False
 
-st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="BPJS ML Dashboard", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
 
 # ── Keep-alive: cegah app hibernasi di Streamlit Cloud ────────────────────
 # JS ping halaman sendiri setiap 10 menit — Streamlit hibernasi setelah ~15 menit idle
@@ -97,17 +97,19 @@ footer a{display:none !important;}
 /* Badge baru Streamlit (class berubah-ubah, pakai wildcard) */
 a[href*="streamlit.io"]{pointer-events:none !important;
   display:none !important;}
-/* Container pojok kanan bawah yang wrap badge */
+/* Container pojok kanan bawah yang wrap badge — class lama */
 .css-1dp5vir{display:none !important;}
 .css-14xtw13{display:none !important;}
 .e8zbici0{display:none !important;}
 .e1fqkh3o0{display:none !important;}
-/* Selector universal — semua elemen fixed di pojok kanan bawah
-   KECUALI tombol collapse sidebar Streamlit (stSidebarCollapsedControl) */
-div[style*="position: fixed"][style*="bottom"][style*="right"]:not([data-testid="stSidebarCollapsedControl"]):not([class*="stSidebarCollapsedControl"]){
-  display:none !important;}
-/* Sembunyikan badge streamlit via data-testid spesifik jika ada */
+/* Badge & deploy button — spesifik, TIDAK pakai fixed-position selector
+   agar tombol sidebar tidak ikut tersembunyi */
 [data-testid="stDeployButton"]{display:none !important;}
+[data-testid="stAppViewBlockContainer"] ~ div a[href*="streamlit.io"]{display:none !important;}
+/* Pastikan sidebar SELALU terlihat */
+section[data-testid="stSidebar"]{display:block !important;visibility:visible !important;}
+[data-testid="stSidebarCollapsedControl"]{display:flex !important;visibility:visible !important;}
+[data-testid="stSidebarNav"]{display:block !important;}
 
 /* ── KPI Cards ── */
 .kpi{
@@ -204,31 +206,21 @@ section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
 </style>
 """, unsafe_allow_html=True)
 
-# Inject JS: block semua link ke streamlit.io agar badge tidak bisa diklik
+# Inject JS: block badge streamlit — HANYA target link streamlit.io, bukan sidebar
 st.markdown("""
 <script>
 (function() {
-  function blockStreamlitLinks() {
-    // Hapus semua elemen yang link ke streamlit.io
+  function blockStreamlitBadge() {
+    // Hanya sembunyikan anchor tag yang menuju streamlit.io
+    // TIDAK menyentuh div/container lain agar sidebar tidak terpengaruh
     document.querySelectorAll('a[href*="streamlit.io"]').forEach(function(el) {
       el.style.display = 'none';
       el.style.pointerEvents = 'none';
       el.removeAttribute('href');
     });
-    // Hapus elemen fixed di pojok kanan bawah (badge container)
-    document.querySelectorAll('div').forEach(function(el) {
-      var style = window.getComputedStyle(el);
-      if (style.position === 'fixed' &&
-          parseInt(style.bottom) < 80 &&
-          parseInt(style.right) < 80) {
-        var hasLink = el.querySelector('a[href*="streamlit"]');
-        if (hasLink) el.style.display = 'none';
-      }
-    });
   }
-  // Jalankan sekarang dan saat DOM berubah
-  blockStreamlitLinks();
-  var obs = new MutationObserver(blockStreamlitLinks);
+  blockStreamlitBadge();
+  var obs = new MutationObserver(blockStreamlitBadge);
   obs.observe(document.body, {childList: true, subtree: true});
 })();
 </script>
