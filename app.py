@@ -2515,11 +2515,15 @@ with tab2:
                 Status: {h_status}
                 </div>""", unsafe_allow_html=True)
 
-                pc1, pc2 = st.columns(2)
-                with pc1:
-                    target_prophet = st.selectbox("Target", targets, key='prophet_target')
-                with pc2:
-                    n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
+                # Target Prophet mengikuti target ML yang dipilih user
+                target_prophet = target_ml
+                st.markdown(
+                    f'<div class="info-box" style="padding:10px 16px;margin-bottom:10px">'
+                    f'🎯 <b>Target Prophet:</b> <code>{target_prophet}</code> '
+                    f'— sinkron dengan <b>Target Prediksi</b> yang dipilih di atas'
+                    f'</div>',
+                    unsafe_allow_html=True)
+                n_months_prophet = st.slider("Prediksi (bulan)", 6, 36, 12, 6)
 
                 holidays_for_prophet = h_df if (h_ok and n_holidays > 0) else None
 
