@@ -2604,7 +2604,7 @@ with tab2:
                                 # Connecting lines (zero → dot)
                                 for yi, (xd, xr) in enumerate(zip(x_disp, x_real)):
                                     if xd is not None:
-                                        line_col = '#16a34a44' if xd >= 0 else '#dc262644'
+                                        line_col = 'rgba(22,163,74,0.27)' if xd >= 0 else 'rgba(220,38,38,0.27)'
                                         fig_dot.add_shape(
                                             type='line',
                                             x0=0, x1=xd, y0=y_cats[yi], y1=y_cats[yi],
