@@ -62,21 +62,7 @@ st.markdown("""
 html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:#05090f;color:#e2e8f0;}
 
-/* ══════════════════════════════════════════════
-   SEMBUNYIKAN UI BAWAAN STREAMLIT — AMAN
-   ══════════════════════════════════════════════ */
-[data-testid="stToolbar"]{display:none !important;}
-[data-testid="stToolbarActions"]{display:none !important;}
-#MainMenu{display:none !important;}
-[data-testid="stHeader"]{display:none !important;}
-header[data-testid="stHeader"]{display:none !important;}
-footer{display:none !important;}
-[data-testid="stDeployButton"]{display:none !important;}
-[data-testid="stStatusWidget"]{display:none !important;}
-.viewerBadge_container__1QSob{display:none !important;}
-.viewerBadge_link__1S137{display:none !important;}
-#stDecoration{display:none !important;}
-[data-testid="stDecoration"]{display:none !important;}
+
 
 /* ── KPI Cards ── */
 .kpi{
@@ -173,7 +159,7 @@ section[data-testid="stSidebar"] .stMarkdown{color:#94a3b8;}
 </style>
 """, unsafe_allow_html=True)
 
-# Badge disembunyikan via CSS data-testid selector di atas
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PERSISTENT HISTORY — saved to disk, survives Streamlit restart
