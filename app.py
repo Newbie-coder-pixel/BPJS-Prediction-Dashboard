@@ -2503,54 +2503,183 @@ with tab2:
                             cat_order=(heff_grp.groupby('Kategori')['Efek_pct'].apply(lambda x:x.abs().mean())
                                        .sort_values(ascending=False).index.tolist())
 
-                            st.markdown('<div class="sec">Efek Hari Libur per Program (% dari rata-rata klaim)</div>', unsafe_allow_html=True)
-                            fig_bar_h=go.Figure()
-                            for pi,prog in enumerate(programs_list):
-                                pdata_prog=(heff_grp[heff_grp['Program']==prog].set_index('Kategori')['Efek_pct'])
-                                y_vals=[float(pdata_prog.get(c,np.nan)) for c in cat_order]
-                                fig_bar_h.add_trace(go.Bar(
-                                    name=prog, y=cat_order, x=y_vals, orientation='h',
-                                    marker=dict(color=COLORS[pi%len(COLORS)], line=dict(width=0)),
-                                    text=[f'{v:+.1f}%' if not np.isnan(v) else '' for v in y_vals],
-                                    textposition='outside',
-                                    textfont=dict(size=9, color='#64748b', family='DM Mono'),
-                                    hovertemplate=f'<b>{prog}</b><br>Holiday: %{{y}}<br>Efek: <b>%{{x:+.2f}}%</b><extra></extra>',
-                                ))
-                            x_max=max(1.0, max_abs_pct*1.45)
-                            fig_bar_h.add_vline(x=0, line_color='rgba(30,58,95,.4)', line_width=1.5)
-                            fig_bar_h.update_layout(
-                                **DARK, barmode='group',
-                                height=max(440, len(cat_order)*44+140),
-                                xaxis=dict(range=[-x_max,x_max],showgrid=True,gridcolor='rgba(14,30,56,.8)',
-                                    zeroline=False,ticksuffix='%',tickfont=dict(size=10,color='#475569',family='DM Mono'),title='Efek (%)'),
-                                yaxis=dict(categoryorder='array',categoryarray=cat_order[::-1],
-                                    tickfont=dict(size=11,color='#e2e8f0',family='Instrument Sans'),showgrid=True,gridcolor='rgba(10,20,40,.8)'),
-                                legend=dict(orientation='h',y=-0.12,font=dict(size=11,family='Instrument Sans'),bgcolor='rgba(0,0,0,0)'),
-                                margin=dict(t=40,b=80,l=160,r=60),
-                                title=dict(text='positif = klaim naik, negatif = klaim turun',font=dict(size=12,color='#475569'),x=0),
-                            )
-                            st.plotly_chart(fig_bar_h, use_container_width=True)
+                            # ── Clamp outliers for readability, keep full in hover ──
+                            P95 = float(heff_grp['Efek_pct'].abs().quantile(0.90))
+                            clamp_limit = max(P95 * 1.5, 80.0)   # show full range if small
+                            heff_clamped = heff_grp.copy()
+                            heff_clamped['Efek_display'] = heff_clamped['Efek_pct'].clip(-clamp_limit, clamp_limit)
+                            n_outliers = int((heff_grp['Efek_pct'].abs() > clamp_limit).sum())
 
-                            # Heatmap
-                            st.markdown('<div class="sec">Heatmap Intensitas Efek Holiday</div>', unsafe_allow_html=True)
-                            hm_pivot=(heff_grp.pivot_table(index='Kategori',columns='Program',values='Efek_pct',aggfunc='mean')
-                                      .reindex(cat_order).fillna(0))
-                            zmax=float(hm_pivot.abs().max().max()); zmax=max(zmax,0.1)
-                            fig_hm=go.Figure(go.Heatmap(
-                                z=hm_pivot.values, x=list(hm_pivot.columns), y=list(hm_pivot.index),
-                                colorscale=[[0,'#450a0a'],[0.25,'#f87171'],[0.5,'#020c18'],[0.75,'#34d399'],[1,'#052e16']],
-                                zmid=0, zmin=-zmax, zmax=zmax,
-                                text=[[f'{v:+.1f}%' for v in row] for row in hm_pivot.values],
-                                texttemplate='%{text}', textfont=dict(size=11,color='white'),
-                                hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><extra></extra>',
-                                colorbar=dict(title=dict(text='Efek (%)',font=dict(color='#64748b',size=10)),
-                                    ticksuffix='%',tickfont=dict(color='#64748b',size=9),thickness=10),
+                            # ── 1. ANNOTATED HEATMAP (primary – best readability) ────────
+                            st.markdown('<div class="sec">Heatmap Efek Hari Libur per Program</div>', unsafe_allow_html=True)
+                            hm_pivot = (heff_grp.pivot_table(index='Kategori', columns='Program',
+                                         values='Efek_pct', aggfunc='mean')
+                                        .reindex(cat_order).fillna(0))
+                            zmax = float(hm_pivot.abs().quantile(0.90).max())
+                            zmax = max(zmax, 5.0)
+
+                            # Build cell text with color-coded arrows
+                            cell_text = []
+                            for row in hm_pivot.values:
+                                cell_text.append([
+                                    f"{'▲' if v>0.5 else ('▼' if v<-0.5 else '–')} {abs(v):.0f}%"
+                                    for v in row
+                                ])
+
+                            fig_hm2 = go.Figure(go.Heatmap(
+                                z=hm_pivot.values,
+                                x=list(hm_pivot.columns),
+                                y=list(hm_pivot.index),
+                                colorscale=[
+                                    [0,   '#7f1d1d'],
+                                    [0.2, '#dc2626'],
+                                    [0.45,'#1a0505'],
+                                    [0.5, '#061120'],
+                                    [0.55,'#052e16'],
+                                    [0.8, '#16a34a'],
+                                    [1,   '#14532d'],
+                                ],
+                                zmid=0, zmin=-zmax*1.1, zmax=zmax*1.1,
+                                text=cell_text,
+                                texttemplate='%{text}',
+                                textfont=dict(size=11, color='rgba(255,255,255,0.9)', family='DM Mono'),
+                                hovertemplate='<b>%{y}</b> — <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><br><i style="color:#475569">merah=turun · hijau=naik</i><extra></extra>',
+                                colorbar=dict(
+                                    ticksuffix='%',
+                                    tickfont=dict(color='#64748b', size=9, family='DM Mono'),
+                                    thickness=10,
+                                    title=dict(text='Efek', font=dict(color='#475569', size=10)),
+                                    len=0.7,
+                                ),
                             ))
-                            fig_hm.update_layout(**DARK, height=max(340,len(cat_order)*38+100),
-                                margin=dict(t=20,b=40,l=160,r=60),
-                                xaxis=dict(tickfont=dict(size=11,color='#7dd3fc',family='Instrument Sans'),side='top'),
-                                yaxis=dict(categoryorder='array',categoryarray=cat_order[::-1],tickfont=dict(size=11,color='#e2e8f0',family='Instrument Sans')))
-                            st.plotly_chart(fig_hm, use_container_width=True)
+                            row_h = max(38, min(60, 700 // max(len(cat_order), 1)))
+                            fig_hm2.update_layout(
+                                **DARK,
+                                height=max(380, len(cat_order)*row_h + 120),
+                                margin=dict(t=20, b=50, l=175, r=80),
+                                xaxis=dict(
+                                    tickfont=dict(size=12, color='#7dd3fc', family='Instrument Sans'),
+                                    side='top',
+                                ),
+                                yaxis=dict(
+                                    categoryorder='array', categoryarray=cat_order[::-1],
+                                    tickfont=dict(size=11, color='#e2e8f0', family='Instrument Sans'),
+                                ),
+                            )
+                            st.plotly_chart(fig_hm2, use_container_width=True)
+
+                            # ── 2. DOT PLOT — per program, clamped, sorted ────────────
+                            st.markdown('<div class="sec">Dot Plot — Efek per Hari Libur & Program</div>', unsafe_allow_html=True)
+                            if n_outliers > 0:
+                                st.markdown(
+                                    f'<div class="info-box">⚠️ <b>{n_outliers} nilai</b> dipotong di ±{clamp_limit:.0f}% untuk keterbacaan. '
+                                    f'Hover untuk melihat nilai asli.</div>', unsafe_allow_html=True)
+
+                            fig_dot = go.Figure()
+                            # Alternating row bands for readability
+                            for ri, cat in enumerate(cat_order):
+                                if ri % 2 == 0:
+                                    fig_dot.add_hrect(
+                                        y0=ri-0.5, y1=ri+0.5,
+                                        fillcolor='rgba(255,255,255,0.02)', line_width=0, layer='below',
+                                    )
+
+                            for pi, prog in enumerate(programs_list):
+                                pdata = heff_grp[heff_grp['Program']==prog].set_index('Kategori')
+                                pdata_c = heff_clamped[heff_clamped['Program']==prog].set_index('Kategori')
+                                col = COLORS[pi % len(COLORS)]
+                                x_disp, x_real, y_cats = [], [], []
+                                for cat in cat_order:
+                                    if cat in pdata.index:
+                                        real_v = float(pdata.loc[cat,'Efek_pct'])
+                                        disp_v = float(pdata_c.loc[cat,'Efek_display'])
+                                        x_disp.append(disp_v)
+                                        x_real.append(real_v)
+                                        y_cats.append(cat)
+                                    else:
+                                        x_disp.append(None)
+                                        x_real.append(None)
+                                        y_cats.append(cat)
+
+                                # Connecting lines (zero → dot)
+                                for yi, (xd, xr) in enumerate(zip(x_disp, x_real)):
+                                    if xd is not None:
+                                        line_col = '#16a34a44' if xd >= 0 else '#dc262644'
+                                        fig_dot.add_shape(
+                                            type='line',
+                                            x0=0, x1=xd, y0=y_cats[yi], y1=y_cats[yi],
+                                            line=dict(color=line_col, width=1.5),
+                                            layer='below',
+                                        )
+
+                                hover_texts = [
+                                    f'<b>{prog}</b><br>{cat}<br>'
+                                    f'Efek: <b style="color:{"#34d399" if (xr or 0)>=0 else "#f87171"}">{(xr or 0):+.2f}%</b>'
+                                    + (f'<br><i style="color:#64748b">ditampilkan: {(xd or 0):+.1f}%</i>'
+                                       if xr is not None and abs((xr or 0)) > clamp_limit else '')
+                                    for cat, xd, xr in zip(y_cats, x_disp, x_real)
+                                ]
+
+                                fig_dot.add_trace(go.Scatter(
+                                    name=prog,
+                                    x=x_disp, y=y_cats,
+                                    mode='markers',
+                                    marker=dict(
+                                        color=[col if (v or 0)>=0 else col for v in x_disp],
+                                        size=11,
+                                        symbol=['circle' if (v or 0)>=0 else 'diamond' for v in x_disp],
+                                        line=dict(color='rgba(255,255,255,0.2)', width=1),
+                                        opacity=0.92,
+                                    ),
+                                    text=hover_texts,
+                                    hovertemplate='%{text}<extra></extra>',
+                                    hoverlabel=dict(bgcolor='rgba(6,18,36,.96)', font_size=12, font_family='DM Mono'),
+                                ))
+
+                            fig_dot.add_vline(x=0, line_color='rgba(56,189,248,0.25)', line_width=1.5, line_dash='dot')
+                            # Clamp indicator lines
+                            if n_outliers > 0:
+                                for sign in [1, -1]:
+                                    fig_dot.add_vline(
+                                        x=sign*clamp_limit,
+                                        line_color='rgba(251,146,60,0.3)', line_width=1, line_dash='dash',
+                                    )
+
+                            dot_h = max(420, len(cat_order)*32 + 140)
+                            fig_dot.update_layout(
+                                **DARK,
+                                height=dot_h,
+                                hovermode='closest',
+                                xaxis=dict(
+                                    range=[-(clamp_limit*1.15), clamp_limit*1.15],
+                                    ticksuffix='%',
+                                    tickfont=dict(size=10, color='#475569', family='DM Mono'),
+                                    title=dict(text='Efek terhadap rata-rata klaim (%)', font=dict(size=11, color='#475569')),
+                                    showgrid=True, gridcolor='rgba(14,30,56,0.8)',
+                                    zeroline=False,
+                                ),
+                                yaxis=dict(
+                                    categoryorder='array', categoryarray=cat_order,
+                                    tickfont=dict(size=11, color='#e2e8f0', family='Instrument Sans'),
+                                    showgrid=True, gridcolor='rgba(10,20,40,0.6)',
+                                ),
+                                legend=dict(
+                                    orientation='h', y=-0.1,
+                                    font=dict(size=11, family='Instrument Sans'),
+                                    bgcolor='rgba(0,0,0,0)',
+                                    itemsizing='constant',
+                                ),
+                                margin=dict(t=20, b=80, l=175, r=30),
+                                annotations=[
+                                    dict(x=-clamp_limit*0.6, y=len(cat_order)-0.3,
+                                         text='◀ klaim turun',
+                                         showarrow=False, font=dict(size=10, color='#7f1d1d', family='Instrument Sans')),
+                                    dict(x=clamp_limit*0.6, y=len(cat_order)-0.3,
+                                         text='klaim naik ▶',
+                                         showarrow=False, font=dict(size=10, color='#14532d', family='Instrument Sans')),
+                                ],
+                            )
+                            st.plotly_chart(fig_dot, use_container_width=True)
 
                             # Cards
                             st.markdown('<div class="sec">Ringkasan Efek per Program</div>', unsafe_allow_html=True)
