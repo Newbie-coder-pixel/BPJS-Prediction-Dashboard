@@ -835,7 +835,7 @@ def build_conclusion(ml_result, per_prog_result, df, target, n_future):
 # ══════════════════════════════════════════════════════════════════════════════
 
 GCAL_ID  = "en.indonesian%23holiday%40group.v.calendar.google.com"
-GCAL_KEY = GCAL_KEY = st.secrets["GCAL_KEY"]
+GCAL_KEY = st.secrets["GCAL_KEY"]
 
 # Window overrides: hari libur tertentu punya dampak lebih luas pada klaim BPJS
 _WINDOW_RULES = {
