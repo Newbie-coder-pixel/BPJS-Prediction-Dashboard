@@ -2881,178 +2881,174 @@ with tab2:
                                         font=dict(size=13, color='#e2e8f0'), x=0),
                                 )
                                 st.plotly_chart(fig_bar_h, width='stretch')
+# ══════════════════════════════════════════════════════════════════════════════
+# CHART 2: Heatmap Program × Holiday
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">Heatmap Intensitas Efek Holiday</div>', unsafe_allow_html=True)
 
-                                # ═══════════════════════════════════════════════════════
-                                # CHART 2: Heatmap Program × Holiday
-                                # ═══════════════════════════════════════════════════════
-                                st.markdown('<div class="sec">Heatmap Intensitas Efek Holiday</div>', unsafe_allow_html=True)
+hm_pivot = (heff_grp
+            .pivot_table(index='Kategori', columns='Program',
+                         values='Efek_pct', aggfunc='mean')
+            .reindex(cat_order)
+            .fillna(0))
 
-                                hm_pivot = (heff_grp
-                                            .pivot_table(index='Kategori', columns='Program',
-                                                         values='Efek_pct', aggfunc='mean')
-                                            .reindex(cat_order)
-                                            .fillna(0))
+# Custom diverging colorscale: merah=turun, putih=netral, hijau=naik
+zmax = float(hm_pivot.abs().max().max())
+fig_hm = go.Figure(go.Heatmap(
+    z=hm_pivot.values,
+    x=list(hm_pivot.columns),
+    y=list(hm_pivot.index),
+    colorscale=[
+        [0.0,  '#7f1d1d'],
+        [0.25, '#f87171'],
+        [0.5,  '#0f172a'],
+        [0.75, '#4ade80'],
+        [1.0,  '#14532d'],
+    ],
+    zmid=0,
+    zmin=-zmax,
+    zmax=zmax,
+    text=[[f'{v:+.1f}%' for v in row] for row in hm_pivot.values],
+    texttemplate='%{text}',
+    textfont=dict(size=11, color='white'),
+    hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><extra></extra>',
+    colorbar=dict(
+        title='Efek (%)',
+        tickfont=dict(color='#94a3b8', size=10),
+        titlefont=dict(color='#94a3b8'),
+        ticksuffix='%'
+    ),
+))
+fig_hm.update_layout(
+    **DARK,
+    height=max(320, len(cat_order) * 38 + 100),
+    margin=dict(t=30, b=40, l=160, r=60),
+    xaxis=dict(tickfont=dict(size=11, color='#93c5fd'),
+               side='top'),
+    yaxis=dict(
+        categoryorder='array',
+        categoryarray=cat_order[::-1],
+        tickfont=dict(size=11, color='#e2e8f0')),
+    title=dict(text='Intensitas Efek: merah=klaim turun, hijau=klaim naik',
+               font=dict(size=12, color='#94a3b8'), x=0),
+)
+st.plotly_chart(fig_hm, width='stretch')
 
-                                # Custom diverging colorscale: merah=turun, putih=netral, hijau=naik
-                                zmax = float(hm_pivot.abs().max().max())
-                                fig_hm = go.Figure(go.Heatmap(
-                                    z=hm_pivot.values,
-                                    x=list(hm_pivot.columns),
-                                    y=list(hm_pivot.index),
-                                    colorscale=[
-                                        [0.0,  '#7f1d1d'],
-                                        [0.25, '#f87171'],
-                                        [0.5,  '#0f172a'],
-                                        [0.75, '#4ade80'],
-                                        [1.0,  '#14532d'],
-                                    ],
-                                    zmid=0,
-                                    zmin=-zmax,
-                                    zmax=zmax,
-                                    text=[[f'{v:+.1f}%' for v in row] for row in hm_pivot.values],
-                                    texttemplate='%{text}',
-                                    textfont=dict(size=11, color='white'),
-                                    hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><extra></extra>',
-                                    colorbar=dict(
-                                        title='Efek (%)',
-                                        ticksuffix='%',
-                                        tickfont=dict(color='#94a3b8', size=10),
-                                        titlefont=dict(color='#94a3b8'),
-                                    ),
-                                ))
-                                fig_hm.update_layout(
-                                    **DARK,
-                                    height=max(320, len(cat_order) * 38 + 100),
-                                    margin=dict(t=30, b=40, l=160, r=60),
-                                    xaxis=dict(tickfont=dict(size=11, color='#93c5fd'),
-                                               side='top'),
-                                    yaxis=dict(
-                                        categoryorder='array',
-                                        categoryarray=cat_order[::-1],
-                                        tickfont=dict(size=11, color='#e2e8f0')),
-                                    title=dict(text='Intensitas Efek: merah=klaim turun, hijau=klaim naik',
-                                               font=dict(size=12, color='#94a3b8'), x=0),
-                                )
-                                st.plotly_chart(fig_hm, width='stretch')
+# ══════════════════════════════════════════════════════════════════════════════
+# SCORECARD CARDS — per program, berbeda tiap program
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">Ringkasan Efek per Program</div>',
+            unsafe_allow_html=True)
 
-                                # ═══════════════════════════════════════════════════════
-                                # SCORECARD CARDS — per program, berbeda tiap program
-                                # ═══════════════════════════════════════════════════════
-                                st.markdown('<div class="sec">Ringkasan Efek per Program</div>',
-                                            unsafe_allow_html=True)
+card_cols = st.columns(len(programs_list))
+for ci, prog in enumerate(programs_list):
+    prog_data = heff_grp[heff_grp['Program'] == prog].copy()
+    avg_y_p   = float(prog_data['avg_y'].iloc[0]) if len(prog_data) > 0 else 1.0
+    col_c     = COLORS[ci % len(COLORS)]
 
-                                card_cols = st.columns(len(programs_list))
-                                for ci, prog in enumerate(programs_list):
-                                    prog_data = heff_grp[heff_grp['Program'] == prog].copy()
-                                    avg_y_p   = float(prog_data['avg_y'].iloc[0]) if len(prog_data) > 0 else 1.0
-                                    col_c     = COLORS[ci % len(COLORS)]
+    # Sort ascending/descending — unik per program
+    pos_data = prog_data[prog_data['Efek_pct'] > 0.1].sort_values('Efek_pct', ascending=False)
+    neg_data = prog_data[prog_data['Efek_pct'] < -0.1].sort_values('Efek_pct', ascending=True)
+    net_prog  = float(prog_data['Efek_pct'].sum())
 
-                                    # Sort ascending/descending — unik per program
-                                    pos_data = prog_data[prog_data['Efek_pct'] > 0.1].sort_values('Efek_pct', ascending=False)
-                                    neg_data = prog_data[prog_data['Efek_pct'] < -0.1].sort_values('Efek_pct', ascending=True)
-                                    net_prog  = float(prog_data['Efek_pct'].sum())
+    def _pill_p(v):
+        return (f'<span style="color:#34d399;font-weight:700">{v:+.1f}%</span>'
+                if v > 0 else
+                f'<span style="color:#f87171;font-weight:700">{v:+.1f}%</span>')
 
-                                    def _pill_p(v):
-                                        return (f'<span style="color:#34d399;font-weight:700">{v:+.1f}%</span>'
-                                                if v > 0 else
-                                                f'<span style="color:#f87171;font-weight:700">{v:+.1f}%</span>')
+    def _delta_kasus(v):
+        dk = abs(v / 100.0 * avg_y_p)
+        if dk < 1: return ''
+        return f'<span style="color:#475569;font-size:.7rem"> (~{dk:,.0f} kasus)</span>'
 
-                                    def _delta_kasus(v):
-                                        dk = abs(v / 100.0 * avg_y_p)
-                                        if dk < 1: return ''
-                                        return f'<span style="color:#475569;font-size:.7rem"> (~{dk:,.0f} kasus)</span>'
-
-                                    # ── Paling Naik ──
-                                    if len(pos_data) > 0:
-                                        up_rows = pos_data.head(3)
-                                        up_html = ''.join(
-                                            f'<div style="display:flex;justify-content:space-between;'
-                                            f'align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
-                                            f'<span><span style="color:#34d399;margin-right:4px">▲</span>'
-                                            f'<span style="color:#e2e8f0">{row.Kategori}</span>'
-                                            f'{_delta_kasus(row.Efek_pct)}</span>'
-                                            f'{_pill_p(row.Efek_pct)}</div>'
-                                            for row in up_rows.itertuples()
-                                        )
-                                    else:
-                                        up_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek positif</div>'
-
-                                    # ── Paling Turun ──
-                                    if len(neg_data) > 0:
-                                        dn_rows = neg_data.head(3)
-                                        dn_html = ''.join(
-                                            f'<div style="display:flex;justify-content:space-between;'
-                                            f'align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
-                                            f'<span><span style="color:#f87171;margin-right:4px">▼</span>'
-                                            f'<span style="color:#e2e8f0">{row.Kategori}</span>'
-                                            f'{_delta_kasus(row.Efek_pct)}</span>'
-                                            f'{_pill_p(row.Efek_pct)}</div>'
-                                            for row in dn_rows.itertuples()
-                                        )
-                                    else:
-                                        dn_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek negatif</div>'
-
-                                    # ── Badge net ──
-                                    if abs(net_prog) < 0.5:
-                                        badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
-                                    elif net_prog > 0:
-                                        badge = f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem">Net +{net_prog:.1f}%</span>'
-                                    else:
-                                        badge = f'<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem">Net {net_prog:.1f}%</span>'
-
-                                    with card_cols[ci]:
-                                        st.markdown(f'''
-                                        <div style="background:#0a1628;border:1px solid {col_c}40;
-                                        border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;">
-                                          <div style="display:flex;justify-content:space-between;
-                                          align-items:center;margin-bottom:12px;">
-                                            <span style="font-size:.75rem;color:#94a3b8;font-weight:700;
-                                            text-transform:uppercase;letter-spacing:1.5px;">{prog}</span>
-                                            {badge}
-                                          </div>
-                                          <div style="font-size:.65rem;color:#475569;text-transform:uppercase;
-                                          letter-spacing:1px;margin-bottom:6px;">📈 Klaim Naik Saat</div>
-                                          {up_html}
-                                          <div style="border-top:1px solid #1e2d45;margin:10px 0;"></div>
-                                          <div style="font-size:.65rem;color:#475569;text-transform:uppercase;
-                                          letter-spacing:1px;margin-bottom:6px;">📉 Klaim Turun Saat</div>
-                                          {dn_html}
-                                        </div>''', unsafe_allow_html=True)
-
-                                # ═══════════════════════════════════════════════════════
-                                # TABEL DETAIL — semua holiday semua program
-                                # ═══════════════════════════════════════════════════════
-                                with st.expander("📋 Tabel Detail Efek Semua Holiday × Semua Program"):
-                                    detail_tbl = (heff_grp
-                                                  .copy()
-                                                  .sort_values(['Kategori','Efek_pct'], ascending=[True,False])
-                                                  .rename(columns={
-                                                      'Kategori':  'Hari Libur',
-                                                      'Efek_pct':  'Efek (%)',
-                                                      'n_events':  'Jumlah Event',
-                                                  }))
-                                    detail_tbl['Efek (%)'] = detail_tbl['Efek (%)'].round(2)
-                                    detail_tbl['Arah'] = detail_tbl['Efek (%)'].apply(
-                                        lambda v: '▲ Naik' if v > 0.1 else ('▼ Turun' if v < -0.1 else '– Netral'))
-                                    st.dataframe(
-                                        detail_tbl[['Program','Hari Libur','Efek (%)','Arah','Jumlah Event']]
-                                        .style
-                                        .applymap(lambda v: 'color:#34d399' if isinstance(v,str) and '▲' in v
-                                                  else ('color:#f87171' if isinstance(v,str) and '▼' in v else ''))
-                                        .format({'Efek (%)': '{:+.2f}%'}),
-                                        width='stretch', height=360)
-
-                                st.markdown("""<div class="info-box" style="margin-top:16px">
-                                📊 <b>Cara baca:</b> Efek = % perubahan klaim dibanding rata-rata bulan normal.<br>
-                                Contoh: <b>JKK +12% saat Idul Fitri</b> → klaim JKK rata-rata 12% lebih tinggi
-                                di bulan yang mengandung Idul Fitri dibanding bulan biasa.<br>
-                                Efek diekstrak dari <b>parameter posterior Prophet</b> (bukan kolom forecast agregat)
-                                sehingga tiap program mendapat nilai yang benar-benar berbeda sesuai pola datanya.
-                                Nama hari libur langsung dari <b>Google Calendar API Indonesia</b>.
-                                </div>""", unsafe_allow_html=True)
-
+    # ── Paling Naik ──
+    if len(pos_data) > 0:
+        up_rows = pos_data.head(3)
+        up_html = ''.join(
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
+            f'<span><span style="color:#34d399;margin-right:4px">▲</span>'
+            f'<span style="color:#e2e8f0">{row.Kategori}</span>'
+            f'{_delta_kasus(row.Efek_pct)}</span>'
+            f'{_pill_p(row.Efek_pct)}</div>'
+            for row in up_rows.itertuples()
+        )
     else:
-        st.info("Klik **Jalankan Analisis ML** untuk memulai.")
+        up_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek positif</div>'
+
+    # ── Paling Turun ──
+    if len(neg_data) > 0:
+        dn_rows = neg_data.head(3)
+        dn_html = ''.join(
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;margin:5px 0;font-size:.8rem;gap:4px;">'
+            f'<span><span style="color:#f87171;margin-right:4px">▼</span>'
+            f'<span style="color:#e2e8f0">{row.Kategori}</span>'
+            f'{_delta_kasus(row.Efek_pct)}</span>'
+            f'{_pill_p(row.Efek_pct)}</div>'
+            for row in dn_rows.itertuples()
+        )
+    else:
+        dn_html = '<div style="color:#475569;font-size:.8rem;font-style:italic">Tidak ada efek negatif</div>'
+
+    # ── Badge net ──
+    if abs(net_prog) < 0.5:
+        badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
+    elif net_prog > 0:
+        badge = f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem">Net +{net_prog:.1f}%</span>'
+    else:
+        badge = f'<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:6px;font-size:.72rem">Net {net_prog:.1f}%</span>'
+
+    with card_cols[ci]:
+        st.markdown(f'''
+        <div style="background:#0a1628;border:1px solid {col_c}40;
+        border-top:3px solid {col_c};border-radius:12px;padding:16px 18px;">
+          <div style="display:flex;justify-content:space-between;
+          align-items:center;margin-bottom:12px;">
+            <span style="font-size:.75rem;color:#94a3b8;font-weight:700;
+            text-transform:uppercase;letter-spacing:1.5px;">{prog}</span>
+            {badge}
+          </div>
+          <div style="font-size:.65rem;color:#475569;text-transform:uppercase;
+          letter-spacing:1px;margin-bottom:6px;">📈 Klaim Naik Saat</div>
+          {up_html}
+          <div style="border-top:1px solid #1e2d45;margin:10px 0;"></div>
+          <div style="font-size:.65rem;color:#475569;text-transform:uppercase;
+          letter-spacing:1px;margin-bottom:6px;">📉 Klaim Turun Saat</div>
+          {dn_html}
+        </div>''', unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TABEL DETAIL — semua holiday semua program
+# ══════════════════════════════════════════════════════════════════════════════
+with st.expander("📋 Tabel Detail Efek Semua Holiday × Semua Program"):
+    detail_tbl = (heff_grp
+                  .copy()
+                  .sort_values(['Kategori','Efek_pct'], ascending=[True,False])
+                  .rename(columns={
+                      'Kategori':  'Hari Libur',
+                      'Efek_pct':  'Efek (%)',
+                      'n_events':  'Jumlah Event',
+                  }))
+    detail_tbl['Efek (%)'] = detail_tbl['Efek (%)'].round(2)
+    detail_tbl['Arah'] = detail_tbl['Efek (%)'].apply(
+        lambda v: '▲ Naik' if v > 0.1 else ('▼ Turun' if v < -0.1 else '– Netral'))
+    st.dataframe(
+        detail_tbl[['Program','Hari Libur','Efek (%)','Arah','Jumlah Event']]
+        .style
+        .applymap(lambda v: 'color:#34d399' if isinstance(v,str) and '▲' in v
+                  else ('color:#f87171' if isinstance(v,str) and '▼' in v else ''))
+        .format({'Efek (%)': '{:+.2f}%'}),
+        width='stretch', height=360)
+
+st.markdown("""<div class="info-box" style="margin-top:16px">
+📊 <b>Cara baca:</b> Efek = % perubahan klaim dibanding rata-rata bulan normal.<br>
+Contoh: <b>JKK +12% saat Idul Fitri</b> → klaim JKK rata-rata 12% lebih tinggi
+di bulan yang mengandung Idul Fitri dibanding bulan biasa.<br>
+Efek diekstrak dari <b>parameter posterior Prophet</b> (bukan kolom forecast agregat)
+sehingga tiap program mendapat nilai yang benar-benar berbeda sesuai pola datanya.
+Nama hari libur langsung dari <b>Google Calendar API Indonesia</b>.
+</div>""", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
