@@ -2062,38 +2062,32 @@ with tab1:
     if not single_yr:
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
 
-        # Konteks ekonomi Indonesia per tahun (poin 4 - hardcode)
-        # ── AI-powered economic context (poin 4) ───────────────────────────────────
+        # ── AI-powered economic context ────────────────────────────────────────────
         def _get_ai_ekon_context(years_list):
-            """Fetch Indonesian economic context per year via Anthropic API.
-            Cached in session_state — no repeated calls on re-render.
-            Works for any year range, future-proof.
-            """
+            """Fetch Indonesian economic context per year via Anthropic API."""
             cache_key = f"ekon_ctx_{'_'.join(map(str, sorted(years_list)))}"
             if cache_key in st.session_state:
-                return st.session_state[cache_key]
+                cached = st.session_state[cache_key]
+                # Jangan pakai cache yang berisi error
+                if not (isinstance(cached, dict) and "_error" in cached):
+                    return cached
 
             import urllib.request, json as json_lib
 
-            # ── Get API key — Streamlit Cloud secrets ─────────────────────
+            # ── Baca API key dari st.secrets ──────────────────────────────
             api_key = ""
             try:
-                # Streamlit secrets can be accessed as dict or attribute
-                secrets = st.secrets
-                if hasattr(secrets, '__getitem__'):
-                    try:    api_key = secrets["ANTHROPIC_API_KEY"]
-                    except: pass
-                if not api_key:
-                    try:    api_key = secrets["anthropic_api_key"]
-                    except: pass
-                if not api_key:
-                    try:    api_key = str(secrets.ANTHROPIC_API_KEY)
-                    except: pass
-            except Exception as secrets_err:
+                api_key = st.secrets["ANTHROPIC_API_KEY"]
+            except Exception:
                 pass
+            if not api_key:
+                try:
+                    api_key = st.secrets["anthropic_api_key"]
+                except Exception:
+                    pass
 
             if not api_key:
-                st.session_state[cache_key] = {"_error": "ANTHROPIC_API_KEY tidak ditemukan di Secrets."}
+                st.session_state[cache_key] = {"_error": "ANTHROPIC_API_KEY tidak ditemukan di Secrets. Pastikan nama key persis 'ANTHROPIC_API_KEY'."}
                 return {}
 
             yrs_str = ", ".join(map(str, sorted(years_list)))
@@ -2284,8 +2278,37 @@ with tab1:
                         unsafe_allow_html=True)
 
         with st.expander("📰 Referensi Konteks Ekonomi Indonesia per Tahun"):
+            # ── Debug panel ────────────────────────────────────────────────
+            _dbg_key = ""
+            try:
+                _dbg_key = st.secrets["ANTHROPIC_API_KEY"]
+            except Exception:
+                pass
+            if not _dbg_key:
+                try:
+                    _dbg_key = st.secrets["anthropic_api_key"]
+                except Exception:
+                    pass
+
+            _dbg_cache_key = f"ekon_ctx_{'_'.join(map(str, all_yrs_data_for_ctx))}"
+            _dbg_cache_val = st.session_state.get(_dbg_cache_key, "❌ Belum ada cache")
+
+            st.markdown(
+                f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+                f'padding:10px 14px;font-size:.78rem;margin-bottom:8px;">'
+                f'🔑 API Key: <b>{"✅ Ditemukan (" + _dbg_key[:8] + "...)" if _dbg_key else "❌ TIDAK DITEMUKAN"}</b><br>'
+                f'📦 Cache: <b>{type(_dbg_cache_val).__name__}</b> — {str(_dbg_cache_val)[:120]}<br>'
+                f'📅 Tahun diminta: <b>{all_yrs_data_for_ctx}</b>'
+                f'</div>',
+                unsafe_allow_html=True)
+
+            if st.button("🔄 Reset cache & coba ulang", key="btn_reset_ekon"):
+                if _dbg_cache_key in st.session_state:
+                    del st.session_state[_dbg_cache_key]
+                st.rerun()
+
             if not EKON_CONTEXT:
-                st.warning("Konteks ekonomi belum tersedia. Pastikan ANTHROPIC_API_KEY sudah diset di Secrets, lalu refresh halaman.")
+                st.warning("Konteks ekonomi belum tersedia. Lihat debug di atas untuk mengetahui penyebabnya.")
             else:
                 for yr in sorted(EKON_CONTEXT.keys()):
                     if yr in all_yrs_data:
