@@ -1865,6 +1865,23 @@ if prog_changes:
         &nbsp;→ Prediksi hanya untuk program aktif tahun {y1}.
         </div>""", unsafe_allow_html=True)
 
+# ── Program filter widget (sticky sidebar, poin 2 & 5) ──────────────────────
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("**🎯 Filter Program**")
+    st.caption("Berlaku global untuk semua tab.")
+    selected_filter = st.multiselect(
+        "Tampilkan program:",
+        options=list(active_progs),
+        default=list(active_progs),
+        key='prog_filter_widget',
+        help="Pilih 1+ program. Biarkan kosong = tampilkan semua."
+    )
+    if not selected_filter:
+        selected_filter = list(active_progs)
+
+filtered_progs = selected_filter
+
 df_active_only = df[df['Kategori'].isin(active_progs)]
 
 kpi_delta_k = kpi_delta_n = kpi_avg_growth = ""
@@ -1936,35 +1953,18 @@ with c5:
     {kpi_avg_growth}
     </div>''', unsafe_allow_html=True)
 
+st.markdown("<br>", unsafe_allow_html=True)
+df_plot = df[df['Kategori'].isin(filtered_progs)].copy()
+
 # Filter status indicator
 if len(filtered_progs) < len(active_progs):
     filter_str = ", ".join(filtered_progs)
     st.markdown(
         f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
-        f'padding:8px 14px;font-size:.82rem;color:#1e40af;margin-top:8px;">'
-        f'🔵 <b>Filter aktif:</b> Menampilkan {len(filtered_progs)} dari {len(active_progs)} program'
+        f'padding:8px 14px;font-size:.82rem;color:#1e40af;margin-top:4px;">'
+        f'🔵 <b>Filter aktif:</b> {len(filtered_progs)} dari {len(active_progs)} program'
         f' &nbsp;|&nbsp; <b>{filter_str}</b></div>',
         unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Program filter widget (poin 2 & 5) ──────────────────────────────────────
-# Update sidebar filter options now that we know active_progs
-_all_options = ['Semua Program'] + sorted(active_progs)
-with st.sidebar:
-    selected_filter = st.multiselect(
-        "Pilih Program yang ditampilkan:",
-        options=active_progs,
-        default=active_progs,
-        key='prog_filter_widget',
-        help="Pilih 1+ program. Kosong = tampilkan semua."
-    )
-    if not selected_filter:
-        selected_filter = list(active_progs)
-
-filtered_progs = selected_filter
-
-df_plot = df[df['Kategori'].isin(filtered_progs)].copy()
 
 tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
 
@@ -2069,17 +2069,78 @@ with tab1:
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
 
         # Konteks ekonomi Indonesia per tahun (poin 4 - hardcode)
-        EKON_CONTEXT = {
-            2019: ("📈 Baseline stabil", "Pertumbuhan ekonomi 5.0%. UMP naik rata-rata 8.03%. Peserta BPJS TK terus bertambah."),
-            2020: ("⚠️ Dampak COVID-19", "PDB terkontraksi -2.07% — resesi pertama sejak 1998. PHK massal 2.56 juta pekerja. Klaim JHT melonjak. Pemerintah relaksasi klaim via Perppu 1/2020."),
-            2021: ("🔄 Awal Pemulihan", "PDB rebound +3.69%. PPKM Darurat Juli–Agustus masih tekan aktivitas. Klaim JHT masih tinggi (backlog 2020). Kartu Prakerja aktif menyerap tenaga kerja terdampak."),
-            2022: ("🚀 Pemulihan Kuat", "PDB tumbuh 5.31% — tertinggi sejak 2013. Inflasi 5.5% (tertinggi 7 tahun) akibat harga pangan & energi. UMP naik rata-rata 8.7%. Aktivitas ekonomi pulih penuh."),
-            2023: ("📊 Normalisasi", "PDB tumbuh 5.05%. Inflasi kembali ke 2.6%. UMP naik rata-rata 7.5%. Pengangguran turun ke 5.32%. Klaim JKK meningkat seiring naiknya aktivitas industri."),
-            2024: ("🏗️ Transisi Politik", "Tahun Pemilu — Prabowo-Gibran terpilih. PDB diproyeksi 5.0%. UMP naik 3.6% (terendah 5 tahun). Fokus hilirisasi dan ketahanan pangan."),
-            2025: ("🔮 Proyeksi", "Target pertumbuhan 5.2% (APBN). UMP naik rata-rata 6.5%. Ekspansi BPJS TK ke pekerja informal ditargetkan."),
-        }
+        # ── AI-powered economic context (poin 4) ───────────────────────────────────
+        def _get_ai_ekon_context(years_list):
+            """Fetch Indonesian economic context per year via Anthropic API.
+            Cached in session_state. Works for any year range, future-proof."""
+            cache_key = f"ekon_ctx_{'_'.join(map(str, sorted(years_list)))}"
+            if cache_key in st.session_state:
+                return st.session_state[cache_key]
 
-        st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi</div>', unsafe_allow_html=True)
+            try:
+                import urllib.request, json as json_lib
+                api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+                if not api_key:
+                    api_key = st.secrets.get("anthropic_api_key", "")
+                if not api_key:
+                    raise ValueError("ANTHROPIC_API_KEY tidak ditemukan di Streamlit Secrets.")
+
+                yrs_str = ", ".join(map(str, sorted(years_list)))
+                prompt = (
+                    f"Berikan konteks ekonomi makro Indonesia untuk tahun-tahun berikut: {yrs_str}. "
+                    "Fokus pada: pertumbuhan PDB, inflasi, kondisi pasar kerja, PHK besar, kebijakan pemerintah "
+                    "yang relevan dengan klaim asuransi tenaga kerja (BPJS Ketenagakerjaan), dan UMP. "
+                    "Jawab HANYA dalam format JSON valid berikut, tanpa teks lain sama sekali:\n"
+                    "{\n"
+                    '  "2020": {"icon": "⚠️ Dampak COVID-19", "desc": "...konteks singkat max 2 kalimat..."},\n'
+                    '  "2021": {"icon": "🔄 Pemulihan", "desc": "..."},\n'
+                    "  ...\n"
+                    "}\n"
+                    "Isi icon dengan emoji + label singkat (max 4 kata). Desc max 60 kata, padat, berisi angka."
+                )
+                payload = json_lib.dumps({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 900,
+                    "messages": [{"role": "user", "content": prompt}]
+                }).encode()
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    resp = json_lib.loads(r.read().decode())
+                raw = resp["content"][0]["text"].strip()
+                # Strip markdown code fences if present
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                parsed = json_lib.loads(raw.strip())
+                # Convert to dict[int -> (icon_str, desc_str)]
+                result = {}
+                for yr_str, val in parsed.items():
+                    try:
+                        result[int(yr_str)] = (val.get("icon", "📊"), val.get("desc", ""))
+                    except:
+                        pass
+                st.session_state[cache_key] = result
+                return result
+            except Exception as e:
+                # Fallback: return empty dict (chart still works, no annotations)
+                st.session_state[cache_key] = {}
+                return {}
+
+        all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
+        with st.spinner("🤖 Mengambil konteks ekonomi via AI..."):
+            EKON_CONTEXT = _get_ai_ekon_context(all_yrs_data_for_ctx)
+
+        st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi AI</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
         for i, cat in enumerate(sorted(df_plot['Kategori'].unique())):
             cd = trend[trend['Kategori']==cat].sort_values('Tahun')
@@ -2094,7 +2155,7 @@ with tab1:
                 hovertemplate=f"<b>{cat}</b><br>Tahun: %{{x}}<br>Kasus: %{{y:,}}<extra></extra>"
             ))
 
-        all_yrs_data = sorted(trend['Tahun'].unique())
+        all_yrs_data = all_yrs_data_for_ctx
         tot_yr = trend.groupby('Tahun')['Kasus'].sum()
         yr_max_t = int(tot_yr.max()) if len(tot_yr) > 0 else 1
         if 2020 in all_yrs_data:
