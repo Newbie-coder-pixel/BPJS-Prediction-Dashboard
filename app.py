@@ -1696,12 +1696,7 @@ with st.sidebar:
     else:
         st.caption("Belum ada riwayat tersimpan.")
 
-    # ── PROGRAM FILTER (poin 2 & 5) ─────────────────────────────────────────
-    st.markdown("---")
-    st.markdown("**🎯 Filter Program**")
-    st.caption("Berlaku global untuk semua tab.")
-    if 'selected_programs' not in st.session_state:
-        st.session_state['selected_programs'] = []
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOAD DATA
@@ -2072,37 +2067,57 @@ with tab1:
         # ── AI-powered economic context (poin 4) ───────────────────────────────────
         def _get_ai_ekon_context(years_list):
             """Fetch Indonesian economic context per year via Anthropic API.
-            Cached in session_state. Works for any year range, future-proof."""
+            Cached in session_state — no repeated calls on re-render.
+            Works for any year range, future-proof.
+            """
             cache_key = f"ekon_ctx_{'_'.join(map(str, sorted(years_list)))}"
             if cache_key in st.session_state:
                 return st.session_state[cache_key]
 
-            try:
-                import urllib.request, json as json_lib
-                api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-                if not api_key:
-                    api_key = st.secrets.get("anthropic_api_key", "")
-                if not api_key:
-                    raise ValueError("ANTHROPIC_API_KEY tidak ditemukan di Streamlit Secrets.")
+            import urllib.request, json as json_lib
 
-                yrs_str = ", ".join(map(str, sorted(years_list)))
-                prompt = (
-                    f"Berikan konteks ekonomi makro Indonesia untuk tahun-tahun berikut: {yrs_str}. "
-                    "Fokus pada: pertumbuhan PDB, inflasi, kondisi pasar kerja, PHK besar, kebijakan pemerintah "
-                    "yang relevan dengan klaim asuransi tenaga kerja (BPJS Ketenagakerjaan), dan UMP. "
-                    "Jawab HANYA dalam format JSON valid berikut, tanpa teks lain sama sekali:\n"
-                    "{\n"
-                    '  "2020": {"icon": "⚠️ Dampak COVID-19", "desc": "...konteks singkat max 2 kalimat..."},\n'
-                    '  "2021": {"icon": "🔄 Pemulihan", "desc": "..."},\n'
-                    "  ...\n"
-                    "}\n"
-                    "Isi icon dengan emoji + label singkat (max 4 kata). Desc max 60 kata, padat, berisi angka."
-                )
+            # ── Get API key — Streamlit Cloud secrets ─────────────────────
+            api_key = ""
+            try:
+                # Streamlit secrets can be accessed as dict or attribute
+                secrets = st.secrets
+                if hasattr(secrets, '__getitem__'):
+                    try:    api_key = secrets["ANTHROPIC_API_KEY"]
+                    except: pass
+                if not api_key:
+                    try:    api_key = secrets["anthropic_api_key"]
+                    except: pass
+                if not api_key:
+                    try:    api_key = str(secrets.ANTHROPIC_API_KEY)
+                    except: pass
+            except Exception as secrets_err:
+                pass
+
+            if not api_key:
+                st.session_state[cache_key] = {"_error": "ANTHROPIC_API_KEY tidak ditemukan di Secrets."}
+                return {}
+
+            yrs_str = ", ".join(map(str, sorted(years_list)))
+            prompt = (
+                f"Berikan konteks ekonomi makro Indonesia untuk tahun-tahun ini: {yrs_str}.\n"
+                "Fokus: PDB growth (%), inflasi, UMP, kondisi pasar kerja, PHK besar, "
+                "dan kebijakan pemerintah yang relevan dengan klaim BPJS Ketenagakerjaan.\n"
+                "PENTING: Jawab HANYA dengan JSON valid, tanpa teks tambahan, tanpa markdown fences.\n"
+                "Format persis:\n"
+                "{\n"
+                '  "2020": {"icon": "⚠️ Dampak COVID-19", "desc": "PDB -2.07%. PHK massal 2.56 juta. Klaim JHT melonjak."},\n'
+                '  "2021": {"icon": "🔄 Pemulihan", "desc": "PDB +3.69%. PPKM masih aktif. Backlog klaim JHT."}\n'
+                "}\n"
+                "icon = emoji + label singkat max 4 kata. desc = max 55 kata, padat, ada angka statistik."
+            )
+
+            try:
                 payload = json_lib.dumps({
                     "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 900,
+                    "max_tokens": 1200,
                     "messages": [{"role": "user", "content": prompt}]
-                }).encode()
+                }).encode('utf-8')
+
                 req = urllib.request.Request(
                     "https://api.anthropic.com/v1/messages",
                     data=payload,
@@ -2113,32 +2128,66 @@ with tab1:
                     },
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=20) as r:
-                    resp = json_lib.loads(r.read().decode())
-                raw = resp["content"][0]["text"].strip()
-                # Strip markdown code fences if present
-                if raw.startswith("```"):
-                    raw = raw.split("```")[1]
-                    if raw.startswith("json"):
-                        raw = raw[4:]
-                parsed = json_lib.loads(raw.strip())
-                # Convert to dict[int -> (icon_str, desc_str)]
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    resp_bytes = r.read()
+                resp_json = json_lib.loads(resp_bytes.decode('utf-8'))
+
+                if "error" in resp_json:
+                    err_msg = resp_json["error"].get("message", str(resp_json["error"]))
+                    st.session_state[cache_key] = {"_error": f"API error: {err_msg}"}
+                    return {}
+
+                raw_text = resp_json["content"][0]["text"].strip()
+
+                # Strip any markdown fences
+                if "```" in raw_text:
+                    import re as _re
+                    raw_text = _re.sub(r"```[a-z]*\n?", "", raw_text).replace("```", "").strip()
+
+                # Find JSON object in response (handles extra text)
+                json_start = raw_text.find("{")
+                json_end   = raw_text.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    raw_text = raw_text[json_start:json_end]
+
+                parsed = json_lib.loads(raw_text)
+
                 result = {}
                 for yr_str, val in parsed.items():
                     try:
-                        result[int(yr_str)] = (val.get("icon", "📊"), val.get("desc", ""))
-                    except:
+                        yr_int = int(str(yr_str).strip())
+                        icon = val.get("icon", "📊") if isinstance(val, dict) else "📊"
+                        desc = val.get("desc", "")  if isinstance(val, dict) else str(val)
+                        result[yr_int] = (icon, desc)
+                    except Exception:
                         pass
+
                 st.session_state[cache_key] = result
                 return result
+
+            except urllib.error.HTTPError as http_err:
+                err_body = ""
+                try:    err_body = http_err.read().decode('utf-8')[:200]
+                except: pass
+                st.session_state[cache_key] = {"_error": f"HTTP {http_err.code}: {err_body}"}
+                return {}
             except Exception as e:
-                # Fallback: return empty dict (chart still works, no annotations)
-                st.session_state[cache_key] = {}
+                st.session_state[cache_key] = {"_error": str(e)[:200]}
                 return {}
 
-        all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
+                all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
+        _ekon_raw = None
         with st.spinner("🤖 Mengambil konteks ekonomi via AI..."):
-            EKON_CONTEXT = _get_ai_ekon_context(all_yrs_data_for_ctx)
+            _ekon_raw = _get_ai_ekon_context(all_yrs_data_for_ctx)
+        # Show error if API failed
+        if isinstance(_ekon_raw, dict) and "_error" in _ekon_raw:
+            st.markdown(
+                f'<div class="warn">⚠️ <b>Konteks AI gagal:</b> {_ekon_raw["_error"]}<br>'
+                f'Pastikan <code>ANTHROPIC_API_KEY</code> sudah benar di Streamlit Secrets → Manage app → Secrets.</div>',
+                unsafe_allow_html=True)
+            EKON_CONTEXT = {}
+        else:
+            EKON_CONTEXT = _ekon_raw if _ekon_raw else {}
 
         st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi AI</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
