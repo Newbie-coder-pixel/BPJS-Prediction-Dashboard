@@ -3296,27 +3296,26 @@ with tab2:
                                     zmax=zmax,
                                     text=[[f'{v:+.1f}%' for v in row] for row in hm_pivot.values],
                                     texttemplate='%{text}',
-                                    textfont=dict(size=11, color='white'),
+                                    textfont=dict(size=11, color='#1e293b'),
                                     hovertemplate='<b>%{y}</b> × <b>%{x}</b><br>Efek: <b>%{z:+.2f}%</b><extra></extra>',
                                     colorbar=dict(
-                                        title='Efek (%)',
+                                        title=dict(text='Efek (%)', font=dict(color='#64748b', size=11)),
                                         ticksuffix='%',
-                                        tickfont=dict(color='#94a3b8', size=10),
-                                        titlefont=dict(color='#94a3b8'),
+                                        tickfont=dict(color='#64748b', size=10),
                                     ),
                                 ))
                                 fig_hm.update_layout(
                                     **DARK,
                                     height=max(320, len(cat_order) * 38 + 100),
                                     margin=dict(t=30, b=40, l=160, r=60),
-                                    xaxis=dict(tickfont=dict(size=11, color='#93c5fd'),
+                                    xaxis=dict(tickfont=dict(size=11, color='#334155'),
                                                side='top'),
                                     yaxis=dict(
                                         categoryorder='array',
                                         categoryarray=cat_order[::-1],
                                         tickfont=dict(size=11, color='#e2e8f0')),
                                     title=dict(text='Intensitas Efek: merah=klaim turun, hijau=klaim naik',
-                                               font=dict(size=12, color='#94a3b8'), x=0),
+                                               font=dict(size=12, color='#64748b'), x=0),
                                 )
                                 st.plotly_chart(fig_hm, width='stretch')
 
@@ -3379,7 +3378,7 @@ with tab2:
 
                                     # ── Badge net ──
                                     if abs(net_prog) < 0.5:
-                                        badge = '<span style="background:#1e2d45;color:#94a3b8;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
+                                        badge = '<span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:6px;font-size:.72rem">Netral</span>'
                                     elif net_prog > 0:
                                         badge = f'<span style="background:#052e16;color:#34d399;padding:2px 8px;border-radius:6px;font-size:.72rem">Net +{net_prog:.1f}%</span>'
                                     else:
@@ -3431,14 +3430,16 @@ with tab2:
                                             texttemplate='%{text}',
                                             textfont=dict(size=14, color='white', family='JetBrains Mono'),
                                             hovertemplate='<b>%{y}</b> ↔ <b>%{x}</b><br>r = <b>%{z:.3f}</b><extra></extra>',
-                                            colorbar=dict(title='r', tickfont=dict(color='#94a3b8', size=10),
+                                            colorbar=dict(
+                                                title=dict(text='r', font=dict(color='#64748b', size=11)),
+                                                tickfont=dict(color='#64748b', size=10),
                                                 thickness=12, len=0.7),
                                         ))
                                         fig_corr.update_layout(
                                             **DARK, height=max(280, len(programs_list)*80),
                                             margin=dict(t=10, b=30, l=90, r=80),
-                                            xaxis=dict(tickfont=dict(size=12, color='#7dd3fc')),
-                                            yaxis=dict(tickfont=dict(size=12, color='#7dd3fc')),
+                                            xaxis=dict(tickfont=dict(size=12, color='#334155')),
+                                            yaxis=dict(tickfont=dict(size=12, color='#334155')),
                                         )
                                         st.plotly_chart(fig_corr, use_container_width=True)
 
