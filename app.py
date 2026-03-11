@@ -2062,136 +2062,22 @@ with tab1:
     if not single_yr:
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
 
-        # ── AI-powered economic context ────────────────────────────────────────────
-        def _get_ai_ekon_context(years_list):
-            """Fetch Indonesian economic context per year via Anthropic API."""
-            cache_key = f"ekon_ctx_{'_'.join(map(str, sorted(years_list)))}"
-            if cache_key in st.session_state:
-                cached = st.session_state[cache_key]
-                # Jangan pakai cache yang berisi error
-                if not (isinstance(cached, dict) and "_error" in cached):
-                    return cached
+        # ── Konteks ekonomi statis Indonesia (tidak memerlukan API) ─────────────
+        _EKON_STATIC = {
+            2019: ("📊 Pra-Pandemi",    "PDB +5.02%. Ketenagakerjaan stabil, pengangguran 5.28%. Klaim JHT dan JKK relatif normal, pertumbuhan organik sektor manufaktur dan konstruksi."),
+            2020: ("⚠️ Pandemi COVID",  "PDB -2.07%. PHK massal ~2.56 juta pekerja. Klaim JHT melonjak drastis karena gelombang PHK. Pemerintah rilis Kartu Prakerja & stimulus UMKM."),
+            2021: ("🔄 Awal Pemulihan", "PDB +3.69%. PPKM berlapis Jan–Sep. Klaim JHT masih tinggi. Vaksinasi massal dimulai. Sektor transportasi & pariwisata masih tertekan."),
+            2022: ("🚀 Pemulihan Kuat", "PDB +5.31%. PPKM dicabut Januari. Pasar kerja pulih, pengangguran turun ke 5.86%. Lonjakan klaim JKK seiring aktivitas industri meningkat."),
+            2023: ("💼 Stabilisasi",    "PDB +5.05%. Suku bunga BI naik ke 6.00% tekan daya beli. UMP naik rata-rata 3.22%. Gelombang PHK sektor teknologi & tekstil (Shopee, GoTo, Sri Rejeki Isman)."),
+            2024: ("⚡ Transisi Politik","PDB +5.03%. Tahun Pemilu — belanja pemerintah meningkat. UMP naik 3.57%. PHK sektor ritel & fintech berlanjut. Klaim JHT stabil, JKM meningkat."),
+            2025: ("🔧 Reformasi BPJS", "PDB diproyeksi +5.1%. Iuran BPJS TK disesuaikan. Program Tapera mulai berjalan. Fokus pemerintah pada jaring pengaman pekerja informal dan gig economy."),
+        }
 
-            import urllib.request, json as json_lib
-
-            # ── Baca API key dari st.secrets ──────────────────────────────
-            api_key = ""
-            try:
-                api_key = st.secrets["ANTHROPIC_API_KEY"]
-            except Exception:
-                pass
-            if not api_key:
-                try:
-                    api_key = st.secrets["anthropic_api_key"]
-                except Exception:
-                    pass
-
-            if not api_key:
-                st.session_state[cache_key] = {"_error": "ANTHROPIC_API_KEY tidak ditemukan di Secrets. Pastikan nama key persis 'ANTHROPIC_API_KEY'."}
-                return {}
-
-            yrs_str = ", ".join(map(str, sorted(years_list)))
-            prompt = (
-                f"Berikan konteks ekonomi makro Indonesia untuk tahun-tahun ini: {yrs_str}.\n"
-                "Fokus: PDB growth (%), inflasi, UMP, kondisi pasar kerja, PHK besar, "
-                "dan kebijakan pemerintah yang relevan dengan klaim BPJS Ketenagakerjaan.\n"
-                "PENTING: Jawab HANYA dengan JSON valid, tanpa teks tambahan, tanpa markdown fences.\n"
-                "Format persis:\n"
-                "{\n"
-                '  "2020": {"icon": "⚠️ Dampak COVID-19", "desc": "PDB -2.07%. PHK massal 2.56 juta. Klaim JHT melonjak."},\n'
-                '  "2021": {"icon": "🔄 Pemulihan", "desc": "PDB +3.69%. PPKM masih aktif. Backlog klaim JHT."}\n'
-                "}\n"
-                "icon = emoji + label singkat max 4 kata. desc = max 55 kata, padat, ada angka statistik."
-            )
-
-            try:
-                payload = json_lib.dumps({
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 1200,
-                    "messages": [{"role": "user", "content": prompt}]
-                }).encode('utf-8')
-
-                req = urllib.request.Request(
-                    "https://api.anthropic.com/v1/messages",
-                    data=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                    },
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=25) as r:
-                    resp_bytes = r.read()
-                resp_json = json_lib.loads(resp_bytes.decode('utf-8'))
-
-                if "error" in resp_json:
-                    err_msg = resp_json["error"].get("message", str(resp_json["error"]))
-                    st.session_state[cache_key] = {"_error": f"API error: {err_msg}"}
-                    return {}
-
-                raw_text = resp_json["content"][0]["text"].strip()
-
-                # Strip any markdown fences
-                if "```" in raw_text:
-                    import re as _re
-                    raw_text = _re.sub(r"```[a-z]*\n?", "", raw_text).replace("```", "").strip()
-
-                # Find JSON object in response (handles extra text)
-                json_start = raw_text.find("{")
-                json_end   = raw_text.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    raw_text = raw_text[json_start:json_end]
-
-                parsed = json_lib.loads(raw_text)
-
-                result = {}
-                for yr_str, val in parsed.items():
-                    try:
-                        yr_int = int(str(yr_str).strip())
-                        icon = val.get("icon", "📊") if isinstance(val, dict) else "📊"
-                        desc = val.get("desc", "")  if isinstance(val, dict) else str(val)
-                        result[yr_int] = (icon, desc)
-                    except Exception:
-                        pass
-
-                st.session_state[cache_key] = result
-                return result
-
-            except urllib.error.HTTPError as http_err:
-                err_body = ""
-                try:    err_body = http_err.read().decode('utf-8')[:200]
-                except: pass
-                st.session_state[cache_key] = {"_error": f"HTTP {http_err.code}: {err_body}"}
-                return {}
-            except Exception as e:
-                st.session_state[cache_key] = {"_error": str(e)[:200]}
-                return {}
-
+        def _get_ekon_context(years_list):
+            """Ambil konteks ekonomi dari data statis — tidak memerlukan API."""
+            return {yr: _EKON_STATIC[yr] for yr in years_list if yr in _EKON_STATIC}
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
-
-        # Hapus cache lama yang berisi error agar bisa retry otomatis
-        _ck = f"ekon_ctx_{'_'.join(map(str, all_yrs_data_for_ctx))}"
-        if _ck in st.session_state and isinstance(st.session_state[_ck], dict) and "_error" in st.session_state[_ck]:
-            del st.session_state[_ck]
-
-        _ekon_raw = None
-        with st.spinner("🤖 Mengambil konteks ekonomi via AI..."):
-            _ekon_raw = _get_ai_ekon_context(all_yrs_data_for_ctx)
-
-        if isinstance(_ekon_raw, dict) and "_error" in _ekon_raw:
-            st.markdown(
-                f'<div class="warn">⚠️ <b>Konteks AI gagal:</b> {_ekon_raw["_error"]}<br>'
-                f'Pastikan <code>ANTHROPIC_API_KEY</code> sudah benar di Streamlit Secrets.</div>',
-                unsafe_allow_html=True)
-            EKON_CONTEXT = {}
-        elif not _ekon_raw:
-            st.markdown(
-                '<div class="warn">⚠️ API tidak mengembalikan data. Coba refresh halaman.</div>',
-                unsafe_allow_html=True)
-            EKON_CONTEXT = {}
-        else:
-            EKON_CONTEXT = _ekon_raw
+        EKON_CONTEXT = _get_ekon_context(all_yrs_data_for_ctx)
 
         st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi AI</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
@@ -2278,45 +2164,14 @@ with tab1:
                         unsafe_allow_html=True)
 
         with st.expander("📰 Referensi Konteks Ekonomi Indonesia per Tahun"):
-            # ── Debug panel ────────────────────────────────────────────────
-            _dbg_key = ""
-            try:
-                _dbg_key = st.secrets["ANTHROPIC_API_KEY"]
-            except Exception:
-                pass
-            if not _dbg_key:
-                try:
-                    _dbg_key = st.secrets["anthropic_api_key"]
-                except Exception:
-                    pass
-
-            _dbg_cache_key = f"ekon_ctx_{'_'.join(map(str, all_yrs_data_for_ctx))}"
-            _dbg_cache_val = st.session_state.get(_dbg_cache_key, "❌ Belum ada cache")
-
-            st.markdown(
-                f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-                f'padding:10px 14px;font-size:.78rem;margin-bottom:8px;">'
-                f'🔑 API Key: <b>{"✅ Ditemukan (" + _dbg_key[:8] + "...)" if _dbg_key else "❌ TIDAK DITEMUKAN"}</b><br>'
-                f'📦 Cache: <b>{type(_dbg_cache_val).__name__}</b> — {str(_dbg_cache_val)[:120]}<br>'
-                f'📅 Tahun diminta: <b>{all_yrs_data_for_ctx}</b>'
-                f'</div>',
-                unsafe_allow_html=True)
-
-            if st.button("🔄 Reset cache & coba ulang", key="btn_reset_ekon"):
-                if _dbg_cache_key in st.session_state:
-                    del st.session_state[_dbg_cache_key]
-                st.rerun()
-
             if not EKON_CONTEXT:
-                st.warning("Konteks ekonomi belum tersedia. Lihat debug di atas untuk mengetahui penyebabnya.")
+                st.info("Tidak ada data konteks untuk tahun-tahun yang dipilih.")
             else:
                 for yr in sorted(EKON_CONTEXT.keys()):
                     if yr in all_yrs_data:
                         ctx_val = EKON_CONTEXT[yr]
-                        if isinstance(ctx_val, tuple) and len(ctx_val) == 2:
-                            icon, desc = ctx_val
-                        else:
-                            icon, desc = "📊", str(ctx_val)
+                        icon, desc = (ctx_val if isinstance(ctx_val, tuple) and len(ctx_val)==2
+                                      else ("📊", str(ctx_val)))
                         st.markdown(
                             f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
                             f'padding:10px 14px;margin:5px 0;">'
