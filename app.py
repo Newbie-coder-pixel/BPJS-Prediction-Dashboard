@@ -2511,6 +2511,28 @@ with tab2:
             add_to_history(label, eid, df.copy(), dict(results_cache), extra_snapshot)
             st.session_state.active_entry_id = eid
 
+            # Auto-jalankan Prophet sesuai filtered_progs
+            if PROPHET_OK:
+                _df_raw_m_auto = st.session_state.get('raw_monthly', None)
+                if _df_raw_m_auto is not None and len(_df_raw_m_auto) > 0:
+                    _auto_progs = filtered_progs if filtered_progs else active_progs
+                    _auto_results = {}
+                    _auto_errors  = {}
+                    with st.spinner(f"Auto-jalankan Prophet untuk {len(_auto_progs)} program..."):
+                        for _cp in _auto_progs:
+                            _pr, _pe = run_prophet(_df_raw_m_auto, target_ml, _cp, 12,
+                                                   use_holidays=(len(INDONESIAN_HOLIDAYS) > 0))
+                            if _pe:  _auto_errors[_cp] = _pe
+                            else:    _auto_results[_cp] = _pr
+                    if _auto_results:
+                        st.session_state['prophet_all_results'] = _auto_results
+                        st.session_state['prophet_meta'] = {
+                            'target': target_ml,
+                            'use_holidays': len(INDONESIAN_HOLIDAYS) > 0,
+                            'n_months': 12,
+                            'programs': list(_auto_results.keys()),
+                        }
+
     if ml_res:
         bpp      = ml_res.get('best_per_program', pd.DataFrame())
         per_prog = ml_res.get('per_prog', {})
@@ -2860,11 +2882,15 @@ with tab2:
                     f"Gunakan kalender hari libur Indonesia dari Google Calendar ({n_holidays} hari libur, {n_htypes} jenis)",
                     value=(n_holidays > 0))
 
-                if st.button("🔮 Jalankan Prophet (Semua Program)", type="primary", width='stretch'):
+                _prophet_progs = filtered_progs if filtered_progs else active_progs
+                _btn_lbl = (f"🔮 Jalankan Prophet — {_prophet_progs[0]}"
+                            if len(_prophet_progs) == 1
+                            else f"🔮 Jalankan Prophet ({len(_prophet_progs)} Program)")
+                if st.button(_btn_lbl, type="primary", width='stretch'):
                     all_p_results = {}
                     prog_errors   = {}
-                    with st.spinner(f"Melatih Prophet untuk semua program — {target_prophet}..."):
-                        for cp in active_progs:
+                    with st.spinner(f"Melatih Prophet untuk {len(_prophet_progs)} program — {target_prophet}..."):
+                        for cp in _prophet_progs:
                             pr, pe = run_prophet(df_raw_m_p, target_prophet, cp,
                                                  n_months_prophet, use_holidays)
                             if pe:
@@ -2878,16 +2904,28 @@ with tab2:
                         st.session_state['prophet_all_results'] = all_p_results
                         st.session_state['prophet_meta'] = {
                             'target': target_prophet, 'use_holidays': use_holidays,
-                            'n_months': n_months_prophet
+                            'n_months': n_months_prophet,
+                            'programs': list(all_p_results.keys()),
                         }
 
                 all_p_results = st.session_state.get('prophet_all_results', {})
                 p_meta        = st.session_state.get('prophet_meta', {})
 
+                # Invalidate cache kalau filter program berubah
+                _cached_progs = set(p_meta.get('programs', active_progs))
+                _current_progs = set(filtered_progs if filtered_progs else active_progs)
+                if _cached_progs != _current_progs and all_p_results:
+                    st.info(
+                        f"⚠️ Filter program berubah (sebelumnya: {', '.join(sorted(_cached_progs))} → "
+                        f"sekarang: {', '.join(sorted(_current_progs))}). "
+                        "Klik tombol di atas untuk jalankan ulang Prophet dengan filter baru."
+                    )
+
                 if all_p_results and p_meta.get('target') == target_prophet:
                     tgt_label = target_prophet
+                    _res_progs = ', '.join(sorted(all_p_results.keys()))
                     st.markdown(
-                        f'<div class="sec">Forecast Prophet — Semua Program ({tgt_label})</div>',
+                        f'<div class="sec">Forecast Prophet — Program: {_res_progs} ({tgt_label})</div>',
                         unsafe_allow_html=True)
 
                     def hex_rgba(hex_c, alpha):
