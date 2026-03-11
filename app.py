@@ -3929,7 +3929,11 @@ with tab3:
                 df_raw_m2 = st.session_state.get('raw_monthly', None)
                 fig_mo    = go.Figure()
 
-                for i, cat in enumerate(sorted(ml_pred['active_programs'])):
+                # Ikuti filtered_progs, fallback ke active_programs
+                _mo_progs = [p for p in sorted(ml_pred['active_programs'])
+                             if p in filtered_progs] or sorted(ml_pred['active_programs'])
+
+                for i, cat in enumerate(_mo_progs):
                     col = COLORS[i % len(COLORS)]
 
                     if df_raw_m2 is not None and target_pred in df_raw_m2.columns:
@@ -3952,6 +3956,7 @@ with tab3:
 
                     cat_pred_mo = (fut_monthly[fut_monthly['Kategori'] == cat]
                                    .sort_values(['Tahun', 'Bulan']))
+                    # Only include if in filtered set
                     if len(cat_pred_mo):
                         fig_mo.add_trace(go.Scatter(
                             x=cat_pred_mo['Periode'],
@@ -3979,8 +3984,12 @@ with tab3:
 
                 st.markdown('<div class="sec">Detail Prediksi Bulanan per Program</div>',
                             unsafe_allow_html=True)
+                # Batasi pilihan ke filtered_progs, default ke program filter aktif
+                _avail_mo = [p for p in sorted(ml_pred['active_programs'])
+                             if p in filtered_progs] or sorted(ml_pred['active_programs'])
+                _default_mo = _avail_mo[0]
                 sel_cat = st.selectbox(
-                    "Pilih Program", sorted(ml_pred['active_programs']), key='mo_cat_sel'
+                    "Pilih Program", _avail_mo, index=0, key='mo_cat_sel'
                 )
                 cat_mo = (fut_monthly[fut_monthly['Kategori'] == sel_cat]
                           .sort_values(['Tahun', 'Bulan']))
