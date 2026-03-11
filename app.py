@@ -2175,7 +2175,7 @@ with tab1:
                 st.session_state[cache_key] = {"_error": str(e)[:200]}
                 return {}
 
-                all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
+        all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
         _ekon_raw = None
         with st.spinner("🤖 Mengambil konteks ekonomi via AI..."):
             _ekon_raw = _get_ai_ekon_context(all_yrs_data_for_ctx)
