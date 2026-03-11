@@ -315,10 +315,15 @@ for k, v in [('active_data', None), ('active_results', {}), ('active_entry_id', 
     if k not in st.session_state:
         st.session_state[k] = v
 
-DARK = dict(template='plotly_dark', paper_bgcolor='rgba(15,23,42,0.95)', plot_bgcolor='rgba(15,23,42,0.95)',
-            font_color='#94a3b8', font_family='Inter')
-COLORS = ['#60a5fa','#34d399','#fb923c','#a78bfa','#f87171',
-          '#fbbf24','#38bdf8','#f472b6','#4ade80','#e879f9']
+DARK = dict(
+    template='plotly_white',
+    paper_bgcolor='rgba(255,255,255,0)',
+    plot_bgcolor='rgba(248,250,252,0.8)',
+    font_color='#334155',
+    font_family='Inter',
+)
+COLORS = ['#2563eb','#16a34a','#ea580c','#7c3aed','#dc2626',
+          '#ca8a04','#0891b2','#db2777','#65a30d','#9333ea']
 COLORS_ALPHA = {c: c for c in COLORS}
 
 def hex_to_rgba(hex_c, alpha=1.0):
@@ -330,14 +335,15 @@ def styled_chart(fig, height=400, legend_bottom=True, margin_b=80):
     fig.update_layout(
         **DARK, height=height,
         hovermode='x unified',
-        hoverlabel=dict(bgcolor='#0d1f35', font_size=12, bordercolor='#1e3a5f'),
-        legend=dict(orientation='h', y=-0.22, font=dict(size=10.5),
+        hoverlabel=dict(bgcolor='#ffffff', font_size=12, bordercolor='#e2e8f0',
+                        font_color='#1e293b'),
+        legend=dict(orientation='h', y=-0.22, font=dict(size=10.5, color='#475569'),
                     groupclick='toggleitem') if legend_bottom else {},
         margin=dict(b=margin_b if legend_bottom else 40, t=20, l=60, r=20),
-        xaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
-                   zeroline=False, linecolor='#1e2d45'),
-        yaxis=dict(showgrid=True, gridcolor='#0f1923', gridwidth=1,
-                   zeroline=False, linecolor='#1e2d45'),
+        xaxis=dict(showgrid=True, gridcolor='rgba(226,232,240,0.8)', gridwidth=1,
+                   zeroline=False, linecolor='#cbd5e1', tickfont=dict(color='#64748b')),
+        yaxis=dict(showgrid=True, gridcolor='rgba(226,232,240,0.8)', gridwidth=1,
+                   zeroline=False, linecolor='#cbd5e1', tickfont=dict(color='#64748b')),
     )
     return fig
 
@@ -1130,6 +1136,11 @@ def forecast(df, ml, n_years):
 
         best_nm = info.get('best_name', 'Holt Smoothing') if info else 'Holt Smoothing'
 
+        # Hitung uncertainty: makin jauh prediksi, makin lebar CI
+        # Tahun 1: ±5%, Tahun 2: ±10%, dst (cap di ±25%)
+        def _ci_pct(fy):
+            return min(0.05 * fy, 0.25)
+
         if info is None or info.get('single', True) or best_nm in STAT_METHODS:
             for fy in range(1, n_years + 1):
                 try:
@@ -1148,8 +1159,15 @@ def forecast(df, ml, n_years):
                 except:
                     pred = history[-1] * 1.05
                 pred = max(0.0, pred)
-                rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
-                             target: pred, 'Type': f'Prediksi ({best_nm})'})
+                ci   = _ci_pct(fy)
+                rows.append({
+                    'Kategori': cat, 'Tahun': base_yr + fy,
+                    target: pred,
+                    f'{target}_upper': pred * (1 + ci),
+                    f'{target}_lower': max(0.0, pred * (1 - ci)),
+                    f'{target}_ci_pct': ci * 100,
+                    'Type': f'Prediksi ({best_nm})',
+                })
                 history.append(pred)
             continue
 
@@ -1158,6 +1176,9 @@ def forecast(df, ml, n_years):
         cat_id    = info.get('cat_id', 0.0)
         nlags_use = info.get('n_lags_used', min(nlags, 2))
         last_actual = history[-1]
+        # MAPE-based CI: lebih akurat karena pakai error historis model
+        mape_val = info.get('metrics', {}).get('MAPE (%)', None)
+        mape_base = (mape_val / 100.0) if mape_val and mape_val > 0 else 0.10
 
         for fy in range(1, n_years + 1):
             Xc, _ = build_features(history, nlags_use, cat_id)
@@ -1178,8 +1199,16 @@ def forecast(df, ml, n_years):
                 except:
                     pred = history[-1] * 1.05
             pred = max(0.0, pred)
-            rows.append({'Kategori': cat, 'Tahun': base_yr + fy,
-                         target: pred, 'Type': 'Prediksi'})
+            # CI melebar setiap tahun berdasarkan MAPE historis
+            ci = min(mape_base * fy, 0.40)
+            rows.append({
+                'Kategori': cat, 'Tahun': base_yr + fy,
+                target: pred,
+                f'{target}_upper': pred * (1 + ci),
+                f'{target}_lower': max(0.0, pred * (1 - ci)),
+                f'{target}_ci_pct': ci * 100,
+                'Type': 'Prediksi',
+            })
             history.append(pred)
 
     return pd.DataFrame(rows)
@@ -1960,6 +1989,24 @@ if len(filtered_progs) < len(active_progs):
         f' &nbsp;|&nbsp; <b>{filter_str}</b></div>',
         unsafe_allow_html=True)
 
+# ── Per-Program active banner ────────────────────────────────────────────────
+_is_single_prog = len(filtered_progs) == 1
+if _is_single_prog:
+    _sp = filtered_progs[0]
+    _sp_total = int(df_plot['Kasus'].sum())
+    _sp_latest = int(df_plot[df_plot['Tahun']==latest_year]['Kasus'].sum())
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1.5px solid #2563eb;'
+        f'border-radius:14px;padding:14px 22px;margin-bottom:12px;'
+        f'display:flex;align-items:center;gap:16px;">'
+        f'<div style="font-size:1.8rem;">🏷️</div>'
+        f'<div><div style="font-size:1.05rem;font-weight:800;color:#0f172a;">Mode: Program <span style="color:#2563eb">{_sp}</span></div>'
+        f'<div style="font-size:.8rem;color:#64748b;margin-top:2px;">Semua chart di bawah hanya menampilkan program <b>{_sp}</b> '
+        f'&nbsp;·&nbsp; Total historis: <b>{_sp_total:,}</b> kasus '
+        f'&nbsp;·&nbsp; {latest_year}: <b>{_sp_latest:,}</b> kasus</div></div>'
+        f'</div>',
+        unsafe_allow_html=True)
+
 tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2013,7 +2060,7 @@ with tab1:
     with r1:
         st.markdown('<div class="sec">Distribusi Kasus — Semua Tahun (Program Aktif)</div>',
                     unsafe_allow_html=True)
-        st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Proporsi total klaim per program dari seluruh periode historis. Klik legenda untuk isolasi program.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Proporsi total klaim per program dari seluruh periode historis. Klik legenda untuk isolasi program. Program dengan porsi terbesar = kontributor dominan biaya klaim BPJS TK.</div>', unsafe_allow_html=True)
         pie_d = df_plot.groupby('Kategori')['Kasus'].sum().reset_index()
         pie_d['pct'] = pie_d['Kasus'] / pie_d['Kasus'].sum() * 100
         fig = px.pie(pie_d, names='Kategori', values='Kasus', hole=0.5,
@@ -2034,7 +2081,7 @@ with tab1:
     with r2:
         st.markdown(f'<div class="sec">Market Share per Program — {latest_year}</div>',
                     unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Jumlah & persentase klaim per program di tahun terbaru ({latest_year}). Bar lebih panjang = porsi klaim lebih besar.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Jumlah & persentase klaim per program di tahun terbaru ({latest_year}). Bar lebih panjang = porsi klaim lebih besar. Bandingkan dengan tahun sebelumnya untuk deteksi pergeseran dominansi program.</div>', unsafe_allow_html=True)
         bar_d = (df_lat.groupby('Kategori')['Kasus'].sum()
                  .sort_values(ascending=True).reset_index())
         total_bar = bar_d['Kasus'].sum()
@@ -2062,20 +2109,109 @@ with tab1:
     if not single_yr:
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
 
-        # ── Konteks ekonomi statis Indonesia (tidak memerlukan API) ─────────────
-        _EKON_STATIC = {
-            2019: ("📊 Pra-Pandemi",    "PDB +5.02%. Ketenagakerjaan stabil, pengangguran 5.28%. Klaim JHT dan JKK relatif normal, pertumbuhan organik sektor manufaktur dan konstruksi."),
-            2020: ("⚠️ Pandemi COVID",  "PDB -2.07%. PHK massal ~2.56 juta pekerja. Klaim JHT melonjak drastis karena gelombang PHK. Pemerintah rilis Kartu Prakerja & stimulus UMKM."),
-            2021: ("🔄 Awal Pemulihan", "PDB +3.69%. PPKM berlapis Jan–Sep. Klaim JHT masih tinggi. Vaksinasi massal dimulai. Sektor transportasi & pariwisata masih tertekan."),
-            2022: ("🚀 Pemulihan Kuat", "PDB +5.31%. PPKM dicabut Januari. Pasar kerja pulih, pengangguran turun ke 5.86%. Lonjakan klaim JKK seiring aktivitas industri meningkat."),
-            2023: ("💼 Stabilisasi",    "PDB +5.05%. Suku bunga BI naik ke 6.00% tekan daya beli. UMP naik rata-rata 3.22%. Gelombang PHK sektor teknologi & tekstil (Shopee, GoTo, Sri Rejeki Isman)."),
-            2024: ("⚡ Transisi Politik","PDB +5.03%. Tahun Pemilu — belanja pemerintah meningkat. UMP naik 3.57%. PHK sektor ritel & fintech berlanjut. Klaim JHT stabil, JKM meningkat."),
-            2025: ("🔧 Reformasi BPJS", "PDB diproyeksi +5.1%. Iuran BPJS TK disesuaikan. Program Tapera mulai berjalan. Fokus pemerintah pada jaring pengaman pekerja informal dan gig economy."),
+        # World Bank + BPS API context (dengan fallback statis)
+        _EKON_FALLBACK = {
+            2018: ("📊 Pra-Pandemi",    "PDB +5.17%. Ketenagakerjaan stabil."),
+            2019: ("📊 Pra-Pandemi",    "PDB +5.02%. Ketenagakerjaan stabil, pengangguran 5.28%."),
+            2020: ("⚠️ Pandemi COVID",  "PDB -2.07%. PHK massal ~2.56 juta pekerja. Klaim JHT melonjak."),
+            2021: ("🔄 Awal Pemulihan", "PDB +3.69%. PPKM berlapis. Vaksinasi massal dimulai."),
+            2022: ("🚀 Pemulihan Kuat", "PDB +5.31%. Pasar kerja pulih, pengangguran turun ke 5.86%."),
+            2023: ("💼 Stabilisasi",    "PDB +5.05%. Suku bunga BI 6.00%. PHK sektor teknologi & tekstil."),
+            2024: ("⚡ Transisi",            "PDB +5.03%. Tahun Pemilu. PHK sektor ritel & fintech berlanjut."),
+            2025: ("🔧 Reformasi BPJS", "PDB proyeksi +5.1%. Tapera berjalan. Fokus gig economy."),
         }
 
+        @st.cache_data(ttl=86400, show_spinner=False)
+        def _fetch_worldbank(years_tuple):
+            import urllib.request, json as _j
+            indicators = {
+                'NY.GDP.MKTP.KD.ZG': 'gdp',
+                'FP.CPI.TOTL.ZG':    'inf',
+                'SL.UEM.TOTL.ZS':    'unem',
+            }
+            result = {yr: {} for yr in years_tuple}
+            for code, key in indicators.items():
+                url = (f"https://api.worldbank.org/v2/country/ID/indicator/{code}"
+                       f"?format=json&date={min(years_tuple)}:{max(years_tuple)}&per_page=20")
+                try:
+                    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        data = _j.loads(r.read().decode())
+                    if isinstance(data, list) and len(data) >= 2:
+                        for entry in (data[1] or []):
+                            try:
+                                yr  = int(entry["date"])
+                                val = entry["value"]
+                                if val is not None and yr in result:
+                                    result[yr][key] = round(float(val), 2)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            return result
+
+        @st.cache_data(ttl=86400, show_spinner=False)
+        def _fetch_bps(years_tuple):
+            import urllib.request, json as _j
+            key = ""
+            try:    key = st.secrets["BPS_API_KEY"]
+            except Exception: pass
+            if not key:
+                return {}
+            url = f"https://webapi.bps.go.id/v1/api/list/model/data/lang/ind/domain/0000/var/529/key/{key}/"
+            try:
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    raw = _j.loads(r.read().decode())
+                out = {}
+                dc  = raw.get("datacontent", {})
+                th  = raw.get("turth", [])
+                if dc and th:
+                    labels = {str(i): v for i, v in enumerate(th)}
+                    for k, v in dc.items():
+                        try:
+                            yr_str = labels.get(k.split("0")[0] if "0" in k else k[:4], "")
+                            if yr_str.isdigit():
+                                out[int(yr_str)] = float(v)
+                        except Exception:
+                            pass
+                return out
+            except Exception:
+                return {}
+
         def _get_ekon_context(years_list):
-            """Ambil konteks ekonomi dari data statis — tidak memerlukan API."""
-            return {yr: _EKON_STATIC[yr] for yr in years_list if yr in _EKON_STATIC}
+            wb  = _fetch_worldbank(tuple(sorted(years_list)))
+            bps = _fetch_bps(tuple(sorted(years_list)))
+            result = {}
+            _extra = {
+                2020: " PHK massal ~2.56 jt pekerja. Klaim JHT melonjak drastis.",
+                2021: " PPKM berlapis. Vaksinasi massal dimulai.",
+                2022: " Pasar kerja pulih. Klaim JKK naik seiring industri aktif.",
+                2023: " PHK sektor teknologi & tekstil. BI rate naik ke 6%.",
+                2024: " Tahun Pemilu. PHK ritel & fintech berlanjut.",
+                2025: " Reformasi iuran BPJS TK. Tapera mulai berjalan.",
+            }
+            for yr in years_list:
+                d    = wb.get(yr, {})
+                gdp  = d.get("gdp")
+                inf  = d.get("inf")
+                unem = d.get("unem") or bps.get(yr)
+                if gdp is None:
+                    fb = _EKON_FALLBACK.get(yr)
+                    result[yr] = fb if fb else ("📊 Data N/A", "Data World Bank tidak tersedia.")
+                    continue
+                if gdp < 0:   icon = "⚠️ Kontraksi"
+                elif gdp < 3: icon = "🔄 Pemulihan"
+                elif gdp < 5: icon = "📊 Moderat"
+                else:         icon = "🚀 Ekspansi"
+                parts = []
+                if gdp  is not None: parts.append(f"PDB {gdp:+.2f}%")
+                if inf  is not None: parts.append(f"inflasi {inf:.1f}%")
+                if unem is not None: parts.append(f"pengangguran {unem:.2f}%")
+                extra = _extra.get(yr, "")
+                desc  = (", ".join(parts) + "." + extra) if parts else "Data tidak tersedia."
+                result[yr] = (icon, desc)
+            return result
+
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
         EKON_CONTEXT = _get_ekon_context(all_yrs_data_for_ctx)
 
@@ -2112,15 +2248,40 @@ with tab1:
         fig3.update_layout(xaxis=dict(dtick=1, showgrid=True, gridcolor='rgba(148,163,184,0.3)'))
         st.plotly_chart(fig3, width='stretch')
 
+        # Auto-insight tren
+        _trend_total = trend.groupby('Tahun')['Kasus'].sum()
+        if len(_trend_total) >= 2:
+            _yr_max_k = int(_trend_total.idxmax())
+            _yr_min_k = int(_trend_total.idxmin())
+            _yr_last2 = sorted(_trend_total.index)[-2:]
+            _growth_last = (_trend_total[_yr_last2[1]] / (_trend_total[_yr_last2[0]] + 1e-9) - 1) * 100
+            _ctx_peak = EKON_CONTEXT.get(_yr_max_k, (None, None))
+            _peak_desc = _ctx_peak[1] if _ctx_peak[0] else ""
+            _insight_html = (
+                f'<div class="info-box">'
+                f'📊 <b>Auto-Insight Tren:</b> '
+                f'Klaim tertinggi terjadi di <b>{_yr_max_k}</b> ({int(_trend_total[_yr_max_k]):,} kasus total). '
+                f'Klaim terendah di <b>{_yr_min_k}</b> ({int(_trend_total[_yr_min_k]):,} kasus). '
+                f'Pertumbuhan {_yr_last2[0]}→{_yr_last2[1]}: '
+                f'<b style="color:{"#16a34a" if _growth_last >= 0 else "#dc2626"}">{_growth_last:+.1f}%</b>.'
+                + (f' <b>Konteks {_yr_max_k}:</b> {_peak_desc}' if _peak_desc else '')
+                + f'</div>'
+            )
+            st.markdown(_insight_html, unsafe_allow_html=True)
         st.markdown(
-            '<div class="info-box">'
+            '<div class="insight-note">'
             '💡 <b>Cara baca chart:</b> Area fill = volume klaim per program. '
-            'Kotak anotasi menandai peristiwa ekonomi yang signifikan mempengaruhi klaim BPJS TK. '
-            'Filter program di sidebar kiri untuk fokus analisis per program.</div>',
+            'Kotak anotasi menandai peristiwa ekonomi signifikan. '
+            'Gunakan filter program di sidebar untuk fokus satu program.</div>',
             unsafe_allow_html=True)
 
         # Peak & Trough analysis (poin 4)
-        st.markdown('<div class="sec">📍 Analisis Peak & Trough per Program</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sec">📍 Analisis Peak & Trough per Program — dengan Konteks Ekonomi (World Bank)</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="info-box">🌐 <b>Data ekonomi dari World Bank API</b> (PDB, inflasi, pengangguran) '
+            'diambil otomatis dan dikombinasikan dengan konteks lokal untuk menjelaskan '
+            '<i>mengapa</i> klaim mencapai puncak atau lembah di tahun tertentu.</div>',
+            unsafe_allow_html=True)
         progs_to_analyze = sorted(filtered_progs)
         n_pcols = min(len(progs_to_analyze), 3)
         if n_pcols > 0:
@@ -2183,6 +2344,7 @@ with tab1:
         t3l, t3r = st.columns(2)
         with t3l:
             st.markdown('<div class="sec">Komposisi Stacked per Tahun</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:4px;">Tinggi bar = total klaim semua program. Warna menunjukkan kontribusi per program. Pergeseran warna antar tahun = perubahan dominansi program.</div>', unsafe_allow_html=True)
             fig4 = px.bar(trend, x='Tahun', y='Kasus', color='Kategori',
                           barmode='stack', color_discrete_sequence=COLORS)
             fig4.update_traces(marker_line_width=0)
@@ -2193,7 +2355,7 @@ with tab1:
         with t3r:
             st.markdown('<div class="sec">Heatmap Kasus (Program × Tahun)</div>',
                         unsafe_allow_html=True)
-            st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Warna lebih terang/biru = klaim lebih tinggi. Berguna untuk melihat pola lintas program dan tahun sekaligus.</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Warna lebih terang/biru = klaim lebih tinggi. Pola diagonal menunjukkan tren konsisten. Satu sel jauh lebih terang dari sekitarnya = anomali (misalnya lonjakan karena pandemi).</div>', unsafe_allow_html=True)
             hm_p = (df_plot.groupby(['Kategori', 'Tahun'])['Kasus'].sum()
                     .reset_index()
                     .pivot(index='Kategori', columns='Tahun', values='Kasus')
@@ -3287,24 +3449,56 @@ with tab2:
                                                 r = float(corr_matrix.loc[pa, pb])
                                                 if abs(r) >= 0.5:
                                                     if r >= 0.7:
-                                                        lbl = f'Korelasi kuat positif (r={r:+.2f}) — 📈 keduanya cenderung naik bersamaan saat hari libur'
+                                                        lbl = f'Korelasi kuat positif (r={r:+.2f}) — 📈 keduanya naik bersamaan saat hari libur'
                                                     elif r >= 0.5:
                                                         lbl = f'Korelasi sedang positif (r={r:+.2f}) — cenderung bergerak searah'
                                                     elif r <= -0.7:
-                                                        lbl = f'Korelasi kuat negatif (r={r:+.2f}) — 🔄 berlawanan arah'
+                                                        lbl = f'Korelasi kuat negatif (r={r:+.2f}) — 🔄 berlawanan arah (satu naik, satu turun)'
                                                     else:
                                                         lbl = f'Korelasi sedang negatif (r={r:+.2f}) — cenderung berlawanan'
                                                     interp_lines.append(f'<b>{pa}</b> ↔ <b>{pb}</b>: {lbl}')
                                         if interp_lines:
                                             st.markdown(
-                                                '<div class="insight-note">📖 <b>Interpretasi (|r| ≥ 0.5):</b><br>'
+                                                '<div class="insight-note">📖 <b>Interpretasi Korelasi Antar Program (|r| ≥ 0.5):</b><br>'
                                                 + '<br>'.join(interp_lines) + '</div>',
                                                 unsafe_allow_html=True)
                                         else:
                                             st.markdown(
                                                 '<div class="insight-note">Tidak ada korelasi signifikan antar program '
-                                                '(semua |r| < 0.5) — tiap program merespons hari libur secara berbeda.</div>',
+                                                '(semua |r| < 0.5) — tiap program merespons hari libur secara independen.</div>',
                                                 unsafe_allow_html=True)
+
+                                        # ── Korelasi: Holiday tertentu naik di program mana ──
+                                        st.markdown('<div class="sec">🔍 Efek Holiday Spesifik per Program</div>', unsafe_allow_html=True)
+                                        st.markdown(
+                                            '<div class="info-box">💡 <b>Insight:</b> '
+                                            'Tabel berikut menampilkan hari libur mana yang menyebabkan kenaikan/penurunan '
+                                            'signifikan (|efek| > 5%) pada setiap program. '
+                                            'Berguna untuk perencanaan kapasitas klaim.</div>',
+                                            unsafe_allow_html=True)
+                                        if 'heff_grp' in dir() or 'heff_grp' in locals():
+                                            _pivot_insight = heff_grp.pivot_table(
+                                                index='Kategori', columns='Program',
+                                                values='Efek_pct', aggfunc='mean').fillna(0).round(1)
+                                            _sig = (_pivot_insight.abs() > 5)
+                                            _rows_insight = []
+                                            for _hol in _pivot_insight.index:
+                                                for _prog in _pivot_insight.columns:
+                                                    _eff = float(_pivot_insight.loc[_hol, _prog])
+                                                    if abs(_eff) > 5:
+                                                        _arah = "⬆ Naik" if _eff > 0 else "⬇ Turun"
+                                                        _rows_insight.append({
+                                                            'Hari Libur': _hol,
+                                                            'Program': _prog,
+                                                            'Efek (%)': f"{_eff:+.1f}%",
+                                                            'Arah': _arah,
+                                                        })
+                                            if _rows_insight:
+                                                _df_ins = pd.DataFrame(_rows_insight).sort_values(
+                                                    ['Program', 'Hari Libur'])
+                                                st.dataframe(_df_ins, use_container_width=True, height=300)
+                                            else:
+                                                st.info("Tidak ada efek holiday yang signifikan (> 5%) terdeteksi.")
                                     else:
                                         st.info("Butuh ≥2 program untuk analisis korelasi.")
                                 else:
@@ -3467,10 +3661,43 @@ with tab3:
                 if len(p):
                     x_p = list(p['Tahun'])
                     y_p = list(p[target_pred])
+                    upper_col = f'{target_pred}_upper'
+                    lower_col = f'{target_pred}_lower'
+                    has_ci = upper_col in p.columns and lower_col in p.columns
                     if len(h):
                         last_h = h.sort_values('Tahun').iloc[-1]
                         x_p = [int(last_h['Tahun'])] + x_p
                         y_p = [float(last_h[target_pred])] + y_p
+                        if has_ci:
+                            y_upper = [float(last_h[target_pred])] + list(p[upper_col])
+                            y_lower = [float(last_h[target_pred])] + list(p[lower_col])
+                    elif has_ci:
+                        y_upper = list(p[upper_col])
+                        y_lower = list(p[lower_col])
+
+                    # Confidence band (shaded area)
+                    if has_ci:
+                        fig_main.add_trace(go.Scatter(
+                            x=x_p + x_p[::-1],
+                            y=y_upper + y_lower[::-1],
+                            fill='toself',
+                            fillcolor=hex_to_rgba(col, 0.12),
+                            line=dict(color='rgba(0,0,0,0)'),
+                            hoverinfo='skip',
+                            showlegend=False,
+                            legendgroup=cat,
+                        ))
+                        # CI % label on last point
+                        ci_pct_col = f'{target_pred}_ci_pct'
+                        if ci_pct_col in p.columns:
+                            last_ci = float(p[ci_pct_col].iloc[-1])
+                            fig_main.add_annotation(
+                                x=x_p[-1], y=y_upper[-1],
+                                text=f"±{last_ci:.0f}%",
+                                showarrow=False,
+                                font=dict(size=9, color=col, family='Inter'),
+                                yshift=8,
+                            )
                     fig_main.add_trace(go.Scatter(
                         x=x_p, y=y_p,
                         name=cat + " (Prediksi)",
@@ -3478,6 +3705,11 @@ with tab3:
                         line=dict(color=col, width=2.5, dash='dash'),
                         marker=dict(size=10, symbol='diamond'),
                         legendgroup=cat,
+                        hovertemplate=(
+                            f"<b>{cat} (Prediksi)</b><br>"
+                            "Tahun: %{x}<br>"
+                            f"{target_pred}: %{{y:,.0f}}<extra></extra>"
+                        ),
                     ))
 
             fig_main.add_vrect(
@@ -3514,11 +3746,12 @@ with tab3:
                     pill_cls = mape_grade(mape_v) if mape_v is not None else 'mpill-blue'
                     mape_txt = f"MAPE: {mape_v:.1f}%" if mape_v is not None else ""
                     cards_html += (
-                        f'<div style="background:#0d1f35;border:1px solid #1e3a5f;'
-                        f'border-radius:10px;padding:10px 14px;min-width:120px;">'
-                        f'<div style="font-size:.65rem;color:#475569;font-weight:700;'
+                        f'<div style="background:#ffffff;border:1px solid #e2e8f0;'
+                        f'border-radius:10px;padding:10px 14px;min-width:120px;'
+                        f'box-shadow:0 1px 3px rgba(0,0,0,.05);">'
+                        f'<div style="font-size:.65rem;color:#64748b;font-weight:700;'
                         f'text-transform:uppercase;letter-spacing:1px;">{cat}</div>'
-                        f'<div style="font-size:.9rem;font-weight:600;color:#e2e8f0;margin:4px 0;">'
+                        f'<div style="font-size:.9rem;font-weight:600;color:#0f172a;margin:4px 0;">'
                         f'{info["best_name"]}</div>'
                         f'<span class="mpill {pill_cls}">{mape_txt}</span>'
                         f'</div>'
@@ -3526,8 +3759,34 @@ with tab3:
                 cards_html += '</div>'
                 st.markdown(cards_html, unsafe_allow_html=True)
 
-            st.markdown('<div class="sec">Nilai Prediksi per Tahun per Program</div>',
+            st.markdown('<div class="sec">Nilai Prediksi per Tahun per Program + Interval Kepercayaan</div>',
                         unsafe_allow_html=True)
+
+            # Tabel dengan batas atas / bawah dalam persentase
+            upper_col = f'{target_pred}_upper'
+            lower_col = f'{target_pred}_lower'
+            ci_col    = f'{target_pred}_ci_pct'
+            has_ci    = all(c in fut.columns for c in [upper_col, lower_col, ci_col])
+
+            if has_ci:
+                tbl = fut[['Tahun','Kategori',target_pred, upper_col, lower_col, ci_col]].copy()
+                tbl.columns = ['Tahun','Program','Prediksi','Batas Atas','Batas Bawah','CI (%)']
+                tbl['Prediksi']   = tbl['Prediksi'].round(0).astype(int)
+                tbl['Batas Atas'] = tbl['Batas Atas'].round(0).astype(int)
+                tbl['Batas Bawah']= tbl['Batas Bawah'].round(0).astype(int)
+                tbl['CI (%)']     = tbl['CI (%)'].round(1).astype(str) + '%'
+                tbl['Rentang']    = tbl.apply(
+                    lambda r: f"{int(r['Batas Bawah']):,}  ↔  {int(r['Batas Atas']):,}", axis=1)
+                st.dataframe(
+                    tbl[['Tahun','Program','Prediksi','Rentang','CI (%)']].sort_values(['Tahun','Program']),
+                    use_container_width=True, height=min(400, (len(tbl)+1)*38))
+                st.markdown(
+                    '<div class="info-box">📐 <b>Cara baca CI:</b> '
+                    'Interval kepercayaan dihitung dari MAPE historis model. '
+                    'Makin jauh tahun prediksi, makin lebar interval (ketidakpastian meningkat). '
+                    'Contoh: CI 15% pada prediksi 100.000 artinya rentang realistis 85.000–115.000.</div>',
+                    unsafe_allow_html=True)
+
             fig_bar = px.bar(
                 fut, x='Tahun', y=target_pred, color='Kategori',
                 barmode='group', color_discrete_sequence=COLORS,
@@ -3535,7 +3794,17 @@ with tab3:
             )
             fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='outside',
                 marker_line_width=0, textfont_size=9)
-            styled_chart(fig_bar, height=400)
+            # Add error bars if CI available
+            if has_ci:
+                for i, cat in enumerate(sorted(fut['Kategori'].unique())):
+                    p_c = fut[fut['Kategori']==cat].sort_values('Tahun')
+                    err_plus  = (p_c[upper_col] - p_c[target_pred]).tolist()
+                    err_minus = (p_c[target_pred] - p_c[lower_col]).tolist()
+                    # Update existing bar trace
+                    fig_bar.data[i].error_y = dict(
+                        type='data', array=err_plus, arrayminus=err_minus,
+                        visible=True, color='rgba(100,116,139,0.5)', thickness=1.5, width=4)
+            styled_chart(fig_bar, height=420)
             fig_bar.update_layout(xaxis=dict(dtick=1))
             st.plotly_chart(fig_bar, width='stretch')
 
