@@ -316,8 +316,7 @@ for k, v in [('active_data', None), ('active_results', {}), ('active_entry_id', 
         st.session_state[k] = v
 
 DARK = dict(template='plotly_dark', paper_bgcolor='rgba(15,23,42,0.95)', plot_bgcolor='rgba(15,23,42,0.95)',
-            font_color='#94a3b8', font_family='Inter',
-            title_font_family='Inter', title_font_color='#cbd5e1')
+            font_color='#94a3b8', font_family='Inter')
 COLORS = ['#60a5fa','#34d399','#fb923c','#a78bfa','#f87171',
           '#fbbf24','#38bdf8','#f472b6','#4ade80','#e879f9']
 COLORS_ALPHA = {c: c for c in COLORS}
@@ -2176,18 +2175,29 @@ with tab1:
                 return {}
 
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
+
+        # Hapus cache lama yang berisi error agar bisa retry otomatis
+        _ck = f"ekon_ctx_{'_'.join(map(str, all_yrs_data_for_ctx))}"
+        if _ck in st.session_state and isinstance(st.session_state[_ck], dict) and "_error" in st.session_state[_ck]:
+            del st.session_state[_ck]
+
         _ekon_raw = None
         with st.spinner("🤖 Mengambil konteks ekonomi via AI..."):
             _ekon_raw = _get_ai_ekon_context(all_yrs_data_for_ctx)
-        # Show error if API failed
+
         if isinstance(_ekon_raw, dict) and "_error" in _ekon_raw:
             st.markdown(
                 f'<div class="warn">⚠️ <b>Konteks AI gagal:</b> {_ekon_raw["_error"]}<br>'
-                f'Pastikan <code>ANTHROPIC_API_KEY</code> sudah benar di Streamlit Secrets → Manage app → Secrets.</div>',
+                f'Pastikan <code>ANTHROPIC_API_KEY</code> sudah benar di Streamlit Secrets.</div>',
+                unsafe_allow_html=True)
+            EKON_CONTEXT = {}
+        elif not _ekon_raw:
+            st.markdown(
+                '<div class="warn">⚠️ API tidak mengembalikan data. Coba refresh halaman.</div>',
                 unsafe_allow_html=True)
             EKON_CONTEXT = {}
         else:
-            EKON_CONTEXT = _ekon_raw if _ekon_raw else {}
+            EKON_CONTEXT = _ekon_raw
 
         st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi AI</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
@@ -2243,8 +2253,10 @@ with tab1:
                 trough_yr = int(prog_trend.loc[prog_trend['Kasus'].idxmin(), 'Tahun'])
                 peak_val = int(prog_trend['Kasus'].max())
                 trough_val = int(prog_trend['Kasus'].min())
-                peak_ctx = EKON_CONTEXT.get(peak_yr, ("—", "Tidak ada konteks."))
-                trough_ctx = EKON_CONTEXT.get(trough_yr, ("—", "Tidak ada konteks."))
+                _raw_pk = EKON_CONTEXT.get(peak_yr, ("—", "Tidak ada konteks."))
+                peak_ctx = _raw_pk if isinstance(_raw_pk, tuple) and len(_raw_pk)==2 else ("📊", str(_raw_pk))
+                _raw_tr = EKON_CONTEXT.get(trough_yr, ("—", "Tidak ada konteks."))
+                trough_ctx = _raw_tr if isinstance(_raw_tr, tuple) and len(_raw_tr)==2 else ("📊", str(_raw_tr))
                 range_pct = abs((peak_val - trough_val) / (trough_val + 1e-9) * 100)
                 with peak_cols_list[pi % n_pcols]:
                     st.markdown(
@@ -2272,16 +2284,23 @@ with tab1:
                         unsafe_allow_html=True)
 
         with st.expander("📰 Referensi Konteks Ekonomi Indonesia per Tahun"):
-            for yr in sorted(EKON_CONTEXT.keys()):
-                if yr in all_yrs_data:
-                    icon, desc = EKON_CONTEXT[yr]
-                    st.markdown(
-                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-                        f'padding:10px 14px;margin:5px 0;">'
-                        f'<span style="font-weight:700;color:#0f172a">{yr} — {icon}</span><br>'
-                        f'<span style="font-size:.83rem;color:#475569;line-height:1.7">{desc}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True)
+            if not EKON_CONTEXT:
+                st.warning("Konteks ekonomi belum tersedia. Pastikan ANTHROPIC_API_KEY sudah diset di Secrets, lalu refresh halaman.")
+            else:
+                for yr in sorted(EKON_CONTEXT.keys()):
+                    if yr in all_yrs_data:
+                        ctx_val = EKON_CONTEXT[yr]
+                        if isinstance(ctx_val, tuple) and len(ctx_val) == 2:
+                            icon, desc = ctx_val
+                        else:
+                            icon, desc = "📊", str(ctx_val)
+                        st.markdown(
+                            f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                            f'padding:10px 14px;margin:5px 0;">'
+                            f'<span style="font-weight:700;color:#0f172a">{yr} — {icon}</span><br>'
+                            f'<span style="font-size:.83rem;color:#475569;line-height:1.7">{desc}</span>'
+                            f'</div>',
+                            unsafe_allow_html=True)
 
         t3l, t3r = st.columns(2)
         with t3l:
