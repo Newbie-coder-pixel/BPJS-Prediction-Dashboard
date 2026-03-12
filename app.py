@@ -2515,7 +2515,7 @@ with tab1:
                         })
                 if wb_rows:
                     st.dataframe(_pd2.DataFrame(wb_rows).set_index("Tahun"),
-                                 width='stretch', width='stretch')
+                                 width='stretch')
                 st.caption("Sumber: World Bank Open Data (api.worldbank.org). Cache 24 jam.")
 
 
