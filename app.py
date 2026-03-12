@@ -1841,85 +1841,146 @@ def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
     except Exception:
         return None
 
-def _get_api_key():
-    """Returns best available AI API key — priority: Groq > Gemini."""
-    try:
-        # Groq — gratis, sangat cepat, LLaMA 3.3 70B (6000 tokens/min free)
-        try:    return ("groq", st.secrets["GROQ_API_KEY"])
-        except: pass
-        try:    return ("groq", st.secrets["groq_api_key"])
-        except: pass
-        # Gemini fallback
-        try:    return ("gemini", st.secrets["GEMINI_API_KEY"])
-        except: pass
-        try:    return ("gemini", st.secrets["gemini_api_key"])
-        except: pass
-    except Exception:
-        pass
-    return ("", "")
-
-def _call_ai(prompt, system="", api_info=None, max_tokens=800):
-    """Universal AI caller — Groq (LLaMA 3.3 70B, gratis) with Gemini fallback."""
-    import urllib.request, json as _j
-    if api_info is None:
-        api_info = _get_api_key()
-    provider, key = api_info if isinstance(api_info, tuple) and len(api_info)==2 else ("","")
+def _detect_provider(key: str) -> str:
+    """Auto-detect AI provider dari prefix API key."""
     if not key:
-        return None
+        return ""
+    k = key.strip()
+    if k.startswith("gsk_"):
+        return "groq"
+    if k.startswith("AIza"):
+        return "gemini"
+    if k.startswith("sk-ant-"):
+        return "anthropic"
+    # Default groq jika tidak dikenali tapi ada key di GROQ_API_KEY
+    return "groq"
 
-    if provider == "groq":
-        # Groq API — gratis 6000 TPM, model llama-3.3-70b-versatile
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        body = _j.dumps({
-            "model": "llama-3.3-70b-versatile",
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.3
-        }).encode('utf-8')
-        req = urllib.request.Request(url, data=body,
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {key}"}, method="POST")
+def _get_api_key():
+    """
+    Returns (provider, key) tuple.
+    Auto-detect provider dari prefix key — mencegah mismatch key vs provider.
+    Priority: GROQ_API_KEY > GEMINI_API_KEY > BPS_API_KEY (fallback detection).
+    """
+    candidates = []
+    for secret_name in ["GROQ_API_KEY", "groq_api_key",
+                        "GEMINI_API_KEY", "gemini_api_key",
+                        "ANTHROPIC_API_KEY", "anthropic_api_key"]:
+        try:
+            val = st.secrets[secret_name].strip()
+            if val:
+                provider = _detect_provider(val)
+                if provider:
+                    candidates.append((provider, val))
+        except Exception:
+            pass
+
+    if not candidates:
+        return ("", "")
+
+    # Prioritaskan groq > gemini > anthropic
+    for pref in ("groq", "gemini", "anthropic"):
+        for p, k in candidates:
+            if p == pref:
+                return (p, k)
+
+    return candidates[0]
+
+def _call_ai_groq(prompt, system, key, max_tokens=800):
+    """Call Groq API (OpenAI-compatible). Raise exception on error."""
+    import urllib.request, json as _j, urllib.error
+    url  = "https://api.groq.com/openai/v1/chat/completions"
+    msgs = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+    body = _j.dumps({
+        "model": "llama-3.3-70b-versatile",
+        "messages": msgs,
+        "max_tokens": max_tokens,
+        "temperature": 0.4,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}"},
+        method="POST"
+    )
+    try:
         with urllib.request.urlopen(req, timeout=30) as r:
             resp = _j.loads(r.read().decode())
         return resp["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        body_err = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"HTTP {e.code} — {body_err[:400]}")
 
-    elif provider == "gemini":
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-        contents = []
-        if system:
-            contents.append({"role": "user", "parts": [{"text": f"[System instruction]: {system}"}]})
-            contents.append({"role": "model", "parts": [{"text": "Understood. I will follow these instructions."}]})
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
-        body = _j.dumps({
-            "contents": contents,
-            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
-        }).encode('utf-8')
-        req = urllib.request.Request(url, data=body,
-            headers={"Content-Type": "application/json"}, method="POST")
+def _call_ai_gemini(prompt, system, key, max_tokens=800):
+    """Call Gemini 2.0 Flash API. Raise exception on error."""
+    import urllib.request, json as _j, urllib.error
+    url = (f"https://generativelanguage.googleapis.com/v1beta"
+           f"/models/gemini-2.0-flash:generateContent?key={key}")
+    contents = []
+    if system:
+        contents.append({"role": "user",  "parts": [{"text": f"[System]: {system}"}]})
+        contents.append({"role": "model", "parts": [{"text": "Understood."}]})
+    contents.append({"role": "user", "parts": [{"text": prompt}]})
+    body = _j.dumps({
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4}
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
         with urllib.request.urlopen(req, timeout=30) as r:
             resp = _j.loads(r.read().decode())
         return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except urllib.error.HTTPError as e:
+        body_err = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"HTTP {e.code} — {body_err[:400]}")
 
-    elif provider == "anthropic":
-        url = "https://api.anthropic.com/v1/messages"
-        messages = [{"role": "user", "content": prompt}]
-        body = _j.dumps({
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages
-        }).encode('utf-8')
-        req = urllib.request.Request(url, data=body,
-            headers={"Content-Type": "application/json",
-                     "x-api-key": key, "anthropic-version": "2023-06-01"},
-            method="POST")
-        with urllib.request.urlopen(req, timeout=30) as r:
-            resp = _j.loads(r.read().decode())
-        return resp["content"][0]["text"].strip()
+def _call_ai(prompt, system="", api_info=None, max_tokens=800):
+    """
+    Universal AI caller dengan auto-detect provider & proper error messages.
+    Groq (LLaMA 3.3 70B) > Gemini 2.0 Flash, keduanya gratis.
+    """
+    if api_info is None:
+        api_info = _get_api_key()
+    provider, key = api_info if (isinstance(api_info, tuple) and len(api_info) == 2) else ("", "")
+    if not key:
+        return None
+
+    # Re-detect provider dari key prefix untuk mencegah mismatch
+    detected = _detect_provider(key)
+    if detected and detected != provider:
+        provider = detected
+
+    try:
+        if provider == "groq":
+            return _call_ai_groq(prompt, system, key, max_tokens)
+        elif provider == "gemini":
+            return _call_ai_gemini(prompt, system, key, max_tokens)
+        elif provider == "anthropic":
+            import urllib.request, json as _j
+            url  = "https://api.anthropic.com/v1/messages"
+            body = _j.dumps({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}]
+            }).encode("utf-8")
+            req  = urllib.request.Request(
+                url, data=body,
+                headers={"Content-Type": "application/json",
+                         "x-api-key": key, "anthropic-version": "2023-06-01"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as r:
+                resp = _j.loads(r.read().decode())
+            return resp["content"][0]["text"].strip()
+    except Exception:
+        return None
 
     return None
 
@@ -2454,7 +2515,7 @@ with tab1:
                         })
                 if wb_rows:
                     st.dataframe(_pd2.DataFrame(wb_rows).set_index("Tahun"),
-                                 width='stretch', use_container_width=True)
+                                 width='stretch', width='stretch')
                 st.caption("Sumber: World Bank Open Data (api.worldbank.org). Cache 24 jam.")
 
 
@@ -3604,7 +3665,7 @@ with tab2:
                                             xaxis=dict(tickfont=dict(size=12, color='#334155')),
                                             yaxis=dict(tickfont=dict(size=12, color='#334155')),
                                         )
-                                        st.plotly_chart(fig_corr, use_container_width=True)
+                                        st.plotly_chart(fig_corr, width='stretch')
 
                                         interp_lines = []
                                         progs_corr = list(corr_matrix.columns)
@@ -3660,7 +3721,7 @@ with tab2:
                                             if _rows_insight:
                                                 _df_ins = pd.DataFrame(_rows_insight).sort_values(
                                                     ['Program', 'Hari Libur'])
-                                                st.dataframe(_df_ins, use_container_width=True, height=300)
+                                                st.dataframe(_df_ins, width='stretch', height=300)
                                             else:
                                                 st.info("Tidak ada efek holiday yang signifikan (> 5%) terdeteksi.")
                                     else:
@@ -3943,7 +4004,7 @@ with tab3:
                     lambda r: f"{int(r['Batas Bawah']):,}  ↔  {int(r['Batas Atas']):,}", axis=1)
                 st.dataframe(
                     tbl[['Tahun','Program','Prediksi','Rentang','CI (%)']].sort_values(['Tahun','Program']),
-                    use_container_width=True, height=min(400, (len(tbl)+1)*38))
+                    width='stretch', height=min(400, (len(tbl)+1)*38))
                 st.markdown(
                     '<div class="info-box">📐 <b>Cara baca CI:</b> '
                     'Interval kepercayaan dihitung dari MAPE historis model. '
@@ -4308,22 +4369,32 @@ def _build_chat_wb_ctx(wb_ekon):
     except Exception: return ""
 
 def _chat_answer(question):
-    """Jawab pertanyaan dengan Groq LLaMA 3.3 70B (gratis) atau Gemini fallback."""
-    import urllib.request as _ur, json as _jj
+    """
+    Jawab pertanyaan AI dengan Groq LLaMA 3.3 70B atau Gemini 2.0 Flash.
+    Auto-detect provider dari key prefix. Berikan pesan error yang jelas.
+    """
     api_info = _get_api_key()
     provider, key = api_info if isinstance(api_info, tuple) else ("", "")
+
     if not key:
         return (
-            "⚠️ **API Key belum diset.**\n\n"
-            "Pilih salah satu (keduanya **gratis**):\n\n"
-            "**Opsi 1 — Groq (Rekomendasi, lebih cepat & bebas 429):**\n"
-            "Daftar di https://console.groq.com → API Keys → Create\n"
-            "Lalu di Streamlit: Manage App → Secrets → tambahkan:\n"
-            "`GROQ_API_KEY = \"gsk_...\"`\n\n"
-            "**Opsi 2 — Gemini:**\n"
-            "Daftar di https://aistudio.google.com → Get API Key\n"
-            "Tambahkan: `GEMINI_API_KEY = \"AIza...\"`"
+            "⚠️ **API Key belum diset.** Pilih salah satu (keduanya gratis):\n\n"
+            "**🟢 Groq (Rekomendasi — bebas 429, super cepat):**\n"
+            "1. Daftar di https://console.groq.com\n"
+            "2. Klik API Keys → Create API Key\n"
+            "3. Copy key yang dimulai dengan `gsk_...`\n"
+            "4. Di Streamlit: Manage App → Settings → Secrets → tambahkan:\n"
+            "   `GROQ_API_KEY = \"gsk_xxxxx\"`\n\n"
+            "**🟡 Gemini (alternatif):**\n"
+            "1. Buka https://aistudio.google.com\n"
+            "2. Get API Key → tambahkan:\n"
+            "   `GEMINI_API_KEY = \"AIza...\"`"
         )
+
+    # Re-detect provider dari key untuk mencegah mismatch
+    detected = _detect_provider(key)
+    if detected:
+        provider = detected
 
     data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
     wb_ctx   = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
@@ -4334,61 +4405,55 @@ def _chat_answer(question):
         hist_str += f"{role}: {h['content']}\n"
 
     sys_p = (
-        "Kamu adalah AI Analyst ahli untuk BPJS Ketenagakerjaan Indonesia. "
-        "Tugasmu menganalisis data klaim program JHT, JKK, JKM, JKP, JPN berdasarkan data yang diberikan. "
-        "Jawab dalam Bahasa Indonesia yang jelas dan padat. Gunakan angka spesifik dari data. "
-        "Berikan insight yang actionable. Maksimal 6 kalimat per jawaban kecuali diminta lebih."
+        "Kamu adalah AI Analyst ahli BPJS Ketenagakerjaan Indonesia. "
+        "Analisis data klaim program JHT (Jaminan Hari Tua), JKK (Jaminan Kecelakaan Kerja), "
+        "JKM (Jaminan Kematian), JKP (Jaminan Kehilangan Pekerjaan), JPN berdasarkan data yang diberikan. "
+        "Jawab dalam Bahasa Indonesia yang padat dan jelas. Gunakan angka spesifik dari data. "
+        "Berikan insight yang actionable. Maksimal 6 kalimat kecuali diminta lebih panjang."
     )
-
     prompt = (
         f"[DATA BPJS]\n{data_ctx}\n{wb_ctx}\n[/DATA]\n\n"
-        f"Riwayat percakapan:\n{hist_str}\n"
-        f"Pertanyaan user: {question}\n\nJawaban AI:"
+        f"Riwayat:\n{hist_str}\n"
+        f"Pertanyaan: {question}\n\nJawaban:"
     )
 
     try:
         if provider == "groq":
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            body = _jj.dumps({
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": sys_p},
-                    {"role": "user",   "content": prompt}
-                ],
-                "max_tokens": 800,
-                "temperature": 0.4
-            }).encode('utf-8')
-            req = _ur.Request(url, data=body,
-                              headers={"Content-Type": "application/json",
-                                       "Authorization": f"Bearer {key}"}, method="POST")
-            with _ur.urlopen(req, timeout=30) as r:
-                resp = _jj.loads(r.read().decode())
-            return resp["choices"][0]["message"]["content"].strip()
-
+            return _call_ai_groq(prompt, sys_p, key, max_tokens=900)
         elif provider == "gemini":
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-            body = _jj.dumps({
-                "contents": [
-                    {"role": "user",  "parts": [{"text": f"[Instruksi sistem]: {sys_p}"}]},
-                    {"role": "model", "parts": [{"text": "Siap, saya siap menganalisis data BPJS."}]},
-                    {"role": "user",  "parts": [{"text": prompt}]}
-                ],
-                "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
-            }).encode('utf-8')
-            req = _ur.Request(url, data=body,
-                              headers={"Content-Type": "application/json"}, method="POST")
-            with _ur.urlopen(req, timeout=30) as r:
-                resp = _jj.loads(r.read().decode())
-            return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return _call_ai_gemini(prompt, sys_p, key, max_tokens=900)
+        else:
+            return f"⚠️ Provider '{provider}' tidak dikenali. Cek format API key Anda."
 
+    except RuntimeError as e:
+        err = str(e)
+        # Diagnosis error yang detail
+        if "401" in err or "403" in err or "invalid_api_key" in err.lower() or "Forbidden" in err:
+            hint = ""
+            if provider == "groq":
+                hint = ("Key Groq harus dimulai dengan `gsk_...`\n"
+                        "Buat key baru di: https://console.groq.com/keys")
+            elif provider == "gemini":
+                hint = ("Key Gemini harus dimulai dengan `AIza...`\n"
+                        "Buat key baru di: https://aistudio.google.com")
+            return (f"❌ **API Key ditolak (HTTP {err[:3]}).**\n\n"
+                    f"Provider terdeteksi: **{provider}** (dari prefix key)\n\n"
+                    f"**Solusi:**\n{hint}\n\n"
+                    f"Detail error: `{err[:200]}`")
+        elif "429" in err:
+            if provider == "gemini":
+                return ("⏳ **Gemini rate limit (429).** Terlalu banyak request.\n\n"
+                        "**Solusi terbaik:** Ganti ke Groq yang bebas 429:\n"
+                        "1. Daftar di https://console.groq.com\n"
+                        "2. Tambahkan `GROQ_API_KEY = \"gsk_...\"` di Secrets\n"
+                        "3. Bisa hapus atau biarkan GEMINI_API_KEY — Groq akan diutamakan")
+            return f"⏳ **Rate limit (429).** Tunggu sebentar lalu coba lagi.\n\nDetail: `{err[:150]}`"
+        elif "timeout" in err.lower():
+            return "⏱️ **Request timeout.** Server AI lambat merespons. Coba lagi dalam beberapa detik."
+        else:
+            return f"⚠️ **Error saat memanggil AI:**\n```\n{err[:400]}\n```"
     except Exception as e:
-        err_msg = str(e)
-        if "429" in err_msg:
-            return ("⚠️ **Rate limit tercapai (429).** Terlalu banyak request dalam waktu singkat.\n\n"
-                    "💡 **Solusi:** Gunakan **Groq API** (bebas 429, lebih cepat):\n"
-                    "Daftar gratis di https://console.groq.com → tambahkan `GROQ_API_KEY` di Secrets.")
-        return f"⚠️ Error: {err_msg[:300]}"
-    return "Provider tidak dikenali."
+        return f"⚠️ **Error tidak terduga:** `{str(e)[:300]}`"
 
 # ── Process pending question ──────────────────────────────────────────────────
 if st.session_state._chat_pending:
@@ -4464,7 +4529,7 @@ with tab5:
             f"🔮 Prediksi klaim tahun depan?",
         ]
         for _qi, _qtext in enumerate(_quick):
-            if st.button(_qtext, key=f"quick_{_qi}", use_container_width=True):
+            if st.button(_qtext, key=f"quick_{_qi}", width='stretch'):
                 _clean_q = _qtext.split(" ", 1)[1] if " " in _qtext else _qtext
                 st.session_state.chat_history.append({"role": "user", "content": _clean_q})
                 st.session_state._chat_pending = _clean_q
@@ -4473,17 +4538,35 @@ with tab5:
         st.markdown("")
         st.markdown('<div class="sec">📊 Ringkasan Data</div>', unsafe_allow_html=True)
         _total_kasus = df['Kasus'].sum()
+
+        # Show key info (masked)
+        _key_preview = "Belum ada"
+        if _ai_key:
+            _key_preview = _ai_key[:6] + "..." + _ai_key[-4:] if len(_ai_key) > 12 else "***"
+
         st.markdown(f"""
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:.8rem;color:#475569;line-height:2;">
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:.8rem;color:#475569;line-height:2.1;">
         📅 <b>Tahun:</b> {years[0]}–{years[-1]}<br>
         🏷️ <b>Program:</b> {len(active_progs)} aktif<br>
         📋 <b>Total kasus:</b> {_total_kasus:,.0f}<br>
-        🤖 <b>Model:</b> {'LLaMA 3.3 70B' if _ai_prov=='groq' else 'Gemini 2.0 Flash' if _ai_prov=='gemini' else 'Belum aktif'}
+        🤖 <b>Model:</b> {'LLaMA 3.3 70B' if _ai_prov=='groq' else 'Gemini 2.0 Flash' if _ai_prov=='gemini' else 'Belum aktif'}<br>
+        🔑 <b>Key:</b> <code>{_key_preview}</code>
         </div>""", unsafe_allow_html=True)
+
+        # Test API button
+        st.markdown("")
+        if _ai_key:
+            if st.button("🔬 Test Koneksi API", width='stretch'):
+                with st.spinner("Testing..."):
+                    _test_result = _chat_answer("Sebutkan program BPJS apa saja yang ada di data ini? Jawab 1 kalimat.")
+                if _test_result and not _test_result.startswith("⚠️") and not _test_result.startswith("❌"):
+                    st.success(f"✅ API OK! Response: {_test_result[:100]}...")
+                else:
+                    st.error(_test_result[:300] if _test_result else "Tidak ada respons")
 
         if st.session_state.chat_history:
             st.markdown("")
-            if st.button("🗑️ Hapus Riwayat", use_container_width=True):
+            if st.button("🗑️ Hapus Riwayat", width='stretch'):
                 st.session_state.chat_history = []
                 st.rerun()
 
@@ -4538,7 +4621,7 @@ with tab5:
                 label_visibility="collapsed"
             )
         with _btn_col:
-            _send_btn = st.button("Kirim ➤", key="ai_tab_send", type="primary", use_container_width=True)
+            _send_btn = st.button("Kirim ➤", key="ai_tab_send", type="primary", width='stretch')
 
         if _send_btn and _user_input and _user_input.strip():
             st.session_state.chat_history.append({"role": "user", "content": _user_input.strip()})
