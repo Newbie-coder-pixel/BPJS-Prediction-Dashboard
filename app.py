@@ -1846,24 +1846,23 @@ def _detect_provider(key: str) -> str:
     if not key:
         return ""
     k = key.strip()
-    if k.startswith("gsk_"):
-        return "groq"
     if k.startswith("AIza"):
         return "gemini"
+    if k.startswith("gsk_"):
+        return "groq"
     if k.startswith("sk-ant-"):
         return "anthropic"
-    # Default groq jika tidak dikenali tapi ada key di GROQ_API_KEY
-    return "groq"
+    return "gemini"
 
 def _get_api_key():
     """
     Returns (provider, key) tuple.
-    Auto-detect provider dari prefix key — mencegah mismatch key vs provider.
-    Priority: GROQ_API_KEY > GEMINI_API_KEY > BPS_API_KEY (fallback detection).
+    Priority: GEMINI > GROQ — Gemini bekerja dari Streamlit Cloud,
+    Groq sering diblokir Cloudflare (error 1010) dari datacenter.
     """
     candidates = []
-    for secret_name in ["GROQ_API_KEY", "groq_api_key",
-                        "GEMINI_API_KEY", "gemini_api_key",
+    for secret_name in ["GEMINI_API_KEY", "gemini_api_key",
+                        "GROQ_API_KEY", "groq_api_key",
                         "ANTHROPIC_API_KEY", "anthropic_api_key"]:
         try:
             val = st.secrets[secret_name].strip()
@@ -1877,8 +1876,8 @@ def _get_api_key():
     if not candidates:
         return ("", "")
 
-    # Prioritaskan groq > gemini > anthropic
-    for pref in ("groq", "gemini", "anthropic"):
+    # Prioritaskan gemini > groq > anthropic (Groq diblokir Cloudflare dari Streamlit)
+    for pref in ("gemini", "groq", "anthropic"):
         for p, k in candidates:
             if p == pref:
                 return (p, k)
@@ -4428,16 +4427,22 @@ def _chat_answer(question):
     except RuntimeError as e:
         err = str(e)
         # Diagnosis error yang detail
-        if "401" in err or "403" in err or "invalid_api_key" in err.lower() or "Forbidden" in err:
+        if "401" in err or "403" in err or "invalid_api_key" in err.lower() or "Forbidden" in err or "1010" in err:
+            if provider == "groq" and ("1010" in err or "403" in err):
+                return (
+                    "❌ **Groq diblokir Cloudflare dari Streamlit Cloud (error 1010).**\n\n"
+                    "Ini bukan masalah API key — Groq memblokir request dari server datacenter.\n\n"
+                    "✅ **Solusi:** Gunakan Gemini yang sudah ada di Secrets Anda:\n"
+                    "Key `GEMINI_API_KEY` Anda sudah terdeteksi. Pastikan kode menggunakan Gemini sebagai prioritas.\n\n"
+                    "Atau coba regenerate Groq key di: https://console.groq.com/keys"
+                )
             hint = ""
             if provider == "groq":
-                hint = ("Key Groq harus dimulai dengan `gsk_...`\n"
-                        "Buat key baru di: https://console.groq.com/keys")
+                hint = "Key Groq harus dimulai dengan `gsk_...`\nBuat key baru di: https://console.groq.com/keys"
             elif provider == "gemini":
-                hint = ("Key Gemini harus dimulai dengan `AIza...`\n"
-                        "Buat key baru di: https://aistudio.google.com")
+                hint = "Key Gemini harus dimulai dengan `AIza...`\nBuat key baru di: https://aistudio.google.com"
             return (f"❌ **API Key ditolak (HTTP {err[:3]}).**\n\n"
-                    f"Provider terdeteksi: **{provider}** (dari prefix key)\n\n"
+                    f"Provider terdeteksi: **{provider}**\n\n"
                     f"**Solusi:**\n{hint}\n\n"
                     f"Detail error: `{err[:200]}`")
         elif "429" in err:
@@ -4460,7 +4465,7 @@ if st.session_state._chat_pending:
     _q = st.session_state._chat_pending
     st.session_state._chat_pending = None
     _api_provider = _get_api_key()[0] or "AI"
-    _spinner_label = "🤖 Groq LLaMA menganalisis..." if _api_provider == "groq" else "🤖 Gemini AI menganalisis..."
+    _spinner_label = "🤖 Gemini AI menganalisis..." if _api_provider == "gemini" else "🤖 AI menganalisis..."
     with st.spinner(_spinner_label):
         _ans = _chat_answer(_q)
     st.session_state.chat_history.append({"role": "assistant", "content": _ans})
@@ -4471,11 +4476,11 @@ with tab5:
     # Header
     try:
         _ai_prov, _ai_key = _get_api_key()
-        if _ai_prov == "groq" and _ai_key:
-            _ai_badge = "🟢 Groq · LLaMA 3.3 70B (Aktif)"
+        if _ai_prov == "gemini" and _ai_key:
+            _ai_badge = "🟢 Gemini 2.0 Flash (Aktif)"
             _ai_color = "#16a34a"
-        elif _ai_prov == "gemini" and _ai_key:
-            _ai_badge = "🟡 Gemini 2.0 Flash (Aktif)"
+        elif _ai_prov == "groq" and _ai_key:
+            _ai_badge = "🟡 Groq · LLaMA 3.3 70B (Aktif)"
             _ai_color = "#ca8a04"
         else:
             _ai_badge = "🔴 API Key belum diset"
@@ -4549,7 +4554,7 @@ with tab5:
         📅 <b>Tahun:</b> {years[0]}–{years[-1]}<br>
         🏷️ <b>Program:</b> {len(active_progs)} aktif<br>
         📋 <b>Total kasus:</b> {_total_kasus:,.0f}<br>
-        🤖 <b>Model:</b> {'LLaMA 3.3 70B' if _ai_prov=='groq' else 'Gemini 2.0 Flash' if _ai_prov=='gemini' else 'Belum aktif'}<br>
+        🤖 <b>Model:</b> {'Gemini 2.0 Flash' if _ai_prov=='gemini' else 'LLaMA 3.3 70B' if _ai_prov=='groq' else 'Belum aktif'}<br>
         🔑 <b>Key:</b> <code>{_key_preview}</code>
         </div>""", unsafe_allow_html=True)
 
