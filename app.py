@@ -2008,7 +2008,7 @@ if _is_single_prog:
         f'</div>',
         unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export", "💬 Analisis AI"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1: OVERVIEW
@@ -2112,33 +2112,24 @@ with tab1:
     if not single_yr:
         trend = df_plot.groupby(['Tahun', 'Kategori'])['Kasus'].sum().reset_index()
 
-        # World Bank + BPS API context (dengan fallback statis)
-        _EKON_FALLBACK = {
-            2018: ("📊 Pra-Pandemi",    "PDB +5.17%. Ketenagakerjaan stabil."),
-            2019: ("📊 Pra-Pandemi",    "PDB +5.02%. Ketenagakerjaan stabil, pengangguran 5.28%."),
-            2020: ("⚠️ Pandemi COVID",  "PDB -2.07%. PHK massal ~2.56 juta pekerja. Klaim JHT melonjak."),
-            2021: ("🔄 Awal Pemulihan", "PDB +3.69%. PPKM berlapis. Vaksinasi massal dimulai."),
-            2022: ("🚀 Pemulihan Kuat", "PDB +5.31%. Pasar kerja pulih, pengangguran turun ke 5.86%."),
-            2023: ("💼 Stabilisasi",    "PDB +5.05%. Suku bunga BI 6.00%. PHK sektor teknologi & tekstil."),
-            2024: ("⚡ Transisi",            "PDB +5.03%. Tahun Pemilu. PHK sektor ritel & fintech berlanjut."),
-            2025: ("🔧 Reformasi BPJS", "PDB proyeksi +5.1%. Tapera berjalan. Fokus gig economy."),
-        }
+        # ── AI Economic Context: World Bank API → Claude Analysis ──────────────────
 
         @st.cache_data(ttl=86400, show_spinner=False)
         def _fetch_worldbank(years_tuple):
             import urllib.request, json as _j
             indicators = {
-                'NY.GDP.MKTP.KD.ZG': 'gdp',
-                'FP.CPI.TOTL.ZG':    'inf',
-                'SL.UEM.TOTL.ZS':    'unem',
+                'NY.GDP.MKTP.KD.ZG': 'gdp_pct',
+                'FP.CPI.TOTL.ZG':    'inflation_pct',
+                'SL.UEM.TOTL.ZS':    'unemployment_pct',
+                'NE.EXP.GNFS.KD.ZG': 'export_growth',
             }
             result = {yr: {} for yr in years_tuple}
             for code, key in indicators.items():
                 url = (f"https://api.worldbank.org/v2/country/ID/indicator/{code}"
-                       f"?format=json&date={min(years_tuple)}:{max(years_tuple)}&per_page=20")
+                       f"?format=json&date={min(years_tuple)}:{max(years_tuple)}&per_page=30")
                 try:
                     req = urllib.request.Request(url, headers={"Accept": "application/json"})
-                    with urllib.request.urlopen(req, timeout=10) as r:
+                    with urllib.request.urlopen(req, timeout=12) as r:
                         data = _j.loads(r.read().decode())
                     if isinstance(data, list) and len(data) >= 2:
                         for entry in (data[1] or []):
@@ -2153,70 +2144,93 @@ with tab1:
                     pass
             return result
 
-        @st.cache_data(ttl=86400, show_spinner=False)
-        def _fetch_bps(years_tuple):
+        def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
+                                     wb_data, api_key):
             import urllib.request, json as _j
-            key = ""
-            try:    key = st.secrets["BPS_API_KEY"]
-            except Exception: pass
-            if not key:
-                return {}
-            url = f"https://webapi.bps.go.id/v1/api/list/model/data/lang/ind/domain/0000/var/529/key/{key}/"
-            try:
-                with urllib.request.urlopen(url, timeout=10) as r:
-                    raw = _j.loads(r.read().decode())
-                out = {}
-                dc  = raw.get("datacontent", {})
-                th  = raw.get("turth", [])
-                if dc and th:
-                    labels = {str(i): v for i, v in enumerate(th)}
-                    for k, v in dc.items():
-                        try:
-                            yr_str = labels.get(k.split("0")[0] if "0" in k else k[:4], "")
-                            if yr_str.isdigit():
-                                out[int(yr_str)] = float(v)
-                        except Exception:
-                            pass
-                return out
-            except Exception:
-                return {}
-
-        def _get_ekon_context(years_list):
-            wb  = _fetch_worldbank(tuple(sorted(years_list)))
-            bps = _fetch_bps(tuple(sorted(years_list)))
-            result = {}
-            _extra = {
-                2020: " PHK massal ~2.56 jt pekerja. Klaim JHT melonjak drastis.",
-                2021: " PPKM berlapis. Vaksinasi massal dimulai.",
-                2022: " Pasar kerja pulih. Klaim JKK naik seiring industri aktif.",
-                2023: " PHK sektor teknologi & tekstil. BI rate naik ke 6%.",
-                2024: " Tahun Pemilu. PHK ritel & fintech berlanjut.",
-                2025: " Reformasi iuran BPJS TK. Tapera mulai berjalan.",
-            }
-            for yr in years_list:
-                d    = wb.get(yr, {})
-                gdp  = d.get("gdp")
-                inf  = d.get("inf")
-                unem = d.get("unem") or bps.get(yr)
-                if gdp is None:
-                    fb = _EKON_FALLBACK.get(yr)
-                    result[yr] = fb if fb else ("📊 Data N/A", "Data World Bank tidak tersedia.")
-                    continue
-                if gdp < 0:   icon = "⚠️ Kontraksi"
-                elif gdp < 3: icon = "🔄 Pemulihan"
-                elif gdp < 5: icon = "📊 Moderat"
-                else:         icon = "🚀 Ekspansi"
+            ekon_lines = []
+            for yr in sorted(wb_data.keys()):
+                d = wb_data[yr]
                 parts = []
-                if gdp  is not None: parts.append(f"PDB {gdp:+.2f}%")
-                if inf  is not None: parts.append(f"inflasi {inf:.1f}%")
-                if unem is not None: parts.append(f"pengangguran {unem:.2f}%")
-                extra = _extra.get(yr, "")
-                desc  = (", ".join(parts) + "." + extra) if parts else "Data tidak tersedia."
-                result[yr] = (icon, desc)
-            return result
+                if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
+                if 'inflation_pct'    in d: parts.append(f"inflasi {d['inflation_pct']:.1f}%")
+                if 'unemployment_pct' in d: parts.append(f"pengangguran {d['unemployment_pct']:.1f}%")
+                if 'export_growth'    in d: parts.append(f"ekspor {d['export_growth']:+.1f}%")
+                ekon_lines.append(f"  {yr}: {', '.join(parts) if parts else 'data terbatas'}")
+            ekon_str = "\n".join(ekon_lines)
 
+            prompt = (
+                f"Kamu adalah analis ketenagakerjaan Indonesia.\n\n"
+                f"Program BPJS Ketenagakerjaan: {prog_name}\n"
+                f"- PEAK (klaim tertinggi): tahun {peak_yr} dengan {peak_val:,} kasus\n"
+                f"- TROUGH (klaim terendah): tahun {trough_yr} dengan {trough_val:,} kasus\n\n"
+                f"Data makroekonomi Indonesia (World Bank API, data riil):\n{ekon_str}\n\n"
+                f"Berdasarkan data ekonomi di atas, jelaskan secara padat:\n"
+                f"1. Mengapa klaim {prog_name} TINGGI di {peak_yr}?\n"
+                f"2. Mengapa klaim {prog_name} RENDAH di {trough_yr}?\n\n"
+                f'Jawab HANYA JSON ini tanpa teks lain: {{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}}'
+            )
+
+            try:
+                payload = _j.dumps({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 600,
+                    "messages": [{"role": "user", "content": prompt}]
+                }).encode('utf-8')
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=payload,
+                    headers={"Content-Type": "application/json",
+                             "x-api-key": api_key,
+                             "anthropic-version": "2023-06-01"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    resp = _j.loads(r.read().decode())
+                raw = resp["content"][0]["text"].strip()
+                if "```" in raw:
+                    import re as _re
+                    raw = _re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
+                j_start, j_end = raw.find("{"), raw.rfind("}") + 1
+                if j_start >= 0:
+                    raw = raw[j_start:j_end]
+                return _j.loads(raw)
+            except Exception:
+                return None
+
+        def _get_api_key():
+            try:
+                try:    return st.secrets["ANTHROPIC_API_KEY"]
+                except: pass
+                try:    return st.secrets["anthropic_api_key"]
+                except: pass
+                try:    return str(st.secrets.ANTHROPIC_API_KEY)
+                except: pass
+            except Exception:
+                pass
+            return ""
+
+        # ── Fetch World Bank data ────────────────────────────────────────────
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
-        EKON_CONTEXT = _get_ekon_context(all_yrs_data_for_ctx)
+        all_yrs_data = all_yrs_data_for_ctx
+
+        with st.spinner("🌐 Mengambil data ekonomi dari World Bank API..."):
+            wb_ekon = _fetch_worldbank(tuple(all_yrs_data_for_ctx))
+
+        # Build EKON_CONTEXT from real World Bank data (no hardcode)
+        EKON_CONTEXT = {}
+        for _yr, _d in wb_ekon.items():
+            _g = _d.get('gdp_pct')
+            if _g is None:
+                continue
+            if _g < 0:    _icon = "⚠️ Kontraksi"
+            elif _g < 3:  _icon = "🔄 Pemulihan"
+            elif _g < 5:  _icon = "📊 Moderat"
+            else:         _icon = "🚀 Ekspansi"
+            _parts = []
+            if 'gdp_pct'          in _d: _parts.append(f"PDB {_d['gdp_pct']:+.2f}%")
+            if 'inflation_pct'    in _d: _parts.append(f"Inflasi {_d['inflation_pct']:.1f}%")
+            if 'unemployment_pct' in _d: _parts.append(f"Pengangguran {_d['unemployment_pct']:.1f}%")
+            EKON_CONTEXT[_yr] = (_icon, ", ".join(_parts) + ".")
 
         st.markdown('<div class="sec">Tren Kasus per Tahun — dengan Konteks Ekonomi AI</div>', unsafe_allow_html=True)
         fig3 = go.Figure()
@@ -2233,20 +2247,22 @@ with tab1:
                 hovertemplate=f"<b>{cat}</b><br>Tahun: %{{x}}<br>Kasus: %{{y:,}}<extra></extra>"
             ))
 
-        all_yrs_data = all_yrs_data_for_ctx
         tot_yr = trend.groupby('Tahun')['Kasus'].sum()
         yr_max_t = int(tot_yr.max()) if len(tot_yr) > 0 else 1
-        if 2020 in all_yrs_data:
-            fig3.add_vrect(x0=2019.6, x1=2020.4, fillcolor='rgba(239,68,68,0.07)', line_width=0)
-            fig3.add_annotation(x=2020, y=yr_max_t * 0.9,
-                text="⚠️ COVID-19<br>PDB -2.07%", showarrow=False,
-                font=dict(size=9, color='#dc2626', family='Inter'),
-                bgcolor='rgba(254,226,226,0.92)', bordercolor='#fca5a5', borderwidth=1, borderpad=4)
-        if 2022 in all_yrs_data:
-            fig3.add_annotation(x=2022, y=yr_max_t * 0.82,
-                text="🚀 Recovery<br>PDB +5.31%", showarrow=False,
-                font=dict(size=9, color='#16a34a', family='Inter'),
-                bgcolor='rgba(220,252,231,0.92)', bordercolor='#86efac', borderwidth=1, borderpad=4)
+        # Dynamic annotations from World Bank (annotate extreme GDP years only)
+        for _yr, (_icon_c, _desc_c) in EKON_CONTEXT.items():
+            if _yr in all_yrs_data:
+                _g = wb_ekon.get(_yr, {}).get('gdp_pct')
+                if _g is not None and (_g < 0 or _g > 5.5):
+                    _clr  = '#dc2626' if _g < 0 else '#16a34a'
+                    _bg   = 'rgba(254,226,226,0.92)' if _g < 0 else 'rgba(220,252,231,0.92)'
+                    _brd  = '#fca5a5' if _g < 0 else '#86efac'
+                    fig3.add_annotation(
+                        x=_yr, y=yr_max_t * 0.88,
+                        text=f"{_icon_c}<br>PDB {_g:+.1f}%",
+                        showarrow=False,
+                        font=dict(size=9, color=_clr, family='Inter'),
+                        bgcolor=_bg, bordercolor=_brd, borderwidth=1, borderpad=4)
         styled_chart(fig3, height=480)
         fig3.update_layout(xaxis=dict(dtick=1, showgrid=True, gridcolor='rgba(148,163,184,0.3)'))
         st.plotly_chart(fig3, width='stretch')
@@ -2259,11 +2275,11 @@ with tab1:
             _yr_last2 = sorted(_trend_total.index)[-2:]
             _growth_last = (_trend_total[_yr_last2[1]] / (_trend_total[_yr_last2[0]] + 1e-9) - 1) * 100
             _ctx_peak = EKON_CONTEXT.get(_yr_max_k, (None, None))
-            _peak_desc = _ctx_peak[1] if _ctx_peak[0] else ""
+            _peak_desc = _ctx_peak[1] if _ctx_peak and _ctx_peak[0] else ""
             _insight_html = (
                 f'<div class="info-box">'
                 f'📊 <b>Auto-Insight Tren:</b> '
-                f'Klaim tertinggi terjadi di <b>{_yr_max_k}</b> ({int(_trend_total[_yr_max_k]):,} kasus total). '
+                f'Klaim tertinggi di <b>{_yr_max_k}</b> ({int(_trend_total[_yr_max_k]):,} kasus). '
                 f'Klaim terendah di <b>{_yr_min_k}</b> ({int(_trend_total[_yr_min_k]):,} kasus). '
                 f'Pertumbuhan {_yr_last2[0]}→{_yr_last2[1]}: '
                 f'<b style="color:{"#16a34a" if _growth_last >= 0 else "#dc2626"}">{_growth_last:+.1f}%</b>.'
@@ -2274,34 +2290,61 @@ with tab1:
         st.markdown(
             '<div class="insight-note">'
             '💡 <b>Cara baca chart:</b> Area fill = volume klaim per program. '
-            'Kotak anotasi menandai peristiwa ekonomi signifikan. '
-            'Gunakan filter program di sidebar untuk fokus satu program.</div>',
+            'Anotasi muncul otomatis di tahun dengan PDB ekstrem (kontraksi atau ekspansi kuat) dari World Bank API. '
+            'Filter program di sidebar untuk fokus satu program.</div>',
             unsafe_allow_html=True)
 
-        # Peak & Trough analysis (poin 4)
-        st.markdown('<div class="sec">📍 Analisis Peak & Trough per Program — dengan Konteks Ekonomi (World Bank)</div>', unsafe_allow_html=True)
+        # ── Peak & Trough — AI Analysis per Program ──────────────────────────
         st.markdown(
-            '<div class="info-box">🌐 <b>Data ekonomi dari World Bank API</b> (PDB, inflasi, pengangguran) '
-            'diambil otomatis dan dikombinasikan dengan konteks lokal untuk menjelaskan '
-            '<i>mengapa</i> klaim mencapai puncak atau lembah di tahun tertentu.</div>',
+            '<div class="sec">📍 Analisis Peak & Trough per Program — Dianalisis oleh AI</div>',
             unsafe_allow_html=True)
+        st.markdown(
+            '<div class="info-box">🤖 <b>Analisis AI per program:</b> '
+            'Data makroekonomi riil dari <b>World Bank API</b> (PDB, inflasi, pengangguran, ekspor) '
+            'dikirim ke Claude AI yang menganalisis <i>mengapa</i> klaim program mencapai puncak atau lembah. '
+            'Tidak ada hardcode — analisis dibuat dari data aktual setiap saat.</div>',
+            unsafe_allow_html=True)
+
+        _api_key = _get_api_key()
         progs_to_analyze = sorted(filtered_progs)
         n_pcols = min(len(progs_to_analyze), 3)
+
         if n_pcols > 0:
             peak_cols_list = st.columns(n_pcols)
             for pi, prog in enumerate(progs_to_analyze):
                 prog_trend = trend[trend['Kategori']==prog].sort_values('Tahun')
                 if len(prog_trend) < 2:
                     continue
-                peak_yr = int(prog_trend.loc[prog_trend['Kasus'].idxmax(), 'Tahun'])
+                peak_yr   = int(prog_trend.loc[prog_trend['Kasus'].idxmax(), 'Tahun'])
                 trough_yr = int(prog_trend.loc[prog_trend['Kasus'].idxmin(), 'Tahun'])
-                peak_val = int(prog_trend['Kasus'].max())
+                peak_val   = int(prog_trend['Kasus'].max())
                 trough_val = int(prog_trend['Kasus'].min())
-                _raw_pk = EKON_CONTEXT.get(peak_yr, ("—", "Tidak ada konteks."))
-                peak_ctx = _raw_pk if isinstance(_raw_pk, tuple) and len(_raw_pk)==2 else ("📊", str(_raw_pk))
-                _raw_tr = EKON_CONTEXT.get(trough_yr, ("—", "Tidak ada konteks."))
-                trough_ctx = _raw_tr if isinstance(_raw_tr, tuple) and len(_raw_tr)==2 else ("📊", str(_raw_tr))
-                range_pct = abs((peak_val - trough_val) / (trough_val + 1e-9) * 100)
+                range_pct  = abs((peak_val - trough_val) / (trough_val + 1e-9) * 100)
+
+                _cache_key = f"ai_pt_{prog}_{peak_yr}_{trough_yr}"
+                if _cache_key not in st.session_state:
+                    if _api_key:
+                        with st.spinner(f"🤖 AI menganalisis {prog} ({peak_yr} vs {trough_yr})..."):
+                            st.session_state[_cache_key] = _ai_analyze_peak_trough(
+                                prog, peak_yr, peak_val, trough_yr, trough_val,
+                                wb_ekon, _api_key)
+                    else:
+                        st.session_state[_cache_key] = None
+
+                ai_res = st.session_state.get(_cache_key)
+
+                if ai_res and isinstance(ai_res, dict):
+                    peak_label   = ai_res.get("peak_label",   "📊 Puncak")
+                    peak_desc    = ai_res.get("peak_desc",    EKON_CONTEXT.get(peak_yr, ("", "Data terbatas."))[1])
+                    trough_label = ai_res.get("trough_label", "📊 Lembah")
+                    trough_desc  = ai_res.get("trough_desc",  EKON_CONTEXT.get(trough_yr, ("", "Data terbatas."))[1])
+                else:
+                    # Fallback: World Bank data only (still no hardcode)
+                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Data World Bank tersedia. Set ANTHROPIC_API_KEY untuk analisis AI."))
+                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Data World Bank tersedia. Set ANTHROPIC_API_KEY untuk analisis AI."))
+                    peak_label, peak_desc     = _pk
+                    trough_label, trough_desc = _tr
+
                 with peak_cols_list[pi % n_pcols]:
                     st.markdown(
                         f'<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;'
@@ -2311,38 +2354,45 @@ with tab1:
                         f'<div style="background:#fef9c3;border-left:3px solid #eab308;border-radius:6px;'
                         f'padding:10px 12px;margin-bottom:8px;">'
                         f'<div style="font-size:.7rem;font-weight:700;color:#854d0e;margin-bottom:3px;">'
-                        f'🔺 PEAK — {peak_yr} &nbsp;{peak_ctx[0]}</div>'
+                        f'🔺 PEAK — {peak_yr} &nbsp;{peak_label}</div>'
                         f'<div style="font-size:.95rem;font-weight:800;color:#713f12">{peak_val:,} kasus</div>'
-                        f'<div style="font-size:.75rem;color:#92400e;margin-top:4px;line-height:1.6">{peak_ctx[1]}</div>'
+                        f'<div style="font-size:.75rem;color:#92400e;margin-top:4px;line-height:1.6">{peak_desc}</div>'
                         f'</div>'
                         f'<div style="background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;'
                         f'padding:10px 12px;">'
                         f'<div style="font-size:.7rem;font-weight:700;color:#1e3a8a;margin-bottom:3px;">'
-                        f'🔻 TROUGH — {trough_yr} &nbsp;{trough_ctx[0]}</div>'
+                        f'🔻 TROUGH — {trough_yr} &nbsp;{trough_label}</div>'
                         f'<div style="font-size:.95rem;font-weight:800;color:#1e40af">{trough_val:,} kasus</div>'
-                        f'<div style="font-size:.75rem;color:#1d4ed8;margin-top:4px;line-height:1.6">{trough_ctx[1]}</div>'
+                        f'<div style="font-size:.75rem;color:#1d4ed8;margin-top:4px;line-height:1.6">{trough_desc}</div>'
                         f'</div>'
                         f'<div style="margin-top:8px;font-size:.75rem;color:#64748b;">'
-                        f'Range peak↔trough: <b style="color:#0f172a">{range_pct:.0f}%</b></div>'
+                        f'Range peak↔trough: <b style="color:#0f172a">{range_pct:.0f}%</b>'
+                        f'{"" if _api_key else " &nbsp;·&nbsp; ⚠️ Set ANTHROPIC_API_KEY"}'
+                        f'</div>'
                         f'</div>',
                         unsafe_allow_html=True)
 
-        with st.expander("📰 Referensi Konteks Ekonomi Indonesia per Tahun"):
-            if not EKON_CONTEXT:
-                st.info("Tidak ada data konteks untuk tahun-tahun yang dipilih.")
+        with st.expander("📊 Data Makroekonomi Indonesia (World Bank API — Real)"):
+            if not wb_ekon or not any(wb_ekon.values()):
+                st.warning("Data World Bank tidak tersedia. Periksa koneksi internet Streamlit Cloud.")
             else:
-                for yr in sorted(EKON_CONTEXT.keys()):
+                import pandas as _pd2
+                wb_rows = []
+                for yr in sorted(wb_ekon.keys()):
                     if yr in all_yrs_data:
-                        ctx_val = EKON_CONTEXT[yr]
-                        icon, desc = (ctx_val if isinstance(ctx_val, tuple) and len(ctx_val)==2
-                                      else ("📊", str(ctx_val)))
-                        st.markdown(
-                            f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-                            f'padding:10px 14px;margin:5px 0;">'
-                            f'<span style="font-weight:700;color:#0f172a">{yr} — {icon}</span><br>'
-                            f'<span style="font-size:.83rem;color:#475569;line-height:1.7">{desc}</span>'
-                            f'</div>',
-                            unsafe_allow_html=True)
+                        d = wb_ekon[yr]
+                        wb_rows.append({
+                            "Tahun": yr,
+                            "PDB Growth (%)": d.get("gdp_pct", "N/A"),
+                            "Inflasi (%)": d.get("inflation_pct", "N/A"),
+                            "Pengangguran (%)": d.get("unemployment_pct", "N/A"),
+                            "Ekspor Growth (%)": d.get("export_growth", "N/A"),
+                        })
+                if wb_rows:
+                    st.dataframe(_pd2.DataFrame(wb_rows).set_index("Tahun"),
+                                 width='stretch', use_container_width=True)
+                st.caption("Sumber: World Bank Open Data (api.worldbank.org). Cache 24 jam.")
+
 
         t3l, t3r = st.columns(2)
         with t3l:
@@ -4153,3 +4203,176 @@ with tab4:
     st.markdown('<div class="sec">Preview Data Aktif</div>', unsafe_allow_html=True)
     st.info(f"**{len(df)} baris** | **{len(active_progs)} program aktif** ({', '.join(active_progs)}) | **Tahun: {', '.join(map(str, years))}**")
     st.dataframe(df, width='stretch', height=360)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5: AI CHATBOT ANALYST
+# ══════════════════════════════════════════════════════════════════════════════
+with tab5:
+    st.markdown('<div class="sec">💬 Tanya AI Analyst — Investigasi Data BPJS</div>',
+                unsafe_allow_html=True)
+    st.markdown(
+        '<div class="info-box">🤖 <b>AI Analyst</b> siap menjawab pertanyaan Anda tentang data BPJS Ketenagakerjaan. '
+        'AI memiliki akses ke data historis Anda, data makroekonomi World Bank, dan pengetahuan luas tentang '
+        'ketenagakerjaan Indonesia. Contoh pertanyaan: <i>"Kenapa JHT naik drastis di 2025?"</i>, '
+        '<i>"Apa yang menyebabkan JKK turun di 2021?"</i>, '
+        '<i>"Bandingkan tren JKK vs JHT selama 5 tahun terakhir."</i></div>',
+        unsafe_allow_html=True)
+
+    # Build data context string once
+    def _build_data_ctx():
+        lines = ["=== DATA BPJS KETENAGAKERJAAN ==="]
+        lines.append(f"Program aktif: {', '.join(active_progs)}")
+        lines.append(f"Rentang tahun: {years[0]} – {years[-1]}")
+        lines.append("")
+        lines.append("Kasus per program per tahun:")
+        pivot = df.groupby(['Tahun', 'Kategori'])['Kasus'].sum().unstack(fill_value=0)
+        lines.append(pivot.to_string())
+        if has_nom:
+            lines.append("")
+            lines.append("Nominal (Rp Miliar) per program per tahun:")
+            nom_pivot = df.groupby(['Tahun', 'Kategori'])['Nominal'].sum().unstack(fill_value=0) / 1e9
+            lines.append(nom_pivot.round(1).to_string())
+        # Add World Bank data if available
+        if 'wb_ekon' in dir() or 'wb_ekon' in locals():
+            pass
+        return "\n".join(lines)
+
+    def _build_wb_ctx():
+        try:
+            if not wb_ekon or not any(wb_ekon.values()):
+                return ""
+            lines = ["\n=== DATA MAKROEKONOMI INDONESIA (World Bank API) ==="]
+            for yr in sorted(wb_ekon.keys()):
+                d = wb_ekon[yr]
+                if not d: continue
+                parts = []
+                if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
+                if 'inflation_pct'    in d: parts.append(f"Inflasi {d['inflation_pct']:.1f}%")
+                if 'unemployment_pct' in d: parts.append(f"Pengangguran {d['unemployment_pct']:.1f}%")
+                lines.append(f"  {yr}: {', '.join(parts)}")
+            return "\n".join(lines)
+        except Exception:
+            return ""
+
+    # Chat history
+    if 'chatbot_history' not in st.session_state:
+        st.session_state.chatbot_history = []
+
+    # Display chat history
+    for msg in st.session_state.chatbot_history:
+        if msg['role'] == 'user':
+            st.markdown(
+                f'<div style="display:flex;justify-content:flex-end;margin:8px 0;">'
+                f'<div style="background:#2563eb;color:#fff;border-radius:16px 16px 4px 16px;'
+                f'padding:10px 16px;max-width:75%;font-size:.88rem;line-height:1.6;">'
+                f'{msg["content"]}</div></div>',
+                unsafe_allow_html=True)
+        else:
+            st.markdown(
+                f'<div style="display:flex;justify-content:flex-start;margin:8px 0;">'
+                f'<div style="background:#f1f5f9;border:1px solid #e2e8f0;color:#1e293b;'
+                f'border-radius:16px 16px 16px 4px;padding:10px 16px;max-width:85%;'
+                f'font-size:.88rem;line-height:1.7;">'
+                f'{msg["content"]}</div></div>',
+                unsafe_allow_html=True)
+
+    # Suggested questions
+    if not st.session_state.chatbot_history:
+        st.markdown('<div style="font-size:.8rem;color:#64748b;margin:12px 0 6px;">💡 Coba tanyakan:</div>',
+                    unsafe_allow_html=True)
+        suggest_cols = st.columns(2)
+        suggestions = [
+            f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
+            f"Program mana yang paling banyak terpengaruh COVID-19?",
+            f"Apa tren keseluruhan klaim BPJS TK dari {years[0]} sampai {years[-1]}?",
+            f"Bandingkan pertumbuhan semua program di {latest_year} vs {prev_year}.",
+        ]
+        for i, sug in enumerate(suggestions[:4]):
+            with suggest_cols[i % 2]:
+                if st.button(sug, key=f"sug_{i}", use_container_width=True):
+                    st.session_state.chatbot_history.append({"role": "user", "content": sug})
+                    st.rerun()
+
+    # Input
+    cb_col1, cb_col2 = st.columns([6, 1])
+    with cb_col1:
+        user_q = st.text_input(
+            "Tanyakan apapun tentang data BPJS:",
+            placeholder="Contoh: Mengapa JHT naik tajam di 2025?",
+            key="chatbot_input",
+            label_visibility="collapsed")
+    with cb_col2:
+        send_btn = st.button("Kirim ➤", key="chatbot_send", use_container_width=True)
+
+    if (send_btn or user_q) and user_q.strip():
+        question = user_q.strip()
+        st.session_state.chatbot_history.append({"role": "user", "content": question})
+
+        _api_key_chat = _get_api_key()
+        if not _api_key_chat:
+            st.session_state.chatbot_history.append({
+                "role": "assistant",
+                "content": "⚠️ ANTHROPIC_API_KEY tidak ditemukan di Streamlit Secrets. "
+                           "Tambahkan key tersebut di Manage App → Secrets untuk menggunakan chatbot."
+            })
+        else:
+            data_ctx = _build_data_ctx()
+            wb_ctx   = _build_wb_ctx()
+
+            system_prompt = (
+                "Kamu adalah AI Analyst spesialis ketenagakerjaan Indonesia dan BPJS Ketenagakerjaan. "
+                "Kamu memiliki akses ke data klaim BPJS historis pengguna dan data makroekonomi World Bank. "
+                "Jawab dalam Bahasa Indonesia dengan padat, akurat, dan berbasis data. "
+                "Gunakan angka spesifik dari data yang tersedia. "
+                "Jika ada pertanyaan tentang masa depan, berikan insight berbasis tren historis. "
+                "Format jawaban: singkat tapi substantif, maksimal 4-5 kalimat kecuali diminta detail."
+            )
+
+            # Build messages with full history
+            messages = []
+            # Add data context as first system-like message
+            _ctx_content = "[KONTEKS DATA — jangan disebutkan ke user]\n" + data_ctx + wb_ctx + "\n[/KONTEKS]"
+            messages.append({
+                "role": "user",
+                "content": _ctx_content
+            })
+            messages.append({
+                "role": "assistant",
+                "content": "Saya sudah mempelajari data BPJS dan makroekonomi yang tersedia. Siap menjawab pertanyaan Anda."
+            })
+            # Add conversation history
+            for h in st.session_state.chatbot_history[:-1]:
+                messages.append({"role": h["role"], "content": h["content"]})
+            # Add current question
+            messages.append({"role": "user", "content": question})
+
+            with st.spinner("🤖 AI sedang menganalisis..."):
+                try:
+                    import urllib.request, json as _jc
+                    payload = _jc.dumps({
+                        "model": "claude-haiku-4-5-20251001",
+                        "max_tokens": 800,
+                        "system": system_prompt,
+                        "messages": messages
+                    }).encode('utf-8')
+                    req = urllib.request.Request(
+                        "https://api.anthropic.com/v1/messages",
+                        data=payload,
+                        headers={"Content-Type": "application/json",
+                                 "x-api-key": _api_key_chat,
+                                 "anthropic-version": "2023-06-01"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=30) as r:
+                        resp = _jc.loads(r.read().decode())
+                    answer = resp["content"][0]["text"].strip()
+                except Exception as e:
+                    answer = f"⚠️ Gagal menghubungi AI: {str(e)[:200]}"
+
+            st.session_state.chatbot_history.append({"role": "assistant", "content": answer})
+        st.rerun()
+
+    if st.session_state.chatbot_history:
+        if st.button("🗑️ Hapus riwayat chat", key="clear_chat"):
+            st.session_state.chatbot_history = []
+            st.rerun()
