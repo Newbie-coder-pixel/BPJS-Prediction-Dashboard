@@ -1814,6 +1814,7 @@ if df is None:
 
 years         = sorted(df['Tahun'].unique())
 latest_year   = years[-1]
+prev_year     = years[-2] if len(years) >= 2 else None  # tahun sebelum terbaru
 active_progs  = get_active_programs(df)
 all_progs     = sorted(df['Kategori'].unique())
 has_nom       = 'Nominal' in df.columns
@@ -1914,14 +1915,14 @@ if len(years) >= 2:
         delta_k_pct = (yr_kasus.iloc[-1] / yr_kasus.iloc[-2] - 1) * 100
         sign_k = "▲" if delta_k_pct >= 0 else "▼"
         cls_k  = "delta-pos" if delta_k_pct >= 0 else "delta-neg"
-        kpi_delta_k = f'<div class="delta {cls_k}">{sign_k} {abs(delta_k_pct):.1f}% vs {years[-2]}</div>'
+        kpi_delta_k = f'<div class="delta {cls_k}">{sign_k} {abs(delta_k_pct):.1f}% vs {prev_year}</div>'
     if has_nom:
         yr_nom = df_active_only.groupby('Tahun')['Nominal'].sum()
         if yr_nom.iloc[-1] > 0 and yr_nom.iloc[-2] > 0:
             delta_n_pct = (yr_nom.iloc[-1] / yr_nom.iloc[-2] - 1) * 100
             sign_n = "▲" if delta_n_pct >= 0 else "▼"
             cls_n  = "delta-pos" if delta_n_pct >= 0 else "delta-neg"
-            kpi_delta_n = f'<div class="delta {cls_n}">{sign_n} {abs(delta_n_pct):.1f}% vs {years[-2]}</div>'
+            kpi_delta_n = f'<div class="delta {cls_n}">{sign_n} {abs(delta_n_pct):.1f}% vs {prev_year}</div>'
     growths = []
     for i in range(1, len(years)):
         k_prev = df_active_only[df_active_only['Tahun']==years[i-1]]['Kasus'].sum()
@@ -1931,7 +1932,7 @@ if len(years) >= 2:
     avg_g = np.mean(growths) if growths else 0
     sign_g = "▲" if avg_g >= 0 else "▼"
     cls_g  = "delta-pos" if avg_g >= 0 else "delta-neg"
-    kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn rata-rata</div>'
+    kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn ({years[0]}–{years[-1]})</div>'
 
 tk = int(df_active_only['Kasus'].sum())
 tk_latest = int(df_active_only[df_active_only['Tahun']==latest_year]['Kasus'].sum())
@@ -1966,7 +1967,7 @@ with c4:
     else:
         st.markdown(f'''<div class="kpi">
         <div class="val">{latest_year}</div>
-        <div class="lbl">📅 Tahun Terbaru</div>
+        <div class="lbl">📅 Data Terbaru</div>
         </div>''', unsafe_allow_html=True)
 with c5:
     total_all = f"{tk:,}"
@@ -2019,10 +2020,12 @@ with tab1:
         top_prog = df_lat.groupby('Kategori')['Kasus'].sum().idxmax()
         top_val  = int(df_lat.groupby('Kategori')['Kasus'].sum().max())
         growth_by_prog = {}
+        growth_prev_yr = {}  # store which prev year was used per program
         for cp in active_progs:
             cd = df_plot[df_plot['Kategori']==cp].sort_values('Tahun')
             if len(cd) >= 2 and cd['Kasus'].iloc[-2] > 0:
                 growth_by_prog[cp] = (cd['Kasus'].iloc[-1]/cd['Kasus'].iloc[-2]-1)*100
+                growth_prev_yr[cp] = int(cd.iloc[-2]['Tahun'])
         fastest = max(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
         fastest_g = growth_by_prog.get(fastest, 0)
         slowest = min(growth_by_prog, key=growth_by_prog.get) if growth_by_prog else "-"
@@ -2040,13 +2043,13 @@ with tab1:
             st.markdown(f'''<div class="insight-card">
             <div class="ic-title">📈 Pertumbuhan Tertinggi</div>
             <div class="ic-val" style="color:#34d399">{fastest}</div>
-            <div class="ic-sub">+{fastest_g:.1f}% vs tahun lalu</div>
+            <div class="ic-sub">+{fastest_g:.1f}% vs {growth_prev_yr.get(fastest, prev_year)}</div>
             </div>''', unsafe_allow_html=True)
         with ic:
             st.markdown(f'''<div class="insight-card">
             <div class="ic-title">📉 Pertumbuhan Terendah</div>
             <div class="ic-val" style="color:#f87171">{slowest}</div>
-            <div class="ic-sub">{slowest_g:+.1f}% vs tahun lalu</div>
+            <div class="ic-sub">{slowest_g:+.1f}% vs {growth_prev_yr.get(slowest, prev_year)}</div>
             </div>''', unsafe_allow_html=True)
         with id_:
             st.markdown(f'''<div class="insight-card">
@@ -2081,7 +2084,7 @@ with tab1:
     with r2:
         st.markdown(f'<div class="sec">Market Share per Program — {latest_year}</div>',
                     unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Jumlah & persentase klaim per program di tahun terbaru ({latest_year}). Bar lebih panjang = porsi klaim lebih besar. Bandingkan dengan tahun sebelumnya untuk deteksi pergeseran dominansi program.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Jumlah & persentase klaim per program di tahun terbaru ({latest_year}). Bar lebih panjang = porsi klaim lebih besar. Bandingkan dengan {prev_year} untuk deteksi pergeseran dominansi program.</div>', unsafe_allow_html=True)
         bar_d = (df_lat.groupby('Kategori')['Kasus'].sum()
                  .sort_values(ascending=True).reset_index())
         total_bar = bar_d['Kasus'].sum()
@@ -2368,23 +2371,31 @@ with tab1:
 
         st.markdown('<div class="sec">Year-over-Year Growth & CAGR per Program</div>',
                     unsafe_allow_html=True)
-        st.markdown('<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Pertumbuhan kasus vs tahun sebelumnya. Hijau = naik, merah = turun. Garis putus = baseline 0%.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:.77rem;color:#64748b;margin-bottom:6px;">Pertumbuhan kasus setiap tahun dibanding tahun sebelumnya (misal: {latest_year} vs {prev_year}). Hijau = naik, merah = turun. Garis putus = baseline 0%.</div>', unsafe_allow_html=True)
         yoy = []
         for cat in active_progs:
             cd = df_plot[df_plot['Kategori'] == cat].sort_values('Tahun')
             for i in range(1, len(cd)):
                 prev = cd.iloc[i-1]['Kasus']
                 curr = cd.iloc[i]['Kasus']
+                yr_curr = int(cd.iloc[i]['Tahun'])
+                yr_prev = int(cd.iloc[i-1]['Tahun'])
                 yoy.append({'Kategori': cat,
-                    'Tahun': int(cd.iloc[i]['Tahun']),
+                    'Tahun': yr_curr,
+                    'Tahun Prev': yr_prev,
+                    'Label': f"{yr_curr} vs {yr_prev}",
                     'Growth (%)': round((curr/(prev+1e-9)-1)*100, 2)})
         if yoy:
             ydf = pd.DataFrame(yoy)
             fig_y = px.bar(ydf, x='Tahun', y='Growth (%)', color='Kategori',
                            barmode='group', color_discrete_sequence=COLORS,
-                           text='Growth (%)')
-            fig_y.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
-                                textfont_size=9, marker_line_width=0)
+                           text='Growth (%)',
+                           hover_data={'Label': True, 'Tahun Prev': False, 'Tahun': True})
+            fig_y.update_traces(
+                texttemplate='%{text:.1f}%', textposition='outside',
+                textfont_size=9, marker_line_width=0,
+                hovertemplate='<b>%{customdata[0]}</b><br>%{fullData.name}: %{y:+.1f}%<extra></extra>'
+            )
             fig_y.add_hline(y=0, line_color='#334155', line_width=1.5)
             styled_chart(fig_y, height=360)
             fig_y.update_layout(xaxis=dict(dtick=1))
