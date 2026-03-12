@@ -2425,10 +2425,10 @@ with tab1:
                         d = wb_ekon[yr]
                         wb_rows.append({
                             "Tahun": yr,
-                            "PDB Growth (%)": d.get("gdp_pct", "N/A"),
-                            "Inflasi (%)": d.get("inflation_pct", "N/A"),
-                            "Pengangguran (%)": d.get("unemployment_pct", "N/A"),
-                            "Ekspor Growth (%)": d.get("export_growth", "N/A"),
+                            "PDB Growth (%)": d.get("gdp_pct"),
+                            "Inflasi (%)": d.get("inflation_pct"),
+                            "Pengangguran (%)": d.get("unemployment_pct"),
+                            "Ekspor Growth (%)": d.get("export_growth"),
                         })
                 if wb_rows:
                     st.dataframe(_pd2.DataFrame(wb_rows).set_index("Tahun"),
@@ -4247,17 +4247,88 @@ with tab4:
     st.dataframe(df, width='stretch', height=360)
 
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# FLOATING AI CHATBOT WIDGET
+# FLOATING AI CHATBOT — Pure Streamlit approach (no JS bridge)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Build data context for chatbot
+# ── CSS for floating panel ───────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Hide the chatbot container from normal flow, pin it to bottom-right */
+[data-testid="stVerticalBlock"]:has(> [data-testid="stVerticalBlock"] > .fchat-root) {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    z-index: 9999 !important;
+    width: 380px !important;
+    max-width: 95vw !important;
+}
+.fchat-root {
+    font-family: 'Inter', sans-serif;
+}
+.fchat-toggle-btn {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg,#2563eb,#7c3aed);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; cursor: pointer;
+    box-shadow: 0 4px 18px rgba(37,99,235,.45);
+    margin-left: auto;
+    border: none;
+}
+.fchat-panel {
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.18);
+    border: 1px solid #e2e8f0;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+.fchat-header {
+    background: linear-gradient(135deg,#1e3a8a,#2563eb);
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px;
+    color: white;
+}
+.fchat-header-title { font-weight: 700; font-size: .95rem; color: white; }
+.fchat-header-sub   { font-size: .72rem; opacity: .8; color: white; }
+.fchat-msgs-wrap {
+    max-height: 320px; overflow-y: auto;
+    padding: 12px; background: #f8fafc;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.fchat-bubble-user {
+    background: #2563eb; color: white;
+    border-radius: 14px 14px 4px 14px;
+    padding: 8px 13px; font-size: .84rem;
+    max-width: 82%; margin-left: auto;
+    line-height: 1.5;
+}
+.fchat-bubble-bot {
+    background: white; color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px 14px 14px 4px;
+    padding: 8px 13px; font-size: .84rem;
+    max-width: 88%; line-height: 1.55;
+}
+.fchat-empty {
+    color: #94a3b8; font-size: .82rem;
+    text-align: center; padding: 16px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Session state init ───────────────────────────────────────────────────────
+if 'chat_history'  not in st.session_state: st.session_state.chat_history  = []
+if 'chat_open'     not in st.session_state: st.session_state.chat_open     = False
+if '_chat_pending' not in st.session_state: st.session_state._chat_pending = None
+
+# ── Data context builders ────────────────────────────────────────────────────
 def _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year):
     lines = ["=== DATA BPJS KETENAGAKERJAAN ==="]
     lines.append(f"Program aktif: {', '.join(active_progs)}")
     lines.append(f"Rentang tahun: {years[0]} – {years[-1]}")
     lines.append("\nKasus per program per tahun:")
-    import pandas as _pd3
     pivot = df.groupby(['Tahun', 'Kategori'])['Kasus'].sum().unstack(fill_value=0)
     lines.append(pivot.to_string())
     if has_nom:
@@ -4283,281 +4354,168 @@ def _build_chat_wb_ctx(wb_ekon):
     except Exception:
         return ""
 
-# Chatbot logic
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
-if 'chat_open' not in st.session_state:
-    st.session_state.chat_open = False
-
-# Get wb_ekon safely (may not exist if trend data not loaded)
-_wb_for_chat = st.session_state.get('_wb_ekon_cache', {})
-
-# Process any pending chat question
-if st.session_state.get('_chat_pending_q'):
-    _q = st.session_state._chat_pending_q
-    st.session_state._chat_pending_q = None
-    st.session_state.chat_history.append({"role": "user", "content": _q})
-
-    _chat_api = _get_api_key() if 'active_data' in st.session_state else ("", "")
-    # Try to get api key even without data
-    try:
-        _chat_api = _get_api_key()
-    except Exception:
-        _chat_api = ("", "")
-
-    provider, key = _chat_api if isinstance(_chat_api, tuple) else ("", "")
+# ── AI answer function ───────────────────────────────────────────────────────
+def _chat_get_answer(question, df, active_progs, years, has_nom,
+                     latest_year, prev_year, wb_ekon):
+    api_info = _get_api_key()
+    provider, key = api_info if isinstance(api_info, tuple) else ("", "")
     if not key:
-        answer = "⚠️ Tambahkan **GEMINI_API_KEY** di Streamlit Secrets (Manage App → Secrets) untuk menggunakan chatbot.\n\nGemini gratis: [aistudio.google.com](https://aistudio.google.com)"
-    else:
-        try:
-            _data_ctx = ""
-            _wb_ctx = ""
-            if 'active_data' in st.session_state:
-                _data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
-                _wb_ctx   = _build_chat_wb_ctx(_wb_for_chat)
+        return ("⚠️ Tambahkan **GEMINI_API_KEY** di Streamlit Secrets → Manage App → Secrets.\n\n"
+                "Gemini gratis (1500 req/hari): [aistudio.google.com](https://aistudio.google.com)")
 
-            sys_prompt = (
-                "Kamu adalah AI Analyst spesialis BPJS Ketenagakerjaan Indonesia. "
-                "Jawab dalam Bahasa Indonesia, padat, berbasis data. "
-                "Gunakan angka spesifik dari data. Maksimal 4-5 kalimat kecuali diminta detail."
-            )
-            # Build message with context + history
-            import urllib.request as _ur, json as _jj
-            full_prompt = ""
-            if _data_ctx:
-                full_prompt += f"[DATA KONTEKS]\n{_data_ctx}{_wb_ctx}\n[/DATA]\n\n"
-            # Add recent history
-            for h in st.session_state.chat_history[-8:]:
-                role = "User" if h["role"] == "user" else "Assistant"
-                full_prompt += f"{role}: {h['content']}\n"
+    data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
+    wb_ctx   = _build_chat_wb_ctx(wb_ekon)
 
-            if provider == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-                contents = [
-                    {"role": "user", "parts": [{"text": f"[Instruksi sistem]: {sys_prompt}"}]},
-                    {"role": "model", "parts": [{"text": "Siap. Saya akan menganalisis data BPJS dengan akurat."}]},
-                    {"role": "user", "parts": [{"text": full_prompt}]}
-                ]
-                body = _jj.dumps({
-                    "contents": contents,
-                    "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
-                }).encode('utf-8')
-                req = _ur.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-                with _ur.urlopen(req, timeout=30) as r:
-                    resp = _jj.loads(r.read().decode())
-                answer = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+    # Build conversation with recent history
+    hist_str = ""
+    for h in st.session_state.chat_history[-8:]:
+        role = "User" if h["role"] == "user" else "Analyst"
+        hist_str += f"{role}: {h['content']}\n"
 
-            elif provider == "anthropic":
-                url = "https://api.anthropic.com/v1/messages"
-                body = _jj.dumps({
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 800,
-                    "system": sys_prompt,
-                    "messages": [{"role": "user", "content": full_prompt}]
-                }).encode('utf-8')
-                req = _ur.Request(url, data=body,
-                    headers={"Content-Type": "application/json",
-                             "x-api-key": key, "anthropic-version": "2023-06-01"},
-                    method="POST")
-                with _ur.urlopen(req, timeout=30) as r:
-                    resp = _jj.loads(r.read().decode())
-                answer = resp["content"][0]["text"].strip()
-            else:
-                answer = "Provider tidak dikenali."
+    full_prompt = (
+        f"[DATA KONTEKS]\n{data_ctx}{wb_ctx}\n[/DATA]\n\n"
+        f"{hist_str}"
+        f"User: {question}\nAnalyst:"
+    )
+    sys_prompt = (
+        "Kamu adalah AI Analyst spesialis BPJS Ketenagakerjaan Indonesia. "
+        "Jawab dalam Bahasa Indonesia, padat, berbasis data. "
+        "Gunakan angka spesifik. Maksimal 5 kalimat kecuali diminta detail."
+    )
 
-        except Exception as e:
-            answer = f"⚠️ Gagal: {str(e)[:200]}"
+    import urllib.request as _ur, json as _jj
+    try:
+        if provider == "gemini":
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+            contents = [
+                {"role": "user",  "parts": [{"text": f"[Instruksi]: {sys_prompt}"}]},
+                {"role": "model", "parts": [{"text": "Siap."}]},
+                {"role": "user",  "parts": [{"text": full_prompt}]}
+            ]
+            body = _jj.dumps({"contents": contents,
+                              "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
+                             }).encode()
+            req = _ur.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            with _ur.urlopen(req, timeout=30) as r:
+                resp = _jj.loads(r.read().decode())
+            return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        elif provider == "anthropic":
+            url = "https://api.anthropic.com/v1/messages"
+            body = _jj.dumps({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
+                              "system": sys_prompt,
+                              "messages": [{"role": "user", "content": full_prompt}]
+                             }).encode()
+            req = _ur.Request(url, data=body,
+                              headers={"Content-Type": "application/json",
+                                       "x-api-key": key, "anthropic-version": "2023-06-01"},
+                              method="POST")
+            with _ur.urlopen(req, timeout=30) as r:
+                resp = _jj.loads(r.read().decode())
+            return resp["content"][0]["text"].strip()
+
+    except Exception as e:
+        return f"⚠️ Gagal: {str(e)[:200]}"
+    return "Provider tidak dikenali."
+
+# ── Process any pending AI question (runs BEFORE rendering) ──────────────────
+if st.session_state._chat_pending:
+    _q = st.session_state._chat_pending
+    st.session_state._chat_pending = None
+    _wb_ctx_data = st.session_state.get('_wb_ekon_cache', {})
+    with st.spinner("🤖 AI sedang menganalisis..."):
+        _answer = _chat_get_answer(
+            _q, df, active_progs, years, has_nom,
+            latest_year, prev_year, _wb_ctx_data)
+    st.session_state.chat_history.append({"role": "assistant", "content": _answer})
     st.rerun()
 
-# ── Floating chatbot CSS + HTML ──────────────────────────────────────────────
-_chat_msgs_html = ""
-for _msg in st.session_state.chat_history[-20:]:
-    if _msg["role"] == "user":
-        _chat_msgs_html += f'''<div class="fchat-bubble fchat-user">{_msg["content"]}</div>'''
-    else:
-        _safe = _msg["content"].replace("\n", "<br>").replace("**", "<b>", 1).replace("**", "</b>", 1)
-        _chat_msgs_html += f'''<div class="fchat-bubble fchat-bot">{_safe}</div>'''
-
-_chat_open_cls = "fchat-open" if st.session_state.chat_open else ""
-_provider_badge = ""
+# ── Determine provider badge ─────────────────────────────────────────────────
 try:
     _p, _k = _get_api_key()
-    if _p == "gemini":   _provider_badge = "Gemini 2.0 Flash"
-    elif _p == "anthropic": _provider_badge = "Claude Haiku"
-    else:                _provider_badge = "Set GEMINI_API_KEY"
+    _badge = "Gemini 2.0 Flash" if _p == "gemini" else ("Claude Haiku" if _p == "anthropic" else "⚠️ Set GEMINI_API_KEY")
 except Exception:
-    _provider_badge = "Set GEMINI_API_KEY"
+    _badge = "⚠️ Set GEMINI_API_KEY"
 
-st.markdown(f"""
-<style>
-#fchat-wrap {{
-    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-    font-family: 'Inter', sans-serif;
-}}
-#fchat-btn {{
-    width: 56px; height: 56px; border-radius: 50%;
-    background: linear-gradient(135deg, #2563eb, #7c3aed);
-    border: none; cursor: pointer; box-shadow: 0 4px 18px rgba(37,99,235,.45);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.5rem; transition: transform .2s;
-    margin-left: auto;
-}}
-#fchat-btn:hover {{ transform: scale(1.08); }}
-#fchat-window {{
-    display: none;
-    width: 380px; max-height: 560px;
-    background: #fff; border-radius: 18px;
-    box-shadow: 0 8px 40px rgba(0,0,0,.18);
-    flex-direction: column; overflow: hidden;
-    margin-bottom: 12px;
-    border: 1px solid #e2e8f0;
-}}
-#fchat-window.fchat-open {{ display: flex; }}
-.fchat-header {{
-    background: linear-gradient(135deg, #1e3a8a, #2563eb);
-    color: #fff; padding: 14px 16px;
-    display: flex; align-items: center; gap: 10px;
-    flex-shrink: 0;
-}}
-.fchat-header-icon {{
-    width: 34px; height: 34px; border-radius: 50%;
-    background: rgba(255,255,255,.2);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.1rem;
-}}
-.fchat-header-title {{ font-weight: 700; font-size: .95rem; }}
-.fchat-header-sub {{ font-size: .72rem; opacity: .8; }}
-.fchat-close {{
-    margin-left: auto; background: none; border: none;
-    color: #fff; font-size: 1.2rem; cursor: pointer; opacity: .7;
-}}
-.fchat-close:hover {{ opacity: 1; }}
-.fchat-messages {{
-    flex: 1; overflow-y: auto; padding: 14px;
-    display: flex; flex-direction: column; gap: 8px;
-    background: #f8fafc; min-height: 200px; max-height: 380px;
-}}
-.fchat-bubble {{
-    max-width: 84%; padding: 9px 13px;
-    border-radius: 14px; font-size: .84rem; line-height: 1.55;
-}}
-.fchat-user {{
-    background: #2563eb; color: #fff;
-    border-radius: 14px 14px 4px 14px; align-self: flex-end;
-}}
-.fchat-bot {{
-    background: #fff; color: #1e293b;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px 14px 14px 4px; align-self: flex-start;
-}}
-.fchat-empty {{
-    color: #94a3b8; font-size: .82rem;
-    text-align: center; padding: 20px 10px;
-}}
-.fchat-suggestions {{
-    padding: 6px 14px; display: flex; flex-wrap: wrap; gap: 6px;
-    background: #f8fafc; border-top: 1px solid #f1f5f9;
-}}
-.fchat-sug {{
-    background: #eff6ff; color: #1d4ed8;
-    border: 1px solid #bfdbfe; border-radius: 20px;
-    padding: 4px 11px; font-size: .75rem; cursor: pointer;
-    white-space: nowrap;
-}}
-.fchat-sug:hover {{ background: #dbeafe; }}
-.fchat-input-row {{
-    padding: 10px 12px; display: flex; gap: 8px;
-    border-top: 1px solid #e2e8f0; background: #fff;
-    flex-shrink: 0;
-}}
-.fchat-input {{
-    flex: 1; border: 1px solid #e2e8f0; border-radius: 22px;
-    padding: 8px 14px; font-size: .84rem; outline: none;
-    font-family: inherit;
-}}
-.fchat-input:focus {{ border-color: #2563eb; }}
-.fchat-send {{
-    background: #2563eb; color: #fff; border: none;
-    border-radius: 50%; width: 36px; height: 36px;
-    cursor: pointer; font-size: 1rem; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-}}
-.fchat-send:hover {{ background: #1d4ed8; }}
-</style>
+# ── Render floating chatbot using st.container with fixed CSS ────────────────
+# We use a sidebar-like approach: render at bottom of page, CSS pins it
+with st.container():
+    st.markdown('<div class="fchat-root">', unsafe_allow_html=True)
 
-<div id="fchat-wrap">
-  <div id="fchat-window" class="{_chat_open_cls}">
-    <div class="fchat-header">
-      <div class="fchat-header-icon">🤖</div>
-      <div>
-        <div class="fchat-header-title">BPJS AI Analyst</div>
-        <div class="fchat-header-sub">{_provider_badge} · Tanya tentang data klaim</div>
-      </div>
-      <button class="fchat-close" onclick="toggleChat()">✕</button>
-    </div>
-    <div class="fchat-messages" id="fchat-msgs">
-      {_chat_msgs_html if _chat_msgs_html else '<div class="fchat-empty">👋 Halo! Tanya saya tentang data BPJS TK.<br>Contoh: <i>"Kenapa JHT naik di 2025?"</i></div>'}
-    </div>
-    {'<div class="fchat-suggestions">' +
-     ''.join(f'<span class="fchat-sug" onclick="sendSug(this)">{s}</span>' for s in [
-         f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
-         f"Program terbesar di {latest_year}?",
-         f"Dampak COVID ke klaim?",
-         f"Tren {years[0]}–{years[-1]}?"
-     ]) + '</div>'
-     if not st.session_state.chat_history else ''}
-    <div class="fchat-input-row">
-      <input class="fchat-input" id="fchat-in" placeholder="Tanya tentang data BPJS..." 
-             onkeydown="if(event.key==='Enter')sendChat()" />
-      <button class="fchat-send" onclick="sendChat()">➤</button>
-    </div>
-  </div>
-  <button id="fchat-btn" onclick="toggleChat()">💬</button>
-</div>
+    # Toggle button row
+    _btn_label = "✕ Tutup" if st.session_state.chat_open else "💬"
+    _col_spacer, _col_btn = st.columns([10, 1])
+    with _col_btn:
+        if st.button(_btn_label, key="fchat_toggle",
+                     help="Buka/tutup AI Analyst",
+                     use_container_width=False):
+            st.session_state.chat_open = not st.session_state.chat_open
+            st.rerun()
 
-<script>
-function toggleChat() {{
-    var w = document.getElementById('fchat-window');
-    w.classList.toggle('fchat-open');
-    if (w.classList.contains('fchat-open')) {{
-        var msgs = document.getElementById('fchat-msgs');
-        if (msgs) msgs.scrollTop = msgs.scrollHeight;
-        setTimeout(function(){{ document.getElementById('fchat-in').focus(); }}, 100);
-    }}
-}}
-function sendChat() {{
-    var inp = document.getElementById('fchat-in');
-    var q = inp.value.trim();
-    if (!q) return;
-    inp.value = '';
-    // Set value in hidden Streamlit input and trigger
-    var targets = window.parent.document.querySelectorAll('input[aria-label="fchat_input_hidden"]');
-    if (targets.length > 0) {{
-        var nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        nativeInput.call(targets[0], q);
-        targets[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
-    }}
-    // Fallback: use URL param approach via postMessage
-    window.parent.postMessage({{type: 'streamlit:setComponentValue', value: q}}, '*');
-}}
-function sendSug(el) {{
-    document.getElementById('fchat-in').value = el.innerText;
-    sendChat();
-}}
-// Auto-scroll on load
-(function() {{
-    var msgs = document.getElementById('fchat-msgs');
-    if (msgs) msgs.scrollTop = msgs.scrollHeight;
-}})();
-</script>
-""", unsafe_allow_html=True)
+    # Chat panel (only shown when open)
+    if st.session_state.chat_open:
+        st.markdown(f"""
+        <div class="fchat-panel">
+          <div class="fchat-header">
+            <span style="font-size:1.2rem">🤖</span>
+            <div>
+              <div class="fchat-header-title">BPJS AI Analyst</div>
+              <div class="fchat-header-sub">{_badge} · Berbasis data aktual</div>
+            </div>
+          </div>
+          <div class="fchat-msgs-wrap" id="fchat-msgs">
+        """, unsafe_allow_html=True)
 
-# Streamlit input bridge for chatbot (hidden but functional)
-_chat_q = st.text_input("", key="fchat_input_hidden", label_visibility="collapsed",
-                          placeholder="")
-if _chat_q and _chat_q != st.session_state.get('_last_chat_q', ''):
-    st.session_state._last_chat_q = _chat_q
-    st.session_state._chat_pending_q = _chat_q
-    st.rerun()
+        # Messages
+        if not st.session_state.chat_history:
+            st.markdown('<div class="fchat-empty">👋 Tanya saya tentang data BPJS TK!<br>'
+                       '<i>Contoh: "Kenapa JHT naik di 2025?"</i></div>',
+                       unsafe_allow_html=True)
+        else:
+            for _msg in st.session_state.chat_history[-16:]:
+                _cls  = "fchat-bubble-user" if _msg["role"] == "user" else "fchat-bubble-bot"
+                _text = _msg["content"].replace("\n", "<br>")
+                st.markdown(f'<div class="{_cls}">{_text}</div>', unsafe_allow_html=True)
+
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+        # Suggested questions (only if no history)
+        if not st.session_state.chat_history:
+            _sugs = [
+                f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
+                f"Program terbesar di {latest_year}?",
+                "Dampak COVID ke klaim BPJS?",
+                f"Tren {years[0]}–{years[-1]}?",
+            ]
+            _scols = st.columns(2)
+            for _si, _sug in enumerate(_sugs):
+                with _scols[_si % 2]:
+                    if st.button(_sug, key=f"fchat_sug_{_si}", use_container_width=True):
+                        st.session_state.chat_history.append({"role": "user", "content": _sug})
+                        st.session_state._chat_pending = _sug
+                        st.rerun()
+
+        # Input row
+        _ic1, _ic2 = st.columns([5, 1])
+        with _ic1:
+            _user_input = st.text_input(
+                "Pertanyaan AI Analyst",
+                key="fchat_input",
+                placeholder="Tanya tentang data BPJS...",
+                label_visibility="collapsed")
+        with _ic2:
+            _send = st.button("➤", key="fchat_send", use_container_width=True)
+
+        if (_send or _user_input) and _user_input and _user_input.strip():
+            _q_clean = _user_input.strip()
+            st.session_state.chat_history.append({"role": "user", "content": _q_clean})
+            st.session_state._chat_pending = _q_clean
+            st.rerun()
+
+        # Clear button
+        if st.session_state.chat_history:
+            if st.button("🗑️ Hapus riwayat", key="fchat_clear"):
+                st.session_state.chat_history = []
+                st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
