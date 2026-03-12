@@ -54,7 +54,7 @@ try:
     PROPHET_OK = True
 except ImportError:
     try:
-        from fbprophet import Prophet
+        from fbprophet import Prophet  # type: ignore[import]
         PROPHET_OK = True
     except ImportError:
         PROPHET_OK = False
@@ -1774,6 +1774,15 @@ df            = st.session_state.active_data
 results_cache = st.session_state.active_results
 df_raw_monthly = st.session_state.get('raw_monthly', None)
 
+# Pylance-friendly defaults — overwritten below after df is confirmed loaded
+# (st.stop() inside the if-block prevents these from ever being used at runtime)
+has_nom:   bool = False
+single_yr: bool = False
+years:     list = []
+latest_year = None
+prev_year   = None
+active_progs: set = set()
+
 if df is None:
     st.markdown("""
     <div style="text-align:center;padding:80px 0 40px;">
@@ -2008,7 +2017,7 @@ if _is_single_prog:
         f'</div>',
         unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export", "💬 Analisis AI"])
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1: OVERVIEW
@@ -2145,8 +2154,8 @@ with tab1:
             return result
 
         def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
-                                     wb_data, api_key):
-            import urllib.request, json as _j
+                                     wb_data, api_info):
+            import json as _j
             ekon_lines = []
             for yr in sorted(wb_data.keys()):
                 d = wb_data[yr]
@@ -2157,36 +2166,18 @@ with tab1:
                 if 'export_growth'    in d: parts.append(f"ekspor {d['export_growth']:+.1f}%")
                 ekon_lines.append(f"  {yr}: {', '.join(parts) if parts else 'data terbatas'}")
             ekon_str = "\n".join(ekon_lines)
-
             prompt = (
-                f"Kamu adalah analis ketenagakerjaan Indonesia.\n\n"
-                f"Program BPJS Ketenagakerjaan: {prog_name}\n"
-                f"- PEAK (klaim tertinggi): tahun {peak_yr} dengan {peak_val:,} kasus\n"
-                f"- TROUGH (klaim terendah): tahun {trough_yr} dengan {trough_val:,} kasus\n\n"
-                f"Data makroekonomi Indonesia (World Bank API, data riil):\n{ekon_str}\n\n"
-                f"Berdasarkan data ekonomi di atas, jelaskan secara padat:\n"
-                f"1. Mengapa klaim {prog_name} TINGGI di {peak_yr}?\n"
-                f"2. Mengapa klaim {prog_name} RENDAH di {trough_yr}?\n\n"
-                f'Jawab HANYA JSON ini tanpa teks lain: {{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}}'
+                f"Kamu analis ketenagakerjaan Indonesia. "
+                f"Program BPJS: {prog_name} | PEAK: {peak_yr} ({peak_val:,} kasus) | TROUGH: {trough_yr} ({trough_val:,} kasus). "
+                f"Data makroekonomi Indonesia (World Bank):\n{ekon_str}\n"
+                f"Jelaskan mengapa klaim TINGGI di {peak_yr} dan RENDAH di {trough_yr}. "
+                f"Jawab HANYA JSON: "
+                + '{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}'
             )
-
             try:
-                payload = _j.dumps({
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 600,
-                    "messages": [{"role": "user", "content": prompt}]
-                }).encode('utf-8')
-                req = urllib.request.Request(
-                    "https://api.anthropic.com/v1/messages",
-                    data=payload,
-                    headers={"Content-Type": "application/json",
-                             "x-api-key": api_key,
-                             "anthropic-version": "2023-06-01"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=25) as r:
-                    resp = _j.loads(r.read().decode())
-                raw = resp["content"][0]["text"].strip()
+                raw = _call_ai(prompt, api_info=api_info, max_tokens=500)
+                if not raw:
+                    return None
                 if "```" in raw:
                     import re as _re
                     raw = _re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
@@ -2198,16 +2189,67 @@ with tab1:
                 return None
 
         def _get_api_key():
+            """Returns Gemini API key (primary) or Anthropic as fallback."""
             try:
-                try:    return st.secrets["ANTHROPIC_API_KEY"]
+                # Gemini (Google AI Studio) — free tier: 1500 req/day
+                try:    return ("gemini", st.secrets["GEMINI_API_KEY"])
                 except: pass
-                try:    return st.secrets["anthropic_api_key"]
+                try:    return ("gemini", st.secrets["gemini_api_key"])
                 except: pass
-                try:    return str(st.secrets.ANTHROPIC_API_KEY)
+                # Fallback: Anthropic
+                try:    return ("anthropic", st.secrets["ANTHROPIC_API_KEY"])
+                except: pass
+                try:    return ("anthropic", st.secrets["anthropic_api_key"])
                 except: pass
             except Exception:
                 pass
-            return ""
+            return ("", "")
+
+        def _call_ai(prompt, system="", api_info=None, max_tokens=800):
+            """Universal AI caller: Gemini first, Anthropic fallback."""
+            import urllib.request, json as _j
+            if api_info is None:
+                api_info = _get_api_key()
+            provider, key = api_info if isinstance(api_info, tuple) and len(api_info)==2 else ("","")
+            if not key:
+                return None
+
+            if provider == "gemini":
+                # Gemini 2.0 Flash — free, fast, 1M context
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+                contents = []
+                if system:
+                    contents.append({"role": "user", "parts": [{"text": f"[System instruction]: {system}"}]})
+                    contents.append({"role": "model", "parts": [{"text": "Understood. I will follow these instructions."}]})
+                contents.append({"role": "user", "parts": [{"text": prompt}]})
+                body = _j.dumps({
+                    "contents": contents,
+                    "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
+                }).encode('utf-8')
+                req = urllib.request.Request(url, data=body,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    resp = _j.loads(r.read().decode())
+                return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+            elif provider == "anthropic":
+                url = "https://api.anthropic.com/v1/messages"
+                messages = [{"role": "user", "content": prompt}]
+                body = _j.dumps({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": max_tokens,
+                    "system": system,
+                    "messages": messages
+                }).encode('utf-8')
+                req = urllib.request.Request(url, data=body,
+                    headers={"Content-Type": "application/json",
+                             "x-api-key": key, "anthropic-version": "2023-06-01"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    resp = _j.loads(r.read().decode())
+                return resp["content"][0]["text"].strip()
+
+            return None
 
         # ── Fetch World Bank data ────────────────────────────────────────────
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
@@ -2305,7 +2347,7 @@ with tab1:
             'Tidak ada hardcode — analisis dibuat dari data aktual setiap saat.</div>',
             unsafe_allow_html=True)
 
-        _api_key = _get_api_key()
+        _api_key = _get_api_key()  # returns (provider, key) tuple
         progs_to_analyze = sorted(filtered_progs)
         n_pcols = min(len(progs_to_analyze), 3)
 
@@ -2323,7 +2365,7 @@ with tab1:
 
                 _cache_key = f"ai_pt_{prog}_{peak_yr}_{trough_yr}"
                 if _cache_key not in st.session_state:
-                    if _api_key:
+                    if _api_key and _api_key[1]:
                         with st.spinner(f"🤖 AI menganalisis {prog} ({peak_yr} vs {trough_yr})..."):
                             st.session_state[_cache_key] = _ai_analyze_peak_trough(
                                 prog, peak_yr, peak_val, trough_yr, trough_val,
@@ -2367,7 +2409,7 @@ with tab1:
                         f'</div>'
                         f'<div style="margin-top:8px;font-size:.75rem;color:#64748b;">'
                         f'Range peak↔trough: <b style="color:#0f172a">{range_pct:.0f}%</b>'
-                        f'{"" if _api_key else " &nbsp;·&nbsp; ⚠️ Set ANTHROPIC_API_KEY"}'
+                        f'{"" if (_api_key and _api_key[1]) else " &nbsp;·&nbsp; ⚠️ Set GEMINI_API_KEY di Secrets"}'
                         f'</div>'
                         f'</div>',
                         unsafe_allow_html=True)
@@ -4204,175 +4246,318 @@ with tab4:
     st.info(f"**{len(df)} baris** | **{len(active_progs)} program aktif** ({', '.join(active_progs)}) | **Tahun: {', '.join(map(str, years))}**")
     st.dataframe(df, width='stretch', height=360)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5: AI CHATBOT ANALYST
-# ══════════════════════════════════════════════════════════════════════════════
-with tab5:
-    st.markdown('<div class="sec">💬 Tanya AI Analyst — Investigasi Data BPJS</div>',
-                unsafe_allow_html=True)
-    st.markdown(
-        '<div class="info-box">🤖 <b>AI Analyst</b> siap menjawab pertanyaan Anda tentang data BPJS Ketenagakerjaan. '
-        'AI memiliki akses ke data historis Anda, data makroekonomi World Bank, dan pengetahuan luas tentang '
-        'ketenagakerjaan Indonesia. Contoh pertanyaan: <i>"Kenapa JHT naik drastis di 2025?"</i>, '
-        '<i>"Apa yang menyebabkan JKK turun di 2021?"</i>, '
-        '<i>"Bandingkan tren JKK vs JHT selama 5 tahun terakhir."</i></div>',
-        unsafe_allow_html=True)
 
-    # Build data context string once
-    def _build_data_ctx():
-        lines = ["=== DATA BPJS KETENAGAKERJAAN ==="]
-        lines.append(f"Program aktif: {', '.join(active_progs)}")
-        lines.append(f"Rentang tahun: {years[0]} – {years[-1]}")
-        lines.append("")
-        lines.append("Kasus per program per tahun:")
-        pivot = df.groupby(['Tahun', 'Kategori'])['Kasus'].sum().unstack(fill_value=0)
-        lines.append(pivot.to_string())
-        if has_nom:
-            lines.append("")
-            lines.append("Nominal (Rp Miliar) per program per tahun:")
-            nom_pivot = df.groupby(['Tahun', 'Kategori'])['Nominal'].sum().unstack(fill_value=0) / 1e9
-            lines.append(nom_pivot.round(1).to_string())
-        # Add World Bank data if available
-        if 'wb_ekon' in dir() or 'wb_ekon' in locals():
-            pass
-        return "\n".join(lines)
+# ══════════════════════════════════════════════════════════════════════════════
+# FLOATING AI CHATBOT WIDGET
+# ══════════════════════════════════════════════════════════════════════════════
 
-    def _build_wb_ctx():
-        try:
-            if not wb_ekon or not any(wb_ekon.values()):
-                return ""
-            lines = ["\n=== DATA MAKROEKONOMI INDONESIA (World Bank API) ==="]
-            for yr in sorted(wb_ekon.keys()):
-                d = wb_ekon[yr]
-                if not d: continue
-                parts = []
-                if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
-                if 'inflation_pct'    in d: parts.append(f"Inflasi {d['inflation_pct']:.1f}%")
-                if 'unemployment_pct' in d: parts.append(f"Pengangguran {d['unemployment_pct']:.1f}%")
-                lines.append(f"  {yr}: {', '.join(parts)}")
-            return "\n".join(lines)
-        except Exception:
+# Build data context for chatbot
+def _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year):
+    lines = ["=== DATA BPJS KETENAGAKERJAAN ==="]
+    lines.append(f"Program aktif: {', '.join(active_progs)}")
+    lines.append(f"Rentang tahun: {years[0]} – {years[-1]}")
+    lines.append("\nKasus per program per tahun:")
+    import pandas as _pd3
+    pivot = df.groupby(['Tahun', 'Kategori'])['Kasus'].sum().unstack(fill_value=0)
+    lines.append(pivot.to_string())
+    if has_nom:
+        lines.append("\nNominal (Rp Miliar) per program per tahun:")
+        nom_p = df.groupby(['Tahun', 'Kategori'])['Nominal'].sum().unstack(fill_value=0) / 1e9
+        lines.append(nom_p.round(1).to_string())
+    return "\n".join(lines)
+
+def _build_chat_wb_ctx(wb_ekon):
+    try:
+        if not wb_ekon or not any(wb_ekon.values()):
             return ""
+        lines = ["\n=== MAKROEKONOMI INDONESIA (World Bank) ==="]
+        for yr in sorted(wb_ekon.keys()):
+            d = wb_ekon[yr]
+            if not d: continue
+            parts = []
+            if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
+            if 'inflation_pct'    in d: parts.append(f"Inflasi {d['inflation_pct']:.1f}%")
+            if 'unemployment_pct' in d: parts.append(f"Pengangguran {d['unemployment_pct']:.1f}%")
+            if parts: lines.append(f"  {yr}: {', '.join(parts)}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
-    # Chat history
-    if 'chatbot_history' not in st.session_state:
-        st.session_state.chatbot_history = []
+# Chatbot logic
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'chat_open' not in st.session_state:
+    st.session_state.chat_open = False
 
-    # Display chat history
-    for msg in st.session_state.chatbot_history:
-        if msg['role'] == 'user':
-            st.markdown(
-                f'<div style="display:flex;justify-content:flex-end;margin:8px 0;">'
-                f'<div style="background:#2563eb;color:#fff;border-radius:16px 16px 4px 16px;'
-                f'padding:10px 16px;max-width:75%;font-size:.88rem;line-height:1.6;">'
-                f'{msg["content"]}</div></div>',
-                unsafe_allow_html=True)
-        else:
-            st.markdown(
-                f'<div style="display:flex;justify-content:flex-start;margin:8px 0;">'
-                f'<div style="background:#f1f5f9;border:1px solid #e2e8f0;color:#1e293b;'
-                f'border-radius:16px 16px 16px 4px;padding:10px 16px;max-width:85%;'
-                f'font-size:.88rem;line-height:1.7;">'
-                f'{msg["content"]}</div></div>',
-                unsafe_allow_html=True)
+# Get wb_ekon safely (may not exist if trend data not loaded)
+_wb_for_chat = st.session_state.get('_wb_ekon_cache', {})
 
-    # Suggested questions
-    if not st.session_state.chatbot_history:
-        st.markdown('<div style="font-size:.8rem;color:#64748b;margin:12px 0 6px;">💡 Coba tanyakan:</div>',
-                    unsafe_allow_html=True)
-        suggest_cols = st.columns(2)
-        suggestions = [
-            f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
-            f"Program mana yang paling banyak terpengaruh COVID-19?",
-            f"Apa tren keseluruhan klaim BPJS TK dari {years[0]} sampai {years[-1]}?",
-            f"Bandingkan pertumbuhan semua program di {latest_year} vs {prev_year}.",
-        ]
-        for i, sug in enumerate(suggestions[:4]):
-            with suggest_cols[i % 2]:
-                if st.button(sug, key=f"sug_{i}", use_container_width=True):
-                    st.session_state.chatbot_history.append({"role": "user", "content": sug})
-                    st.rerun()
+# Process any pending chat question
+if st.session_state.get('_chat_pending_q'):
+    _q = st.session_state._chat_pending_q
+    st.session_state._chat_pending_q = None
+    st.session_state.chat_history.append({"role": "user", "content": _q})
 
-    # Input
-    cb_col1, cb_col2 = st.columns([6, 1])
-    with cb_col1:
-        user_q = st.text_input(
-            "Tanyakan apapun tentang data BPJS:",
-            placeholder="Contoh: Mengapa JHT naik tajam di 2025?",
-            key="chatbot_input",
-            label_visibility="collapsed")
-    with cb_col2:
-        send_btn = st.button("Kirim ➤", key="chatbot_send", use_container_width=True)
+    _chat_api = _get_api_key() if 'active_data' in st.session_state else ("", "")
+    # Try to get api key even without data
+    try:
+        _chat_api = _get_api_key()
+    except Exception:
+        _chat_api = ("", "")
 
-    if (send_btn or user_q) and user_q.strip():
-        question = user_q.strip()
-        st.session_state.chatbot_history.append({"role": "user", "content": question})
+    provider, key = _chat_api if isinstance(_chat_api, tuple) else ("", "")
+    if not key:
+        answer = "⚠️ Tambahkan **GEMINI_API_KEY** di Streamlit Secrets (Manage App → Secrets) untuk menggunakan chatbot.\n\nGemini gratis: [aistudio.google.com](https://aistudio.google.com)"
+    else:
+        try:
+            _data_ctx = ""
+            _wb_ctx = ""
+            if 'active_data' in st.session_state:
+                _data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
+                _wb_ctx   = _build_chat_wb_ctx(_wb_for_chat)
 
-        _api_key_chat = _get_api_key()
-        if not _api_key_chat:
-            st.session_state.chatbot_history.append({
-                "role": "assistant",
-                "content": "⚠️ ANTHROPIC_API_KEY tidak ditemukan di Streamlit Secrets. "
-                           "Tambahkan key tersebut di Manage App → Secrets untuk menggunakan chatbot."
-            })
-        else:
-            data_ctx = _build_data_ctx()
-            wb_ctx   = _build_wb_ctx()
-
-            system_prompt = (
-                "Kamu adalah AI Analyst spesialis ketenagakerjaan Indonesia dan BPJS Ketenagakerjaan. "
-                "Kamu memiliki akses ke data klaim BPJS historis pengguna dan data makroekonomi World Bank. "
-                "Jawab dalam Bahasa Indonesia dengan padat, akurat, dan berbasis data. "
-                "Gunakan angka spesifik dari data yang tersedia. "
-                "Jika ada pertanyaan tentang masa depan, berikan insight berbasis tren historis. "
-                "Format jawaban: singkat tapi substantif, maksimal 4-5 kalimat kecuali diminta detail."
+            sys_prompt = (
+                "Kamu adalah AI Analyst spesialis BPJS Ketenagakerjaan Indonesia. "
+                "Jawab dalam Bahasa Indonesia, padat, berbasis data. "
+                "Gunakan angka spesifik dari data. Maksimal 4-5 kalimat kecuali diminta detail."
             )
+            # Build message with context + history
+            import urllib.request as _ur, json as _jj
+            full_prompt = ""
+            if _data_ctx:
+                full_prompt += f"[DATA KONTEKS]\n{_data_ctx}{_wb_ctx}\n[/DATA]\n\n"
+            # Add recent history
+            for h in st.session_state.chat_history[-8:]:
+                role = "User" if h["role"] == "user" else "Assistant"
+                full_prompt += f"{role}: {h['content']}\n"
 
-            # Build messages with full history
-            messages = []
-            # Add data context as first system-like message
-            _ctx_content = "[KONTEKS DATA — jangan disebutkan ke user]\n" + data_ctx + wb_ctx + "\n[/KONTEKS]"
-            messages.append({
-                "role": "user",
-                "content": _ctx_content
-            })
-            messages.append({
-                "role": "assistant",
-                "content": "Saya sudah mempelajari data BPJS dan makroekonomi yang tersedia. Siap menjawab pertanyaan Anda."
-            })
-            # Add conversation history
-            for h in st.session_state.chatbot_history[:-1]:
-                messages.append({"role": h["role"], "content": h["content"]})
-            # Add current question
-            messages.append({"role": "user", "content": question})
+            if provider == "gemini":
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+                contents = [
+                    {"role": "user", "parts": [{"text": f"[Instruksi sistem]: {sys_prompt}"}]},
+                    {"role": "model", "parts": [{"text": "Siap. Saya akan menganalisis data BPJS dengan akurat."}]},
+                    {"role": "user", "parts": [{"text": full_prompt}]}
+                ]
+                body = _jj.dumps({
+                    "contents": contents,
+                    "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
+                }).encode('utf-8')
+                req = _ur.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+                with _ur.urlopen(req, timeout=30) as r:
+                    resp = _jj.loads(r.read().decode())
+                answer = resp["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-            with st.spinner("🤖 AI sedang menganalisis..."):
-                try:
-                    import urllib.request, json as _jc
-                    payload = _jc.dumps({
-                        "model": "claude-haiku-4-5-20251001",
-                        "max_tokens": 800,
-                        "system": system_prompt,
-                        "messages": messages
-                    }).encode('utf-8')
-                    req = urllib.request.Request(
-                        "https://api.anthropic.com/v1/messages",
-                        data=payload,
-                        headers={"Content-Type": "application/json",
-                                 "x-api-key": _api_key_chat,
-                                 "anthropic-version": "2023-06-01"},
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(req, timeout=30) as r:
-                        resp = _jc.loads(r.read().decode())
-                    answer = resp["content"][0]["text"].strip()
-                except Exception as e:
-                    answer = f"⚠️ Gagal menghubungi AI: {str(e)[:200]}"
+            elif provider == "anthropic":
+                url = "https://api.anthropic.com/v1/messages"
+                body = _jj.dumps({
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 800,
+                    "system": sys_prompt,
+                    "messages": [{"role": "user", "content": full_prompt}]
+                }).encode('utf-8')
+                req = _ur.Request(url, data=body,
+                    headers={"Content-Type": "application/json",
+                             "x-api-key": key, "anthropic-version": "2023-06-01"},
+                    method="POST")
+                with _ur.urlopen(req, timeout=30) as r:
+                    resp = _jj.loads(r.read().decode())
+                answer = resp["content"][0]["text"].strip()
+            else:
+                answer = "Provider tidak dikenali."
 
-            st.session_state.chatbot_history.append({"role": "assistant", "content": answer})
-        st.rerun()
+        except Exception as e:
+            answer = f"⚠️ Gagal: {str(e)[:200]}"
 
-    if st.session_state.chatbot_history:
-        if st.button("🗑️ Hapus riwayat chat", key="clear_chat"):
-            st.session_state.chatbot_history = []
-            st.rerun()
+    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+    st.rerun()
+
+# ── Floating chatbot CSS + HTML ──────────────────────────────────────────────
+_chat_msgs_html = ""
+for _msg in st.session_state.chat_history[-20:]:
+    if _msg["role"] == "user":
+        _chat_msgs_html += f'''<div class="fchat-bubble fchat-user">{_msg["content"]}</div>'''
+    else:
+        _safe = _msg["content"].replace("\n", "<br>").replace("**", "<b>", 1).replace("**", "</b>", 1)
+        _chat_msgs_html += f'''<div class="fchat-bubble fchat-bot">{_safe}</div>'''
+
+_chat_open_cls = "fchat-open" if st.session_state.chat_open else ""
+_provider_badge = ""
+try:
+    _p, _k = _get_api_key()
+    if _p == "gemini":   _provider_badge = "Gemini 2.0 Flash"
+    elif _p == "anthropic": _provider_badge = "Claude Haiku"
+    else:                _provider_badge = "Set GEMINI_API_KEY"
+except Exception:
+    _provider_badge = "Set GEMINI_API_KEY"
+
+st.markdown(f"""
+<style>
+#fchat-wrap {{
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    font-family: 'Inter', sans-serif;
+}}
+#fchat-btn {{
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    border: none; cursor: pointer; box-shadow: 0 4px 18px rgba(37,99,235,.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; transition: transform .2s;
+    margin-left: auto;
+}}
+#fchat-btn:hover {{ transform: scale(1.08); }}
+#fchat-window {{
+    display: none;
+    width: 380px; max-height: 560px;
+    background: #fff; border-radius: 18px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.18);
+    flex-direction: column; overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid #e2e8f0;
+}}
+#fchat-window.fchat-open {{ display: flex; }}
+.fchat-header {{
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: #fff; padding: 14px 16px;
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+}}
+.fchat-header-icon {{
+    width: 34px; height: 34px; border-radius: 50%;
+    background: rgba(255,255,255,.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+}}
+.fchat-header-title {{ font-weight: 700; font-size: .95rem; }}
+.fchat-header-sub {{ font-size: .72rem; opacity: .8; }}
+.fchat-close {{
+    margin-left: auto; background: none; border: none;
+    color: #fff; font-size: 1.2rem; cursor: pointer; opacity: .7;
+}}
+.fchat-close:hover {{ opacity: 1; }}
+.fchat-messages {{
+    flex: 1; overflow-y: auto; padding: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f8fafc; min-height: 200px; max-height: 380px;
+}}
+.fchat-bubble {{
+    max-width: 84%; padding: 9px 13px;
+    border-radius: 14px; font-size: .84rem; line-height: 1.55;
+}}
+.fchat-user {{
+    background: #2563eb; color: #fff;
+    border-radius: 14px 14px 4px 14px; align-self: flex-end;
+}}
+.fchat-bot {{
+    background: #fff; color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px 14px 14px 4px; align-self: flex-start;
+}}
+.fchat-empty {{
+    color: #94a3b8; font-size: .82rem;
+    text-align: center; padding: 20px 10px;
+}}
+.fchat-suggestions {{
+    padding: 6px 14px; display: flex; flex-wrap: wrap; gap: 6px;
+    background: #f8fafc; border-top: 1px solid #f1f5f9;
+}}
+.fchat-sug {{
+    background: #eff6ff; color: #1d4ed8;
+    border: 1px solid #bfdbfe; border-radius: 20px;
+    padding: 4px 11px; font-size: .75rem; cursor: pointer;
+    white-space: nowrap;
+}}
+.fchat-sug:hover {{ background: #dbeafe; }}
+.fchat-input-row {{
+    padding: 10px 12px; display: flex; gap: 8px;
+    border-top: 1px solid #e2e8f0; background: #fff;
+    flex-shrink: 0;
+}}
+.fchat-input {{
+    flex: 1; border: 1px solid #e2e8f0; border-radius: 22px;
+    padding: 8px 14px; font-size: .84rem; outline: none;
+    font-family: inherit;
+}}
+.fchat-input:focus {{ border-color: #2563eb; }}
+.fchat-send {{
+    background: #2563eb; color: #fff; border: none;
+    border-radius: 50%; width: 36px; height: 36px;
+    cursor: pointer; font-size: 1rem; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+}}
+.fchat-send:hover {{ background: #1d4ed8; }}
+</style>
+
+<div id="fchat-wrap">
+  <div id="fchat-window" class="{_chat_open_cls}">
+    <div class="fchat-header">
+      <div class="fchat-header-icon">🤖</div>
+      <div>
+        <div class="fchat-header-title">BPJS AI Analyst</div>
+        <div class="fchat-header-sub">{_provider_badge} · Tanya tentang data klaim</div>
+      </div>
+      <button class="fchat-close" onclick="toggleChat()">✕</button>
+    </div>
+    <div class="fchat-messages" id="fchat-msgs">
+      {_chat_msgs_html if _chat_msgs_html else '<div class="fchat-empty">👋 Halo! Tanya saya tentang data BPJS TK.<br>Contoh: <i>"Kenapa JHT naik di 2025?"</i></div>'}
+    </div>
+    {'<div class="fchat-suggestions">' +
+     ''.join(f'<span class="fchat-sug" onclick="sendSug(this)">{s}</span>' for s in [
+         f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
+         f"Program terbesar di {latest_year}?",
+         f"Dampak COVID ke klaim?",
+         f"Tren {years[0]}–{years[-1]}?"
+     ]) + '</div>'
+     if not st.session_state.chat_history else ''}
+    <div class="fchat-input-row">
+      <input class="fchat-input" id="fchat-in" placeholder="Tanya tentang data BPJS..." 
+             onkeydown="if(event.key==='Enter')sendChat()" />
+      <button class="fchat-send" onclick="sendChat()">➤</button>
+    </div>
+  </div>
+  <button id="fchat-btn" onclick="toggleChat()">💬</button>
+</div>
+
+<script>
+function toggleChat() {{
+    var w = document.getElementById('fchat-window');
+    w.classList.toggle('fchat-open');
+    if (w.classList.contains('fchat-open')) {{
+        var msgs = document.getElementById('fchat-msgs');
+        if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        setTimeout(function(){{ document.getElementById('fchat-in').focus(); }}, 100);
+    }}
+}}
+function sendChat() {{
+    var inp = document.getElementById('fchat-in');
+    var q = inp.value.trim();
+    if (!q) return;
+    inp.value = '';
+    // Set value in hidden Streamlit input and trigger
+    var targets = window.parent.document.querySelectorAll('input[aria-label="fchat_input_hidden"]');
+    if (targets.length > 0) {{
+        var nativeInput = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativeInput.call(targets[0], q);
+        targets[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
+    }}
+    // Fallback: use URL param approach via postMessage
+    window.parent.postMessage({{type: 'streamlit:setComponentValue', value: q}}, '*');
+}}
+function sendSug(el) {{
+    document.getElementById('fchat-in').value = el.innerText;
+    sendChat();
+}}
+// Auto-scroll on load
+(function() {{
+    var msgs = document.getElementById('fchat-msgs');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+}})();
+</script>
+""", unsafe_allow_html=True)
+
+# Streamlit input bridge for chatbot (hidden but functional)
+_chat_q = st.text_input("", key="fchat_input_hidden", label_visibility="collapsed",
+                          placeholder="")
+if _chat_q and _chat_q != st.session_state.get('_last_chat_q', ''):
+    st.session_state._last_chat_q = _chat_q
+    st.session_state._chat_pending_q = _chat_q
+    st.rerun()
