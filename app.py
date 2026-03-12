@@ -1842,8 +1842,14 @@ def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
         return None
 
 def _get_api_key():
-    """Returns Gemini API key — free tier 1500 req/day."""
+    """Returns best available AI API key — priority: Groq > Gemini."""
     try:
+        # Groq — gratis, sangat cepat, LLaMA 3.3 70B (6000 tokens/min free)
+        try:    return ("groq", st.secrets["GROQ_API_KEY"])
+        except: pass
+        try:    return ("groq", st.secrets["groq_api_key"])
+        except: pass
+        # Gemini fallback
         try:    return ("gemini", st.secrets["GEMINI_API_KEY"])
         except: pass
         try:    return ("gemini", st.secrets["gemini_api_key"])
@@ -1853,7 +1859,7 @@ def _get_api_key():
     return ("", "")
 
 def _call_ai(prompt, system="", api_info=None, max_tokens=800):
-    """Universal AI caller — Gemini 2.0 Flash (free, 1500 req/day)."""
+    """Universal AI caller — Groq (LLaMA 3.3 70B, gratis) with Gemini fallback."""
     import urllib.request, json as _j
     if api_info is None:
         api_info = _get_api_key()
@@ -1861,8 +1867,27 @@ def _call_ai(prompt, system="", api_info=None, max_tokens=800):
     if not key:
         return None
 
-    if provider == "gemini":
-        # Gemini 2.0 Flash — free, fast, 1M context
+    if provider == "groq":
+        # Groq API — gratis 6000 TPM, model llama-3.3-70b-versatile
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        body = _j.dumps({
+            "model": "llama-3.3-70b-versatile",
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.3
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=body,
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {key}"}, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = _j.loads(r.read().decode())
+        return resp["choices"][0]["message"]["content"].strip()
+
+    elif provider == "gemini":
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
         contents = []
         if system:
@@ -2142,7 +2167,7 @@ if _is_single_prog:
         f'</div>',
         unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export", "💬 AI Analyst"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1: OVERVIEW
@@ -2379,8 +2404,8 @@ with tab1:
                     trough_desc  = ai_res.get("trough_desc",  EKON_CONTEXT.get(trough_yr, ("", "Data terbatas."))[1])
                 else:
                     # Fallback: World Bank data only (still no hardcode)
-                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Data World Bank tersedia. Set GEMINI_API_KEY di Secrets untuk analisis AI."))
-                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Data World Bank tersedia. Set GEMINI_API_KEY di Secrets untuk analisis AI."))
+                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Data World Bank tersedia. Set GROQ_API_KEY atau GEMINI_API_KEY di Secrets untuk analisis AI."))
+                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Data World Bank tersedia. Set GROQ_API_KEY atau GEMINI_API_KEY di Secrets untuk analisis AI."))
                     peak_label, peak_desc     = _pk
                     trough_label, trough_desc = _tr
 
@@ -2406,7 +2431,7 @@ with tab1:
                         f'</div>'
                         f'<div style="margin-top:8px;font-size:.75rem;color:#64748b;">'
                         f'Range peak↔trough: <b style="color:#0f172a">{range_pct:.0f}%</b>'
-                        f'{"" if (_api_key and _api_key[1]) else " &nbsp;·&nbsp; ⚠️ Set GEMINI_API_KEY di Secrets"}'
+                        f'{"" if (_api_key and _api_key[1]) else " &nbsp;·&nbsp; ⚠️ Set GROQ_API_KEY di Secrets"}'
                         f'</div>'
                         f'</div>',
                         unsafe_allow_html=True)
@@ -4247,7 +4272,7 @@ with tab4:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR AI CHATBOT — Gemini 2.0 Flash (gratis 1500 req/hari)
+# TAB 5: AI ANALYST — Groq LLaMA 3.3 70B (gratis, cepat) + Gemini fallback
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -4256,12 +4281,13 @@ if '_chat_pending' not in st.session_state: st.session_state._chat_pending = Non
 
 # ── Context builders ──────────────────────────────────────────────────────────
 def _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year):
-    rows = [f"Program: {', '.join(active_progs)}", f"Tahun: {years[0]}–{years[-1]}",
-            "Kasus per program per tahun:"]
+    rows = [f"Program BPJS aktif: {', '.join(active_progs)}",
+            f"Rentang tahun data: {years[0]}–{years[-1]}",
+            "Data kasus per program per tahun:"]
     pivot = df.groupby(['Tahun','Kategori'])['Kasus'].sum().unstack(fill_value=0)
     rows.append(pivot.to_string())
     if has_nom:
-        rows.append("Nominal (Rp Miliar):")
+        rows.append("\nNominal klaim (Rp Miliar):")
         nom_p = df.groupby(['Tahun','Kategori'])['Nominal'].sum().unstack(fill_value=0)/1e9
         rows.append(nom_p.round(1).to_string())
     return "\n".join(rows)
@@ -4269,7 +4295,7 @@ def _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_yea
 def _build_chat_wb_ctx(wb_ekon):
     try:
         if not wb_ekon or not any(wb_ekon.values()): return ""
-        rows = ["Makroekonomi (World Bank):"]
+        rows = ["\nData Makroekonomi Indonesia (World Bank):"]
         for yr in sorted(wb_ekon.keys()):
             d = wb_ekon[yr]
             if not d: continue
@@ -4281,121 +4307,240 @@ def _build_chat_wb_ctx(wb_ekon):
         return "\n".join(rows)
     except Exception: return ""
 
-# ── Call Gemini ───────────────────────────────────────────────────────────────
 def _chat_answer(question):
+    """Jawab pertanyaan dengan Groq LLaMA 3.3 70B (gratis) atau Gemini fallback."""
+    import urllib.request as _ur, json as _jj
     api_info = _get_api_key()
     provider, key = api_info if isinstance(api_info, tuple) else ("", "")
     if not key:
-        return ("⚠️ **GEMINI_API_KEY belum diset.**\n\n"
-                "Cara: Manage App → Secrets → tambahkan:\n"
-                "`GEMINI_API_KEY = \"AIza...\"`\n\n"
-                "Dapatkan key gratis: https://aistudio.google.com")
+        return (
+            "⚠️ **API Key belum diset.**\n\n"
+            "Pilih salah satu (keduanya **gratis**):\n\n"
+            "**Opsi 1 — Groq (Rekomendasi, lebih cepat & bebas 429):**\n"
+            "Daftar di https://console.groq.com → API Keys → Create\n"
+            "Lalu di Streamlit: Manage App → Secrets → tambahkan:\n"
+            "`GROQ_API_KEY = \"gsk_...\"`\n\n"
+            "**Opsi 2 — Gemini:**\n"
+            "Daftar di https://aistudio.google.com → Get API Key\n"
+            "Tambahkan: `GEMINI_API_KEY = \"AIza...\"`"
+        )
 
-    # Build context
     data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
     wb_ctx   = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
+
     hist_str = ""
     for h in st.session_state.chat_history[-6:]:
         role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
-    prompt = (f"[DATA]\n{data_ctx}\n{wb_ctx}\n[/DATA]\n\n"
-              f"{hist_str}User: {question}\nAI:")
-    sys_p  = ("Kamu AI Analyst BPJS Ketenagakerjaan Indonesia. "
-               "Jawab Bahasa Indonesia, padat, gunakan angka spesifik. Maks 5 kalimat.")
+    sys_p = (
+        "Kamu adalah AI Analyst ahli untuk BPJS Ketenagakerjaan Indonesia. "
+        "Tugasmu menganalisis data klaim program JHT, JKK, JKM, JKP, JPN berdasarkan data yang diberikan. "
+        "Jawab dalam Bahasa Indonesia yang jelas dan padat. Gunakan angka spesifik dari data. "
+        "Berikan insight yang actionable. Maksimal 6 kalimat per jawaban kecuali diminta lebih."
+    )
 
-    import urllib.request as _ur, json as _jj
+    prompt = (
+        f"[DATA BPJS]\n{data_ctx}\n{wb_ctx}\n[/DATA]\n\n"
+        f"Riwayat percakapan:\n{hist_str}\n"
+        f"Pertanyaan user: {question}\n\nJawaban AI:"
+    )
+
     try:
-        if provider == "gemini":
+        if provider == "groq":
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            body = _jj.dumps({
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": sys_p},
+                    {"role": "user",   "content": prompt}
+                ],
+                "max_tokens": 800,
+                "temperature": 0.4
+            }).encode('utf-8')
+            req = _ur.Request(url, data=body,
+                              headers={"Content-Type": "application/json",
+                                       "Authorization": f"Bearer {key}"}, method="POST")
+            with _ur.urlopen(req, timeout=30) as r:
+                resp = _jj.loads(r.read().decode())
+            return resp["choices"][0]["message"]["content"].strip()
+
+        elif provider == "gemini":
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
             body = _jj.dumps({
                 "contents": [
-                    {"role":"user",  "parts":[{"text":f"[Instruksi]: {sys_p}"}]},
-                    {"role":"model", "parts":[{"text":"Siap."}]},
-                    {"role":"user",  "parts":[{"text":prompt}]}
+                    {"role": "user",  "parts": [{"text": f"[Instruksi sistem]: {sys_p}"}]},
+                    {"role": "model", "parts": [{"text": "Siap, saya siap menganalisis data BPJS."}]},
+                    {"role": "user",  "parts": [{"text": prompt}]}
                 ],
-                "generationConfig": {"maxOutputTokens": 700, "temperature": 0.4}
-            }).encode()
+                "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
+            }).encode('utf-8')
             req = _ur.Request(url, data=body,
-                              headers={"Content-Type":"application/json"}, method="POST")
-            with _ur.urlopen(req, timeout=25) as r:
+                              headers={"Content-Type": "application/json"}, method="POST")
+            with _ur.urlopen(req, timeout=30) as r:
                 resp = _jj.loads(r.read().decode())
             return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+
     except Exception as e:
-        return f"⚠️ Error: {str(e)[:200]}"
-    return "Provider error."
+        err_msg = str(e)
+        if "429" in err_msg:
+            return ("⚠️ **Rate limit tercapai (429).** Terlalu banyak request dalam waktu singkat.\n\n"
+                    "💡 **Solusi:** Gunakan **Groq API** (bebas 429, lebih cepat):\n"
+                    "Daftar gratis di https://console.groq.com → tambahkan `GROQ_API_KEY` di Secrets.")
+        return f"⚠️ Error: {err_msg[:300]}"
+    return "Provider tidak dikenali."
 
 # ── Process pending question ──────────────────────────────────────────────────
 if st.session_state._chat_pending:
     _q = st.session_state._chat_pending
     st.session_state._chat_pending = None
-    with st.spinner("🤖 Gemini AI menganalisis..."):
+    _api_provider = _get_api_key()[0] or "AI"
+    _spinner_label = "🤖 Groq LLaMA menganalisis..." if _api_provider == "groq" else "🤖 Gemini AI menganalisis..."
+    with st.spinner(_spinner_label):
         _ans = _chat_answer(_q)
     st.session_state.chat_history.append({"role": "assistant", "content": _ans})
     st.rerun()
 
-# ── Render in sidebar ─────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("---")
+# ── TAB 5 Render ─────────────────────────────────────────────────────────────
+with tab5:
     # Header
     try:
-        _p2, _k2 = _get_api_key()
-        _badge2 = "🟢 Gemini 2.0 Flash" if (_p2 == "gemini" and _k2) else "🔴 Set GEMINI_API_KEY"
+        _ai_prov, _ai_key = _get_api_key()
+        if _ai_prov == "groq" and _ai_key:
+            _ai_badge = "🟢 Groq · LLaMA 3.3 70B (Aktif)"
+            _ai_color = "#16a34a"
+        elif _ai_prov == "gemini" and _ai_key:
+            _ai_badge = "🟡 Gemini 2.0 Flash (Aktif)"
+            _ai_color = "#ca8a04"
+        else:
+            _ai_badge = "🔴 API Key belum diset"
+            _ai_color = "#dc2626"
     except Exception:
-        _badge2 = "🔴 Set GEMINI_API_KEY"
+        _ai_badge = "🔴 API Key belum diset"
+        _ai_color = "#dc2626"
 
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1e3a8a,#2563eb);
-    border-radius:12px;padding:12px 14px;margin-bottom:10px;">
-    <div style="color:white;font-weight:700;font-size:.92rem;">🤖 AI Analyst BPJS</div>
-    <div style="color:rgba(255,255,255,.75);font-size:.72rem;margin-top:2px;">{_badge2}</div>
+    <div style="background:linear-gradient(135deg,#0f172a,#1e3a8a);border-radius:16px;
+    padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="color:white;font-weight:800;font-size:1.2rem;margin-bottom:4px;">💬 AI Analyst BPJS</div>
+        <div style="color:rgba(255,255,255,.65);font-size:.8rem;">
+          Tanya apa saja tentang data klaim — AI akan analisa berdasarkan data aktual Anda
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,.1);border-radius:8px;padding:6px 14px;
+      color:{_ai_color};font-size:.78rem;font-weight:600;border:1px solid rgba(255,255,255,.15);">
+        {_ai_badge}
+      </div>
     </div>""", unsafe_allow_html=True)
 
-    # Suggested questions (if no history)
-    if not st.session_state.chat_history:
-        st.caption("💡 Pertanyaan cepat:")
-        _sugs2 = [
-            f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
-            f"Program terbesar {latest_year}?",
-            "Tren 5 tahun terakhir?",
-            "Dampak COVID ke klaim?",
+    # Setup instructions jika belum ada API key
+    if not _ai_key:
+        st.markdown("""
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;
+        padding:20px 24px;border-left:4px solid #f59e0b;margin-bottom:20px;">
+        <div style="font-weight:700;color:#92400e;margin-bottom:10px;">⚙️ Setup API Key (Gratis)</div>
+        <div style="color:#78350f;font-size:.88rem;line-height:2;">
+        <b>Opsi 1 — Groq (Rekomendasi):</b> Bebas 429, 6000 token/menit gratis<br>
+        → Daftar di <code>console.groq.com</code> → API Keys → Create Key<br>
+        → Streamlit: Manage App → Secrets → tambahkan: <code>GROQ_API_KEY = "gsk_..."</code><br><br>
+        <b>Opsi 2 — Gemini:</b> 1500 req/hari gratis (tapi bisa 429 jika cepat)<br>
+        → Daftar di <code>aistudio.google.com</code> → Get API Key<br>
+        → Tambahkan: <code>GEMINI_API_KEY = "AIza..."</code>
+        </div>
+        </div>""", unsafe_allow_html=True)
+
+    # Layout: chat kiri, quick actions kanan
+    col_chat, col_sidebar = st.columns([3, 1])
+
+    with col_sidebar:
+        st.markdown('<div class="sec">💡 Pertanyaan Cepat</div>', unsafe_allow_html=True)
+        _quick = [
+            f"📊 Program terbesar {latest_year}?",
+            f"📈 Tren klaim 5 tahun terakhir?",
+            f"🦠 Dampak COVID ke klaim?",
+            f"⚠️ Program mana yang paling volatil?",
+            f"📉 Kenapa ada penurunan klaim?",
+            f"🔮 Prediksi klaim tahun depan?",
         ]
-        for _si2, _sug2 in enumerate(_sugs2):
-            if st.button(_sug2, key=f"sug2_{_si2}", use_container_width=True):
-                st.session_state.chat_history.append({"role":"user","content":_sug2})
-                st.session_state._chat_pending = _sug2
+        for _qi, _qtext in enumerate(_quick):
+            if st.button(_qtext, key=f"quick_{_qi}", use_container_width=True):
+                _clean_q = _qtext.split(" ", 1)[1] if " " in _qtext else _qtext
+                st.session_state.chat_history.append({"role": "user", "content": _clean_q})
+                st.session_state._chat_pending = _clean_q
                 st.rerun()
-        st.markdown("")
 
-    # Chat messages
-    if st.session_state.chat_history:
-        for _m2 in st.session_state.chat_history[-10:]:
-            if _m2["role"] == "user":
-                st.markdown(f"""<div style="background:#2563eb;color:white;
-                border-radius:10px 10px 3px 10px;padding:8px 11px;
-                font-size:.8rem;margin:4px 0;line-height:1.5;">
-                {_m2['content']}</div>""", unsafe_allow_html=True)
-            else:
-                st.markdown(f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;
-                color:#1e293b;border-radius:10px 10px 10px 3px;padding:8px 11px;
-                font-size:.8rem;margin:4px 0;line-height:1.55;">
-                {_m2['content'].replace(chr(10),'<br>')}</div>""", unsafe_allow_html=True)
         st.markdown("")
+        st.markdown('<div class="sec">📊 Ringkasan Data</div>', unsafe_allow_html=True)
+        _total_kasus = df['Kasus'].sum()
+        st.markdown(f"""
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:.8rem;color:#475569;line-height:2;">
+        📅 <b>Tahun:</b> {years[0]}–{years[-1]}<br>
+        🏷️ <b>Program:</b> {len(active_progs)} aktif<br>
+        📋 <b>Total kasus:</b> {_total_kasus:,.0f}<br>
+        🤖 <b>Model:</b> {'LLaMA 3.3 70B' if _ai_prov=='groq' else 'Gemini 2.0 Flash' if _ai_prov=='gemini' else 'Belum aktif'}
+        </div>""", unsafe_allow_html=True)
 
-    # Input
-    _inp2 = st.text_input("Tanya AI Analyst",
-                           key="sidebar_chat_input",
-                           placeholder="Ketik pertanyaan...",
-                           label_visibility="collapsed")
-    _c1sb, _c2sb = st.columns([4,1])
-    with _c1sb:
-        _kirim = st.button("Kirim ➤", key="sidebar_send", use_container_width=True, type="primary")
-    with _c2sb:
-        if st.button("🗑️", key="sidebar_clear", help="Hapus riwayat"):
-            st.session_state.chat_history = []
+        if st.session_state.chat_history:
+            st.markdown("")
+            if st.button("🗑️ Hapus Riwayat", use_container_width=True):
+                st.session_state.chat_history = []
+                st.rerun()
+
+    with col_chat:
+        # Chat messages area
+        if not st.session_state.chat_history:
+            st.markdown("""
+            <div style="text-align:center;padding:40px 20px;color:#94a3b8;">
+              <div style="font-size:3rem;margin-bottom:12px;">🤖</div>
+              <div style="font-size:1rem;font-weight:600;color:#64748b;margin-bottom:8px;">
+                Halo! Saya AI Analyst BPJS.
+              </div>
+              <div style="font-size:.85rem;line-height:1.8;">
+                Tanya saya tentang data klaim, tren, analisis program,<br>
+                perbandingan antar tahun, atau insight makroekonomi.
+              </div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            # Render chat bubbles
+            chat_html = '<div style="max-height:480px;overflow-y:auto;padding:4px 0;">'
+            for _msg in st.session_state.chat_history[-20:]:
+                if _msg["role"] == "user":
+                    chat_html += f"""
+                    <div style="display:flex;justify-content:flex-end;margin:8px 0;">
+                      <div style="background:#2563eb;color:white;border-radius:16px 16px 4px 16px;
+                      padding:10px 14px;max-width:80%;font-size:.84rem;line-height:1.6;
+                      box-shadow:0 2px 8px rgba(37,99,235,.25);">
+                        {_msg['content']}
+                      </div>
+                    </div>"""
+                else:
+                    _content = _msg['content'].replace('\n', '<br>').replace('**', '<b>', 1)
+                    chat_html += f"""
+                    <div style="display:flex;justify-content:flex-start;margin:8px 0;">
+                      <div style="background:#ffffff;border:1px solid #e2e8f0;color:#1e293b;
+                      border-radius:4px 16px 16px 16px;padding:10px 14px;max-width:85%;
+                      font-size:.84rem;line-height:1.7;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+                        {_msg['content'].replace(chr(10), '<br>')}
+                      </div>
+                    </div>"""
+            chat_html += '</div>'
+            st.markdown(chat_html, unsafe_allow_html=True)
+
+        # Input area
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        _inp_col, _btn_col = st.columns([5, 1])
+        with _inp_col:
+            _user_input = st.text_input(
+                "Pertanyaan",
+                key="ai_tab_input",
+                placeholder="Contoh: Kenapa klaim JKK naik drastis di 2022?",
+                label_visibility="collapsed"
+            )
+        with _btn_col:
+            _send_btn = st.button("Kirim ➤", key="ai_tab_send", type="primary", use_container_width=True)
+
+        if _send_btn and _user_input and _user_input.strip():
+            st.session_state.chat_history.append({"role": "user", "content": _user_input.strip()})
+            st.session_state._chat_pending = _user_input.strip()
             st.rerun()
-
-    if _kirim and _inp2 and _inp2.strip():
-        st.session_state.chat_history.append({"role":"user","content":_inp2.strip()})
-        st.session_state._chat_pending = _inp2.strip()
-        st.rerun()
