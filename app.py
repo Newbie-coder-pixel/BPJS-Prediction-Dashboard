@@ -1774,6 +1774,131 @@ df            = st.session_state.active_data
 results_cache = st.session_state.active_results
 df_raw_monthly = st.session_state.get('raw_monthly', None)
 
+
+# ── AI helper functions (module-level) ─────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_worldbank(years_tuple):
+    import urllib.request, json as _j
+    indicators = {
+        'NY.GDP.MKTP.KD.ZG': 'gdp_pct',
+        'FP.CPI.TOTL.ZG':    'inflation_pct',
+        'SL.UEM.TOTL.ZS':    'unemployment_pct',
+        'NE.EXP.GNFS.KD.ZG': 'export_growth',
+    }
+    result = {yr: {} for yr in years_tuple}
+    for code, key in indicators.items():
+        url = (f"https://api.worldbank.org/v2/country/ID/indicator/{code}"
+               f"?format=json&date={min(years_tuple)}:{max(years_tuple)}&per_page=30")
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = _j.loads(r.read().decode())
+            if isinstance(data, list) and len(data) >= 2:
+                for entry in (data[1] or []):
+                    try:
+                        yr  = int(entry["date"])
+                        val = entry["value"]
+                        if val is not None and yr in result:
+                            result[yr][key] = round(float(val), 2)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    return result
+
+def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
+                             wb_data, api_info):
+    import json as _j
+    ekon_lines = []
+    for yr in sorted(wb_data.keys()):
+        d = wb_data[yr]
+        parts = []
+        if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
+        if 'inflation_pct'    in d: parts.append(f"inflasi {d['inflation_pct']:.1f}%")
+        if 'unemployment_pct' in d: parts.append(f"pengangguran {d['unemployment_pct']:.1f}%")
+        if 'export_growth'    in d: parts.append(f"ekspor {d['export_growth']:+.1f}%")
+        ekon_lines.append(f"  {yr}: {', '.join(parts) if parts else 'data terbatas'}")
+    ekon_str = "\n".join(ekon_lines)
+    prompt = (
+        f"Kamu analis ketenagakerjaan Indonesia. "
+        f"Program BPJS: {prog_name} | PEAK: {peak_yr} ({peak_val:,} kasus) | TROUGH: {trough_yr} ({trough_val:,} kasus). "
+        f"Data makroekonomi Indonesia (World Bank):\n{ekon_str}\n"
+        f"Jelaskan mengapa klaim TINGGI di {peak_yr} dan RENDAH di {trough_yr}. "
+        f"Jawab HANYA JSON: "
+        + '{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}'
+    )
+    try:
+        raw = _call_ai(prompt, api_info=api_info, max_tokens=500)
+        if not raw:
+            return None
+        if "```" in raw:
+            import re as _re
+            raw = _re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
+        j_start, j_end = raw.find("{"), raw.rfind("}") + 1
+        if j_start >= 0:
+            raw = raw[j_start:j_end]
+        return _j.loads(raw)
+    except Exception:
+        return None
+
+def _get_api_key():
+    """Returns Gemini API key — free tier 1500 req/day."""
+    try:
+        try:    return ("gemini", st.secrets["GEMINI_API_KEY"])
+        except: pass
+        try:    return ("gemini", st.secrets["gemini_api_key"])
+        except: pass
+    except Exception:
+        pass
+    return ("", "")
+
+def _call_ai(prompt, system="", api_info=None, max_tokens=800):
+    """Universal AI caller — Gemini 2.0 Flash (free, 1500 req/day)."""
+    import urllib.request, json as _j
+    if api_info is None:
+        api_info = _get_api_key()
+    provider, key = api_info if isinstance(api_info, tuple) and len(api_info)==2 else ("","")
+    if not key:
+        return None
+
+    if provider == "gemini":
+        # Gemini 2.0 Flash — free, fast, 1M context
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+        contents = []
+        if system:
+            contents.append({"role": "user", "parts": [{"text": f"[System instruction]: {system}"}]})
+            contents.append({"role": "model", "parts": [{"text": "Understood. I will follow these instructions."}]})
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
+        body = _j.dumps({
+            "contents": contents,
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=body,
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = _j.loads(r.read().decode())
+        return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    elif provider == "anthropic":
+        url = "https://api.anthropic.com/v1/messages"
+        messages = [{"role": "user", "content": prompt}]
+        body = _j.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": messages
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=body,
+            headers={"Content-Type": "application/json",
+                     "x-api-key": key, "anthropic-version": "2023-06-01"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = _j.loads(r.read().decode())
+        return resp["content"][0]["text"].strip()
+
+    return None
+
+
 # Pylance-friendly defaults — overwritten below after df is confirmed loaded
 # (st.stop() inside the if-block prevents these from ever being used at runtime)
 has_nom:   bool = False
@@ -2123,134 +2248,6 @@ with tab1:
 
         # ── AI Economic Context: World Bank API → Claude Analysis ──────────────────
 
-        @st.cache_data(ttl=86400, show_spinner=False)
-        def _fetch_worldbank(years_tuple):
-            import urllib.request, json as _j
-            indicators = {
-                'NY.GDP.MKTP.KD.ZG': 'gdp_pct',
-                'FP.CPI.TOTL.ZG':    'inflation_pct',
-                'SL.UEM.TOTL.ZS':    'unemployment_pct',
-                'NE.EXP.GNFS.KD.ZG': 'export_growth',
-            }
-            result = {yr: {} for yr in years_tuple}
-            for code, key in indicators.items():
-                url = (f"https://api.worldbank.org/v2/country/ID/indicator/{code}"
-                       f"?format=json&date={min(years_tuple)}:{max(years_tuple)}&per_page=30")
-                try:
-                    req = urllib.request.Request(url, headers={"Accept": "application/json"})
-                    with urllib.request.urlopen(req, timeout=12) as r:
-                        data = _j.loads(r.read().decode())
-                    if isinstance(data, list) and len(data) >= 2:
-                        for entry in (data[1] or []):
-                            try:
-                                yr  = int(entry["date"])
-                                val = entry["value"]
-                                if val is not None and yr in result:
-                                    result[yr][key] = round(float(val), 2)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-            return result
-
-        def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
-                                     wb_data, api_info):
-            import json as _j
-            ekon_lines = []
-            for yr in sorted(wb_data.keys()):
-                d = wb_data[yr]
-                parts = []
-                if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
-                if 'inflation_pct'    in d: parts.append(f"inflasi {d['inflation_pct']:.1f}%")
-                if 'unemployment_pct' in d: parts.append(f"pengangguran {d['unemployment_pct']:.1f}%")
-                if 'export_growth'    in d: parts.append(f"ekspor {d['export_growth']:+.1f}%")
-                ekon_lines.append(f"  {yr}: {', '.join(parts) if parts else 'data terbatas'}")
-            ekon_str = "\n".join(ekon_lines)
-            prompt = (
-                f"Kamu analis ketenagakerjaan Indonesia. "
-                f"Program BPJS: {prog_name} | PEAK: {peak_yr} ({peak_val:,} kasus) | TROUGH: {trough_yr} ({trough_val:,} kasus). "
-                f"Data makroekonomi Indonesia (World Bank):\n{ekon_str}\n"
-                f"Jelaskan mengapa klaim TINGGI di {peak_yr} dan RENDAH di {trough_yr}. "
-                f"Jawab HANYA JSON: "
-                + '{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}'
-            )
-            try:
-                raw = _call_ai(prompt, api_info=api_info, max_tokens=500)
-                if not raw:
-                    return None
-                if "```" in raw:
-                    import re as _re
-                    raw = _re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
-                j_start, j_end = raw.find("{"), raw.rfind("}") + 1
-                if j_start >= 0:
-                    raw = raw[j_start:j_end]
-                return _j.loads(raw)
-            except Exception:
-                return None
-
-        def _get_api_key():
-            """Returns Gemini API key (primary) or Anthropic as fallback."""
-            try:
-                # Gemini (Google AI Studio) — free tier: 1500 req/day
-                try:    return ("gemini", st.secrets["GEMINI_API_KEY"])
-                except: pass
-                try:    return ("gemini", st.secrets["gemini_api_key"])
-                except: pass
-                # Fallback: Anthropic
-                try:    return ("anthropic", st.secrets["ANTHROPIC_API_KEY"])
-                except: pass
-                try:    return ("anthropic", st.secrets["anthropic_api_key"])
-                except: pass
-            except Exception:
-                pass
-            return ("", "")
-
-        def _call_ai(prompt, system="", api_info=None, max_tokens=800):
-            """Universal AI caller: Gemini first, Anthropic fallback."""
-            import urllib.request, json as _j
-            if api_info is None:
-                api_info = _get_api_key()
-            provider, key = api_info if isinstance(api_info, tuple) and len(api_info)==2 else ("","")
-            if not key:
-                return None
-
-            if provider == "gemini":
-                # Gemini 2.0 Flash — free, fast, 1M context
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-                contents = []
-                if system:
-                    contents.append({"role": "user", "parts": [{"text": f"[System instruction]: {system}"}]})
-                    contents.append({"role": "model", "parts": [{"text": "Understood. I will follow these instructions."}]})
-                contents.append({"role": "user", "parts": [{"text": prompt}]})
-                body = _j.dumps({
-                    "contents": contents,
-                    "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}
-                }).encode('utf-8')
-                req = urllib.request.Request(url, data=body,
-                    headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    resp = _j.loads(r.read().decode())
-                return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-            elif provider == "anthropic":
-                url = "https://api.anthropic.com/v1/messages"
-                messages = [{"role": "user", "content": prompt}]
-                body = _j.dumps({
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": messages
-                }).encode('utf-8')
-                req = urllib.request.Request(url, data=body,
-                    headers={"Content-Type": "application/json",
-                             "x-api-key": key, "anthropic-version": "2023-06-01"},
-                    method="POST")
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    resp = _j.loads(r.read().decode())
-                return resp["content"][0]["text"].strip()
-
-            return None
-
         # ── Fetch World Bank data ────────────────────────────────────────────
         all_yrs_data_for_ctx = sorted(trend['Tahun'].unique().tolist())
         all_yrs_data = all_yrs_data_for_ctx
@@ -2343,7 +2340,7 @@ with tab1:
         st.markdown(
             '<div class="info-box">🤖 <b>Analisis AI per program:</b> '
             'Data makroekonomi riil dari <b>World Bank API</b> (PDB, inflasi, pengangguran, ekspor) '
-            'dikirim ke Claude AI yang menganalisis <i>mengapa</i> klaim program mencapai puncak atau lembah. '
+            'dikirim ke Gemini AI yang menganalisis <i>mengapa</i> klaim program mencapai puncak atau lembah. '
             'Tidak ada hardcode — analisis dibuat dari data aktual setiap saat.</div>',
             unsafe_allow_html=True)
 
@@ -2382,8 +2379,8 @@ with tab1:
                     trough_desc  = ai_res.get("trough_desc",  EKON_CONTEXT.get(trough_yr, ("", "Data terbatas."))[1])
                 else:
                     # Fallback: World Bank data only (still no hardcode)
-                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Data World Bank tersedia. Set ANTHROPIC_API_KEY untuk analisis AI."))
-                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Data World Bank tersedia. Set ANTHROPIC_API_KEY untuk analisis AI."))
+                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Data World Bank tersedia. Set GEMINI_API_KEY di Secrets untuk analisis AI."))
+                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Data World Bank tersedia. Set GEMINI_API_KEY di Secrets untuk analisis AI."))
                     peak_label, peak_desc     = _pk
                     trough_label, trough_desc = _tr
 
@@ -4248,100 +4245,31 @@ with tab4:
 
 
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# FLOATING AI CHATBOT — Pure Streamlit approach (no JS bridge)
+# SIDEBAR AI CHATBOT — Gemini 2.0 Flash (gratis 1500 req/hari)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── CSS for floating panel ───────────────────────────────────────────────────
-st.markdown("""
-<style>
-/* Hide the chatbot container from normal flow, pin it to bottom-right */
-[data-testid="stVerticalBlock"]:has(> [data-testid="stVerticalBlock"] > .fchat-root) {
-    position: fixed !important;
-    bottom: 20px !important;
-    right: 20px !important;
-    z-index: 9999 !important;
-    width: 380px !important;
-    max-width: 95vw !important;
-}
-.fchat-root {
-    font-family: 'Inter', sans-serif;
-}
-.fchat-toggle-btn {
-    width: 56px; height: 56px; border-radius: 50%;
-    background: linear-gradient(135deg,#2563eb,#7c3aed);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.4rem; cursor: pointer;
-    box-shadow: 0 4px 18px rgba(37,99,235,.45);
-    margin-left: auto;
-    border: none;
-}
-.fchat-panel {
-    background: #fff;
-    border-radius: 18px;
-    box-shadow: 0 8px 40px rgba(0,0,0,.18);
-    border: 1px solid #e2e8f0;
-    margin-bottom: 10px;
-    overflow: hidden;
-}
-.fchat-header {
-    background: linear-gradient(135deg,#1e3a8a,#2563eb);
-    padding: 12px 16px;
-    display: flex; align-items: center; gap: 10px;
-    color: white;
-}
-.fchat-header-title { font-weight: 700; font-size: .95rem; color: white; }
-.fchat-header-sub   { font-size: .72rem; opacity: .8; color: white; }
-.fchat-msgs-wrap {
-    max-height: 320px; overflow-y: auto;
-    padding: 12px; background: #f8fafc;
-    display: flex; flex-direction: column; gap: 8px;
-}
-.fchat-bubble-user {
-    background: #2563eb; color: white;
-    border-radius: 14px 14px 4px 14px;
-    padding: 8px 13px; font-size: .84rem;
-    max-width: 82%; margin-left: auto;
-    line-height: 1.5;
-}
-.fchat-bubble-bot {
-    background: white; color: #1e293b;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px 14px 14px 4px;
-    padding: 8px 13px; font-size: .84rem;
-    max-width: 88%; line-height: 1.55;
-}
-.fchat-empty {
-    color: #94a3b8; font-size: .82rem;
-    text-align: center; padding: 16px 0;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ── Session state init ───────────────────────────────────────────────────────
+# ── Session state ─────────────────────────────────────────────────────────────
 if 'chat_history'  not in st.session_state: st.session_state.chat_history  = []
-if 'chat_open'     not in st.session_state: st.session_state.chat_open     = False
 if '_chat_pending' not in st.session_state: st.session_state._chat_pending = None
 
-# ── Data context builders ────────────────────────────────────────────────────
+# ── Context builders ──────────────────────────────────────────────────────────
 def _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year):
-    lines = ["=== DATA BPJS KETENAGAKERJAAN ==="]
-    lines.append(f"Program aktif: {', '.join(active_progs)}")
-    lines.append(f"Rentang tahun: {years[0]} – {years[-1]}")
-    lines.append("\nKasus per program per tahun:")
-    pivot = df.groupby(['Tahun', 'Kategori'])['Kasus'].sum().unstack(fill_value=0)
-    lines.append(pivot.to_string())
+    rows = [f"Program: {', '.join(active_progs)}", f"Tahun: {years[0]}–{years[-1]}",
+            "Kasus per program per tahun:"]
+    pivot = df.groupby(['Tahun','Kategori'])['Kasus'].sum().unstack(fill_value=0)
+    rows.append(pivot.to_string())
     if has_nom:
-        lines.append("\nNominal (Rp Miliar) per program per tahun:")
-        nom_p = df.groupby(['Tahun', 'Kategori'])['Nominal'].sum().unstack(fill_value=0) / 1e9
-        lines.append(nom_p.round(1).to_string())
-    return "\n".join(lines)
+        rows.append("Nominal (Rp Miliar):")
+        nom_p = df.groupby(['Tahun','Kategori'])['Nominal'].sum().unstack(fill_value=0)/1e9
+        rows.append(nom_p.round(1).to_string())
+    return "\n".join(rows)
 
 def _build_chat_wb_ctx(wb_ekon):
     try:
-        if not wb_ekon or not any(wb_ekon.values()):
-            return ""
-        lines = ["\n=== MAKROEKONOMI INDONESIA (World Bank) ==="]
+        if not wb_ekon or not any(wb_ekon.values()): return ""
+        rows = ["Makroekonomi (World Bank):"]
         for yr in sorted(wb_ekon.keys()):
             d = wb_ekon[yr]
             if not d: continue
@@ -4349,173 +4277,125 @@ def _build_chat_wb_ctx(wb_ekon):
             if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.2f}%")
             if 'inflation_pct'    in d: parts.append(f"Inflasi {d['inflation_pct']:.1f}%")
             if 'unemployment_pct' in d: parts.append(f"Pengangguran {d['unemployment_pct']:.1f}%")
-            if parts: lines.append(f"  {yr}: {', '.join(parts)}")
-        return "\n".join(lines)
-    except Exception:
-        return ""
+            if parts: rows.append(f"  {yr}: {', '.join(parts)}")
+        return "\n".join(rows)
+    except Exception: return ""
 
-# ── AI answer function ───────────────────────────────────────────────────────
-def _chat_get_answer(question, df, active_progs, years, has_nom,
-                     latest_year, prev_year, wb_ekon):
+# ── Call Gemini ───────────────────────────────────────────────────────────────
+def _chat_answer(question):
     api_info = _get_api_key()
     provider, key = api_info if isinstance(api_info, tuple) else ("", "")
     if not key:
-        return ("⚠️ Tambahkan **GEMINI_API_KEY** di Streamlit Secrets → Manage App → Secrets.\n\n"
-                "Gemini gratis (1500 req/hari): [aistudio.google.com](https://aistudio.google.com)")
+        return ("⚠️ **GEMINI_API_KEY belum diset.**\n\n"
+                "Cara: Manage App → Secrets → tambahkan:\n"
+                "`GEMINI_API_KEY = \"AIza...\"`\n\n"
+                "Dapatkan key gratis: https://aistudio.google.com")
 
+    # Build context
     data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
-    wb_ctx   = _build_chat_wb_ctx(wb_ekon)
-
-    # Build conversation with recent history
+    wb_ctx   = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
     hist_str = ""
-    for h in st.session_state.chat_history[-8:]:
-        role = "User" if h["role"] == "user" else "Analyst"
+    for h in st.session_state.chat_history[-6:]:
+        role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
-    full_prompt = (
-        f"[DATA KONTEKS]\n{data_ctx}{wb_ctx}\n[/DATA]\n\n"
-        f"{hist_str}"
-        f"User: {question}\nAnalyst:"
-    )
-    sys_prompt = (
-        "Kamu adalah AI Analyst spesialis BPJS Ketenagakerjaan Indonesia. "
-        "Jawab dalam Bahasa Indonesia, padat, berbasis data. "
-        "Gunakan angka spesifik. Maksimal 5 kalimat kecuali diminta detail."
-    )
+    prompt = (f"[DATA]\n{data_ctx}\n{wb_ctx}\n[/DATA]\n\n"
+              f"{hist_str}User: {question}\nAI:")
+    sys_p  = ("Kamu AI Analyst BPJS Ketenagakerjaan Indonesia. "
+               "Jawab Bahasa Indonesia, padat, gunakan angka spesifik. Maks 5 kalimat.")
 
     import urllib.request as _ur, json as _jj
     try:
         if provider == "gemini":
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-            contents = [
-                {"role": "user",  "parts": [{"text": f"[Instruksi]: {sys_prompt}"}]},
-                {"role": "model", "parts": [{"text": "Siap."}]},
-                {"role": "user",  "parts": [{"text": full_prompt}]}
-            ]
-            body = _jj.dumps({"contents": contents,
-                              "generationConfig": {"maxOutputTokens": 800, "temperature": 0.4}
-                             }).encode()
-            req = _ur.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
-            with _ur.urlopen(req, timeout=30) as r:
+            body = _jj.dumps({
+                "contents": [
+                    {"role":"user",  "parts":[{"text":f"[Instruksi]: {sys_p}"}]},
+                    {"role":"model", "parts":[{"text":"Siap."}]},
+                    {"role":"user",  "parts":[{"text":prompt}]}
+                ],
+                "generationConfig": {"maxOutputTokens": 700, "temperature": 0.4}
+            }).encode()
+            req = _ur.Request(url, data=body,
+                              headers={"Content-Type":"application/json"}, method="POST")
+            with _ur.urlopen(req, timeout=25) as r:
                 resp = _jj.loads(r.read().decode())
             return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-        elif provider == "anthropic":
-            url = "https://api.anthropic.com/v1/messages"
-            body = _jj.dumps({"model": "claude-haiku-4-5-20251001", "max_tokens": 800,
-                              "system": sys_prompt,
-                              "messages": [{"role": "user", "content": full_prompt}]
-                             }).encode()
-            req = _ur.Request(url, data=body,
-                              headers={"Content-Type": "application/json",
-                                       "x-api-key": key, "anthropic-version": "2023-06-01"},
-                              method="POST")
-            with _ur.urlopen(req, timeout=30) as r:
-                resp = _jj.loads(r.read().decode())
-            return resp["content"][0]["text"].strip()
-
     except Exception as e:
-        return f"⚠️ Gagal: {str(e)[:200]}"
-    return "Provider tidak dikenali."
+        return f"⚠️ Error: {str(e)[:200]}"
+    return "Provider error."
 
-# ── Process any pending AI question (runs BEFORE rendering) ──────────────────
+# ── Process pending question ──────────────────────────────────────────────────
 if st.session_state._chat_pending:
     _q = st.session_state._chat_pending
     st.session_state._chat_pending = None
-    _wb_ctx_data = st.session_state.get('_wb_ekon_cache', {})
-    with st.spinner("🤖 AI sedang menganalisis..."):
-        _answer = _chat_get_answer(
-            _q, df, active_progs, years, has_nom,
-            latest_year, prev_year, _wb_ctx_data)
-    st.session_state.chat_history.append({"role": "assistant", "content": _answer})
+    with st.spinner("🤖 Gemini AI menganalisis..."):
+        _ans = _chat_answer(_q)
+    st.session_state.chat_history.append({"role": "assistant", "content": _ans})
     st.rerun()
 
-# ── Determine provider badge ─────────────────────────────────────────────────
-try:
-    _p, _k = _get_api_key()
-    _badge = "Gemini 2.0 Flash" if _p == "gemini" else ("Claude Haiku" if _p == "anthropic" else "⚠️ Set GEMINI_API_KEY")
-except Exception:
-    _badge = "⚠️ Set GEMINI_API_KEY"
+# ── Render in sidebar ─────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("---")
+    # Header
+    try:
+        _p2, _k2 = _get_api_key()
+        _badge2 = "🟢 Gemini 2.0 Flash" if (_p2 == "gemini" and _k2) else "🔴 Set GEMINI_API_KEY"
+    except Exception:
+        _badge2 = "🔴 Set GEMINI_API_KEY"
 
-# ── Render floating chatbot using st.container with fixed CSS ────────────────
-# We use a sidebar-like approach: render at bottom of page, CSS pins it
-with st.container():
-    st.markdown('<div class="fchat-root">', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#1e3a8a,#2563eb);
+    border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+    <div style="color:white;font-weight:700;font-size:.92rem;">🤖 AI Analyst BPJS</div>
+    <div style="color:rgba(255,255,255,.75);font-size:.72rem;margin-top:2px;">{_badge2}</div>
+    </div>""", unsafe_allow_html=True)
 
-    # Toggle button row
-    _btn_label = "✕ Tutup" if st.session_state.chat_open else "💬"
-    _col_spacer, _col_btn = st.columns([10, 1])
-    with _col_btn:
-        if st.button(_btn_label, key="fchat_toggle",
-                     help="Buka/tutup AI Analyst",
-                     use_container_width=False):
-            st.session_state.chat_open = not st.session_state.chat_open
-            st.rerun()
-
-    # Chat panel (only shown when open)
-    if st.session_state.chat_open:
-        st.markdown(f"""
-        <div class="fchat-panel">
-          <div class="fchat-header">
-            <span style="font-size:1.2rem">🤖</span>
-            <div>
-              <div class="fchat-header-title">BPJS AI Analyst</div>
-              <div class="fchat-header-sub">{_badge} · Berbasis data aktual</div>
-            </div>
-          </div>
-          <div class="fchat-msgs-wrap" id="fchat-msgs">
-        """, unsafe_allow_html=True)
-
-        # Messages
-        if not st.session_state.chat_history:
-            st.markdown('<div class="fchat-empty">👋 Tanya saya tentang data BPJS TK!<br>'
-                       '<i>Contoh: "Kenapa JHT naik di 2025?"</i></div>',
-                       unsafe_allow_html=True)
-        else:
-            for _msg in st.session_state.chat_history[-16:]:
-                _cls  = "fchat-bubble-user" if _msg["role"] == "user" else "fchat-bubble-bot"
-                _text = _msg["content"].replace("\n", "<br>")
-                st.markdown(f'<div class="{_cls}">{_text}</div>', unsafe_allow_html=True)
-
-        st.markdown("</div></div>", unsafe_allow_html=True)
-
-        # Suggested questions (only if no history)
-        if not st.session_state.chat_history:
-            _sugs = [
-                f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
-                f"Program terbesar di {latest_year}?",
-                "Dampak COVID ke klaim BPJS?",
-                f"Tren {years[0]}–{years[-1]}?",
-            ]
-            _scols = st.columns(2)
-            for _si, _sug in enumerate(_sugs):
-                with _scols[_si % 2]:
-                    if st.button(_sug, key=f"fchat_sug_{_si}", use_container_width=True):
-                        st.session_state.chat_history.append({"role": "user", "content": _sug})
-                        st.session_state._chat_pending = _sug
-                        st.rerun()
-
-        # Input row
-        _ic1, _ic2 = st.columns([5, 1])
-        with _ic1:
-            _user_input = st.text_input(
-                "Pertanyaan AI Analyst",
-                key="fchat_input",
-                placeholder="Tanya tentang data BPJS...",
-                label_visibility="collapsed")
-        with _ic2:
-            _send = st.button("➤", key="fchat_send", use_container_width=True)
-
-        if (_send or _user_input) and _user_input and _user_input.strip():
-            _q_clean = _user_input.strip()
-            st.session_state.chat_history.append({"role": "user", "content": _q_clean})
-            st.session_state._chat_pending = _q_clean
-            st.rerun()
-
-        # Clear button
-        if st.session_state.chat_history:
-            if st.button("🗑️ Hapus riwayat", key="fchat_clear"):
-                st.session_state.chat_history = []
+    # Suggested questions (if no history)
+    if not st.session_state.chat_history:
+        st.caption("💡 Pertanyaan cepat:")
+        _sugs2 = [
+            f"Kenapa {list(active_progs)[0] if active_progs else 'JHT'} naik di {latest_year}?",
+            f"Program terbesar {latest_year}?",
+            "Tren 5 tahun terakhir?",
+            "Dampak COVID ke klaim?",
+        ]
+        for _si2, _sug2 in enumerate(_sugs2):
+            if st.button(_sug2, key=f"sug2_{_si2}", use_container_width=True):
+                st.session_state.chat_history.append({"role":"user","content":_sug2})
+                st.session_state._chat_pending = _sug2
                 st.rerun()
+        st.markdown("")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Chat messages
+    if st.session_state.chat_history:
+        for _m2 in st.session_state.chat_history[-10:]:
+            if _m2["role"] == "user":
+                st.markdown(f"""<div style="background:#2563eb;color:white;
+                border-radius:10px 10px 3px 10px;padding:8px 11px;
+                font-size:.8rem;margin:4px 0;line-height:1.5;">
+                {_m2['content']}</div>""", unsafe_allow_html=True)
+            else:
+                st.markdown(f"""<div style="background:#f8fafc;border:1px solid #e2e8f0;
+                color:#1e293b;border-radius:10px 10px 10px 3px;padding:8px 11px;
+                font-size:.8rem;margin:4px 0;line-height:1.55;">
+                {_m2['content'].replace(chr(10),'<br>')}</div>""", unsafe_allow_html=True)
+        st.markdown("")
+
+    # Input
+    _inp2 = st.text_input("Tanya AI Analyst",
+                           key="sidebar_chat_input",
+                           placeholder="Ketik pertanyaan...",
+                           label_visibility="collapsed")
+    _c1sb, _c2sb = st.columns([4,1])
+    with _c1sb:
+        _kirim = st.button("Kirim ➤", key="sidebar_send", use_container_width=True, type="primary")
+    with _c2sb:
+        if st.button("🗑️", key="sidebar_clear", help="Hapus riwayat"):
+            st.session_state.chat_history = []
+            st.rerun()
+
+    if _kirim and _inp2 and _inp2.strip():
+        st.session_state.chat_history.append({"role":"user","content":_inp2.strip()})
+        st.session_state._chat_pending = _inp2.strip()
+        st.rerun()
