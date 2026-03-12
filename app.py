@@ -1913,31 +1913,53 @@ def _call_ai_groq(prompt, system, key, max_tokens=800):
         raise RuntimeError(f"HTTP {e.code} — {body_err[:400]}")
 
 def _call_ai_gemini(prompt, system, key, max_tokens=800):
-    """Call Gemini 2.0 Flash API. Raise exception on error."""
-    import urllib.request, json as _j, urllib.error
-    url = (f"https://generativelanguage.googleapis.com/v1beta"
-           f"/models/gemini-2.0-flash:generateContent?key={key}")
+    """
+    Call Gemini API dengan retry + exponential backoff untuk handle 429.
+    Coba gemini-2.0-flash dulu, fallback ke gemini-1.5-flash jika 429.
+    """
+    import urllib.request, json as _j, urllib.error, time
+
+    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+
     contents = []
     if system:
         contents.append({"role": "user",  "parts": [{"text": f"[System]: {system}"}]})
         contents.append({"role": "model", "parts": [{"text": "Understood."}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
-    body = _j.dumps({
+    payload = _j.dumps({
         "contents": contents,
         "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4}
     }).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            resp = _j.loads(r.read().decode())
-        return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except urllib.error.HTTPError as e:
-        body_err = e.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"HTTP {e.code} — {body_err[:400]}")
+
+    last_err = None
+    for model in models_to_try:
+        url = (f"https://generativelanguage.googleapis.com/v1beta"
+               f"/models/{model}:generateContent?key={key}")
+        for attempt in range(3):  # max 3 retry per model
+            try:
+                req = urllib.request.Request(
+                    url, data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    resp = _j.loads(r.read().decode())
+                return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except urllib.error.HTTPError as e:
+                body_err = e.read().decode("utf-8", errors="ignore")
+                last_err = f"HTTP {e.code} ({model}) — {body_err[:300]}"
+                if e.code == 429:
+                    # Exponential backoff: 2s, 4s, 8s
+                    wait = 2 ** (attempt + 1)
+                    time.sleep(wait)
+                    continue  # retry same model
+                else:
+                    break  # non-429 error, try next model
+            except Exception as ex:
+                last_err = str(ex)
+                break
+
+    raise RuntimeError(last_err or "Semua model Gemini gagal.")
 
 def _call_ai(prompt, system="", api_info=None, max_tokens=800):
     """
@@ -4403,6 +4425,14 @@ def _chat_answer(question):
         role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
+    # Cache check — hindari hit API untuk pertanyaan identik
+    import hashlib as _hl
+    _cache_id = _hl.md5(f"{question}|{hist_str[-200:]}".encode()).hexdigest()
+    if '_ai_resp_cache' not in st.session_state:
+        st.session_state._ai_resp_cache = {}
+    if _cache_id in st.session_state._ai_resp_cache:
+        return st.session_state._ai_resp_cache[_cache_id]
+
     sys_p = (
         "Kamu adalah AI Analyst ahli BPJS Ketenagakerjaan Indonesia. "
         "Analisis data klaim program JHT (Jaminan Hari Tua), JKK (Jaminan Kecelakaan Kerja), "
@@ -4417,12 +4447,21 @@ def _chat_answer(question):
     )
 
     try:
+        result = None
         if provider == "groq":
-            return _call_ai_groq(prompt, sys_p, key, max_tokens=900)
+            result = _call_ai_groq(prompt, sys_p, key, max_tokens=900)
         elif provider == "gemini":
-            return _call_ai_gemini(prompt, sys_p, key, max_tokens=900)
+            result = _call_ai_gemini(prompt, sys_p, key, max_tokens=900)
         else:
             return f"⚠️ Provider '{provider}' tidak dikenali. Cek format API key Anda."
+
+        # Simpan ke cache (max 50 entries)
+        if result:
+            if len(st.session_state._ai_resp_cache) >= 50:
+                oldest = next(iter(st.session_state._ai_resp_cache))
+                del st.session_state._ai_resp_cache[oldest]
+            st.session_state._ai_resp_cache[_cache_id] = result
+        return result
 
     except RuntimeError as e:
         err = str(e)
@@ -4445,14 +4484,16 @@ def _chat_answer(question):
                     f"Provider terdeteksi: **{provider}**\n\n"
                     f"**Solusi:**\n{hint}\n\n"
                     f"Detail error: `{err[:200]}`")
-        elif "429" in err:
-            if provider == "gemini":
-                return ("⏳ **Gemini rate limit (429).** Terlalu banyak request.\n\n"
-                        "**Solusi terbaik:** Ganti ke Groq yang bebas 429:\n"
-                        "1. Daftar di https://console.groq.com\n"
-                        "2. Tambahkan `GROQ_API_KEY = \"gsk_...\"` di Secrets\n"
-                        "3. Bisa hapus atau biarkan GEMINI_API_KEY — Groq akan diutamakan")
-            return f"⏳ **Rate limit (429).** Tunggu sebentar lalu coba lagi.\n\nDetail: `{err[:150]}`"
+        elif "429" in err or "Semua model" in err:
+            return (
+                "⏳ **Gemini rate limit — sudah dicoba retry dengan 3 model berbeda.**\n\n"
+                "Penyebab: Terlalu banyak request dalam waktu singkat ke Gemini free tier.\n\n"
+                "**Solusi:**\n"
+                "• Tunggu 30–60 detik lalu coba lagi\n"
+                "• Gemini free tier: 15 req/menit, 1500 req/hari\n"
+                "• Upgrade ke Gemini API paid tier di https://aistudio.google.com\n"
+                "• Atau daftar OpenRouter (gratis, banyak model): https://openrouter.ai"
+            )
         elif "timeout" in err.lower():
             return "⏱️ **Request timeout.** Server AI lambat merespons. Coba lagi dalam beberapa detik."
         else:
