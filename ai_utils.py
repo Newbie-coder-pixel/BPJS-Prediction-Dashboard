@@ -587,13 +587,19 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
         role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
-    _cache_id = hashlib.md5(f"{question}|{hist_str[-200:]}".encode()).hexdigest()
+    # Cache key menyertakan apakah forecast sudah ada, agar tidak
+    # serve cached jawaban lama yang tidak punya angka prediksi
+    _has_forecast = str(st.session_state.get('forecast_Kasus') is not None)
+    _cache_id = hashlib.md5(
+        f"{question}|{hist_str[-200:]}|{_has_forecast}".encode()
+    ).hexdigest()
+
     if '_ai_resp_cache' not in st.session_state:
         st.session_state._ai_resp_cache = {}
     if _cache_id in st.session_state._ai_resp_cache:
         return st.session_state._ai_resp_cache[_cache_id]
 
-    # ── Web search (logic sama seperti sebelumnya) ────────────────────────────
+    # ── Web search ────────────────────────────────────────────────────────────
     _search_ctx = ""
     _skip_keywords = ["halo", "hai", "terima kasih", "makasih", "oke", "ok",
                       "siapa kamu", "kamu apa", "test", "coba", "hitung saja",
@@ -616,44 +622,42 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                 st.session_state['_last_web_search_query']  = _search_query
                 st.session_state['_last_web_search_result'] = _search_ctx
 
-    # ── Build context & memory ────────────────────────────────────────────────
-    wb_ctx  = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
-    mem_ctx = _qa_memory_get_relevant(question, n=4)
-
-    # Ambil ml_result dari session jika ada (set dari tab_ml.py)
+    # ── Build context ─────────────────────────────────────────────────────────
+    wb_ctx    = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
+    mem_ctx   = _qa_memory_get_relevant(question, n=4)
     ml_result = st.session_state.get('ml_result', None)
 
-    # ── RAG: build prompt dengan data yang sudah di-mask ─────────────────────
+    # ── RAG prompt (rag_context.py sekarang otomatis ambil forecast
+    #    dari st.session_state['forecast_Kasus'] / ['forecast_Nominal']) ───────
     prompt = build_rag_prompt(
-        question       = question,
-        df             = df,
-        active_progs   = active_progs,
-        years          = years,
-        has_nom        = has_nom,
-        latest_year    = latest_year,
-        prev_year      = prev_year,
-        wb_ctx         = wb_ctx,
-        search_ctx     = _search_ctx,
-        mem_ctx        = mem_ctx,
+        question         = question,
+        df               = df,
+        active_progs     = active_progs,
+        years            = years,
+        has_nom          = has_nom,
+        latest_year      = latest_year,
+        prev_year        = prev_year,
+        wb_ctx           = wb_ctx,
+        search_ctx       = _search_ctx,
+        mem_ctx          = mem_ctx,
         chat_history_str = hist_str,
-        ml_result      = ml_result,
+        ml_result        = ml_result,
     )
 
-    # Gunakan RAG_SYSTEM_PROMPT (lebih ketat) menggantikan SYSTEM_PROMPT lama
     system = RAG_SYSTEM_PROMPT
 
-    # ── Call AI (provider logic sama seperti sebelumnya) ──────────────────────
+    # ── Call AI ───────────────────────────────────────────────────────────────
     try:
         result = None
         if provider == "groq":
-            result = _call_ai_groq(prompt, system, key, max_tokens=900)
+            result = _call_ai_groq(prompt, system, key, max_tokens=1100)
         elif provider == "gemini":
-            result = _call_ai_gemini(prompt, system, key, max_tokens=900)
+            result = _call_ai_gemini(prompt, system, key, max_tokens=1100)
         elif provider == "anthropic":
             import urllib.request, json as _j
             body = _j.dumps({
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 900,
+                "max_tokens": 1100,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}]
             }).encode("utf-8")
@@ -682,7 +686,7 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                 gemini_key = _secret("GEMINI_API_KEY", "")
                 if gemini_key:
                     try:
-                        return _call_ai_gemini(prompt, system, gemini_key, max_tokens=900)
+                        return _call_ai_gemini(prompt, system, gemini_key, max_tokens=1100)
                     except Exception:
                         pass
             return f"❌ **API Key ditolak.** Provider: **{provider}**\nDetail: `{err[:200]}`"
