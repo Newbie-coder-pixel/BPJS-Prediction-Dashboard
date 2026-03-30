@@ -12,6 +12,8 @@ import pandas as pd
 import streamlit as st
 
 from auth import _secret
+from rag_context import build_rag_prompt, RAG_SYSTEM_PROMPT   # ← tambah ini
+from data_masking import build_safe_context                    # ← tambah ini
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PROVIDER DETECTION & API KEYS
@@ -579,9 +581,7 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
     if detected:
         provider = detected
 
-    data_ctx = _build_chat_data_ctx(df, active_progs, years, has_nom, latest_year, prev_year)
-    wb_ctx   = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
-
+    # ── Cache check ───────────────────────────────────────────────────────────
     hist_str = ""
     for h in st.session_state.chat_history[-6:]:
         role = "User" if h["role"] == "user" else "AI"
@@ -593,6 +593,7 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
     if _cache_id in st.session_state._ai_resp_cache:
         return st.session_state._ai_resp_cache[_cache_id]
 
+    # ── Web search (logic sama seperti sebelumnya) ────────────────────────────
     _search_ctx = ""
     _skip_keywords = ["halo", "hai", "terima kasih", "makasih", "oke", "ok",
                       "siapa kamu", "kamu apa", "test", "coba", "hitung saja",
@@ -615,20 +616,56 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                 st.session_state['_last_web_search_query']  = _search_query
                 st.session_state['_last_web_search_result'] = _search_ctx
 
-    web_ctx     = f"\n[HASIL WEB SEARCH]\n{_search_ctx}\n[/WEB SEARCH]" if _search_ctx else ""
-    mem_ctx     = _qa_memory_get_relevant(question, n=4)
-    mem_section = f"\n{mem_ctx}\n" if mem_ctx else ""
-    prompt = (f"[DATA BPJS]\n{data_ctx}\n{wb_ctx}{web_ctx}\n[/DATA]\n"
-              f"{mem_section}Riwayat:\n{hist_str}\nPertanyaan: {question}\n\nJawaban:")
+    # ── Build context & memory ────────────────────────────────────────────────
+    wb_ctx  = _build_chat_wb_ctx(st.session_state.get('_wb_ekon_cache', {}))
+    mem_ctx = _qa_memory_get_relevant(question, n=4)
 
+    # Ambil ml_result dari session jika ada (set dari tab_ml.py)
+    ml_result = st.session_state.get('ml_result', None)
+
+    # ── RAG: build prompt dengan data yang sudah di-mask ─────────────────────
+    prompt = build_rag_prompt(
+        question       = question,
+        df             = df,
+        active_progs   = active_progs,
+        years          = years,
+        has_nom        = has_nom,
+        latest_year    = latest_year,
+        prev_year      = prev_year,
+        wb_ctx         = wb_ctx,
+        search_ctx     = _search_ctx,
+        mem_ctx        = mem_ctx,
+        chat_history_str = hist_str,
+        ml_result      = ml_result,
+    )
+
+    # Gunakan RAG_SYSTEM_PROMPT (lebih ketat) menggantikan SYSTEM_PROMPT lama
+    system = RAG_SYSTEM_PROMPT
+
+    # ── Call AI (provider logic sama seperti sebelumnya) ──────────────────────
     try:
         result = None
         if provider == "groq":
-            result = _call_ai_groq(prompt, SYSTEM_PROMPT, key, max_tokens=900)
+            result = _call_ai_groq(prompt, system, key, max_tokens=900)
         elif provider == "gemini":
-            result = _call_ai_gemini(prompt, SYSTEM_PROMPT, key, max_tokens=900)
+            result = _call_ai_gemini(prompt, system, key, max_tokens=900)
+        elif provider == "anthropic":
+            import urllib.request, json as _j
+            body = _j.dumps({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 900,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}]
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages", data=body,
+                headers={"Content-Type": "application/json", "x-api-key": key,
+                         "anthropic-version": "2023-06-01"}, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as r:
+                resp = _j.loads(r.read().decode())
+            result = resp["content"][0]["text"].strip()
         else:
-            return f"⚠️ Provider '{provider}' tidak dikenali. Cek format API key Anda."
+            return f"⚠️ Provider '{provider}' tidak dikenali."
 
         if result:
             if len(st.session_state._ai_resp_cache) >= 50:
@@ -645,16 +682,15 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                 gemini_key = _secret("GEMINI_API_KEY", "")
                 if gemini_key:
                     try:
-                        return _call_ai_gemini(prompt, SYSTEM_PROMPT, gemini_key, max_tokens=900)
+                        return _call_ai_gemini(prompt, system, gemini_key, max_tokens=900)
                     except Exception:
                         pass
-            return f"❌ **API Key ditolak (HTTP {err[:3]}).** Provider: **{provider}**\nDetail: `{err[:200]}`"
+            return f"❌ **API Key ditolak.** Provider: **{provider}**\nDetail: `{err[:200]}`"
         elif "429" in err or "Semua model" in err:
-            return ("⏳ **Rate limit.** Tunggu 30–60 detik lalu coba lagi.\n"
-                    "Gemini free tier: 15 req/menit. Groq: regenerate key di https://console.groq.com/keys")
+            return "⏳ **Rate limit.** Tunggu 30–60 detik lalu coba lagi."
         elif "timeout" in err.lower():
-            return "⏱️ **Request timeout.** Server AI lambat. Coba lagi dalam beberapa detik."
+            return "⏱️ **Request timeout.** Coba lagi dalam beberapa detik."
         else:
-            return f"⚠️ **Error saat memanggil AI:**\n```\n{err[:600]}\n```"
+            return f"⚠️ **Error:** `{err[:600]}`"
     except Exception as e:
         return f"⚠️ **Error tidak terduga:** `{str(e)[:300]}`"
