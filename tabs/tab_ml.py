@@ -32,6 +32,13 @@ def render_tab_ml(df, active_progs, filtered_progs, targets, n_lags, test_pct, n
             results_cache[ck] = ml_res
             st.session_state.active_results = results_cache
             st.session_state[f'per_prog_{target_ml}'] = ml_res
+
+            # ── Simpan ke session_state agar AI tab bisa akses ────────────────
+            # Menyimpan hasil ML terbaru untuk digunakan sebagai context di chatbot AI.
+            # Tidak ada data raw yang tersimpan — hanya metadata model dan metrik akurasi.
+            st.session_state['ml_result'] = ml_res
+            st.session_state['ml_result_target'] = target_ml
+
             data_hash = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
             eid   = f"{data_hash}_{target_ml}_L{n_lags}_T{test_pct}"
             label = f"📁 {datetime.now().strftime('%d/%m %H:%M')} | {target_ml} | {len(years)}yr"
@@ -42,6 +49,13 @@ def render_tab_ml(df, active_progs, filtered_progs, targets, n_lags, test_pct, n
                                         'last_forecast','last_forecast_monthly']
                               if k in st.session_state and st.session_state[k] is not None}
             add_to_history(label, eid, df.copy(), dict(results_cache), extra_snapshot)
+
+            # ── Notifikasi ke user bahwa AI sudah bisa akses hasil ML ─────────
+            st.success(
+                f"✅ Model selesai dilatih! "
+                f"AI Analyst di tab **💬 AI** sekarang bisa menjawab pertanyaan "
+                f"prediksi berdasarkan hasil model ini."
+            )
 
     if ml_res:
         bpp      = ml_res.get('best_per_program', pd.DataFrame())
@@ -181,6 +195,11 @@ def render_tab_ml(df, active_progs, filtered_progs, targets, n_lags, test_pct, n
                     for cp, pe in prog_errors.items():
                         st.warning(f"⚠️ {cp}: {pe}")
                     st.session_state['prophet_results'] = all_p_results
+
+                    # ── Simpan prophet results ke session agar AI bisa akses ──
+                    if all_p_results:
+                        st.session_state['prophet_result'] = all_p_results
+                        st.session_state['prophet_result_target'] = target_prophet
 
                 _all_p = st.session_state.get('prophet_results', {})
                 if _all_p:
