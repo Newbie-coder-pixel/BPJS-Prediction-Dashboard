@@ -1,0 +1,22 @@
+# Secrets — JANGAN di-upload ke GitHub
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# App data
+.bpjs_history/
+*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/settings.json
