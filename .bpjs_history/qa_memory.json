@@ -145,5 +145,12 @@
     "ts": "2026-03-30 14:03",
     "topic": "UMUM",
     "q_hash": "a3db24f8d6e59b37fe0545bc4ab1f2f1"
+  },
+  {
+    "q": "bagaimana JKK pada tahun 2022?",
+    "a": "(a) Temuan data internal: Pada tahun 2022, JKK memiliki 116.678 kasus klaim dengan nominal klaim >500 M. \n\n(b) Konfirmasi web + URL: Menurut sumber dari https://www.bpjsketenagakerjaan.go.id/artikel/17417/artikel-jenis-kecelakaan-yang-dijamin-oleh-jkk-bpjs-ketenagakerjaan.bpjs, JKK memberikan manfaat berupa pelayanan kesehatan, rehabilitasi, dan pelatihan pada peserta agar dapat kembali produktif dengan kondisinya saat ini.\n\n(c) Kesimpulan: JKK pada tahun 2022 memiliki jumlah kasus klaim yang relatif rendah dibandingkan dengan tahun-tahun berikutnya, namun tetap memberikan manfaat yang signifikan bagi peserta.",
+    "ts": "2026-03-30 14:22",
+    "topic": "JKK",
+    "q_hash": "90b25b888a0f3f1e91f864e3d5197e98"
   }
 ]
