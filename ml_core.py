@@ -562,35 +562,99 @@ def build_conclusion(ml_result: dict, per_prog_result, df, target: str, n_future
     return lines
 
 
+def _build_monthly_holiday_df(holidays_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Konversi holiday harian ke monthly aggregation.
+    Untuk data bulanan (freq='MS'), Prophet butuh tanggal 1 bulan,
+    bukan tanggal spesifik hari libur.
+    Setiap bulan yang mengandung hari libur diberi row dengan ds = awal bulan.
+    """
+    if holidays_df is None or len(holidays_df) == 0:
+        return pd.DataFrame(columns=['ds','holiday','lower_window','upper_window'])
+    rows = []
+    for _, row in holidays_df.iterrows():
+        ds_monthly = pd.Timestamp(row['ds'].year, row['ds'].month, 1)
+        rows.append({
+            'ds': ds_monthly,
+            'holiday': row['holiday'],
+            'lower_window': 0,
+            'upper_window': 0,
+        })
+    df_m = pd.DataFrame(rows)
+    # Deduplicate — satu hari libur per bulan
+    df_m = df_m.drop_duplicates(subset=['ds','holiday']).sort_values('ds').reset_index(drop=True)
+    return df_m
+
+
 def run_prophet(df_monthly_raw, target: str, cat: str, n_months: int, use_holidays: bool = True):
     if not PROPHET_OK:
         return None, "Prophet tidak terinstall. Tambahkan 'prophet' ke requirements.txt."
     cat_df = df_monthly_raw[df_monthly_raw['Kategori'] == cat].copy()
-    if len(cat_df) < 6:
-        return None, f"Data {cat} kurang dari 6 bulan."
+    if len(cat_df) < 3:
+        return None, f"Data {cat} terlalu sedikit ({len(cat_df)} baris) — minimal 3 bulan dibutuhkan."
     cat_df = cat_df.sort_values(['Tahun','Bulan'])
     cat_df['ds'] = pd.to_datetime(
         cat_df['Tahun'].astype(str) + '-' + cat_df['Bulan'].astype(str).str.zfill(2) + '-01')
     cat_df = cat_df.groupby('ds')[target].sum().reset_index()
     cat_df.columns = ['ds', 'y']
-    cat_df = cat_df[cat_df['y'] > 0].sort_values('ds').reset_index(drop=True)
-    if len(cat_df) < 6:
-        return None, f"Data {cat} setelah filtering kurang dari 6 bulan."
+    # Hanya buang baris NaN — nilai 0 adalah data valid
+    cat_df = cat_df[cat_df['y'].notna()].sort_values('ds').reset_index(drop=True)
+    if len(cat_df) < 3:
+        return None, f"Data {cat} setelah filtering kurang dari 3 bulan (total valid: {len(cat_df)})."
 
-    holidays_df = INDONESIAN_HOLIDAYS.copy() if use_holidays and len(INDONESIAN_HOLIDAYS) > 0 else None
+    # ── Holiday: konversi ke monthly agar cocok dengan freq='MS' ─────────
+    raw_holidays = INDONESIAN_HOLIDAYS.copy() if use_holidays and len(INDONESIAN_HOLIDAYS) > 0 else None
+    holidays_monthly = _build_monthly_holiday_df(raw_holidays) if raw_holidays is not None else None
+
     y_floor = 0.0
     y_cap   = float(cat_df['y'].max()) * 3.0
 
     try:
         n_data = len(cat_df)
-        s_mode = 'multiplicative' if n_data >= 24 else 'additive'
-        cp_scale = 0.05 if n_data >= 24 else 0.03
+
+        # ── Config Prophet adaptif ────────────────────────────────────────
+        growth = 'linear' if n_data >= 4 else 'flat'
+
+        # Yearly seasonality: butuh >= 2 tahun penuh (24 bulan)
+        yearly_seas = n_data >= 24
+
+        # Mode: additive lebih stabil untuk data sparse
+        # Multiplicative hanya jika data cukup dan tidak ada nilai 0
+        has_zeros = (cat_df['y'] == 0).any()
+        s_mode = 'multiplicative' if (n_data >= 24 and not has_zeros) else 'additive'
+
+        # Changepoint prior — lebih tinggi = lebih fleksibel (tidak flat)
+        # Untuk data bulanan BPJS yang tumbuh non-linear, perlu cukup tinggi
+        if n_data >= 48:
+            cp_scale = 0.15
+        elif n_data >= 24:
+            cp_scale = 0.25   # cukup fleksibel untuk menangkap trend tahunan
+        elif n_data >= 12:
+            cp_scale = 0.40   # lebih bebas agar tidak flat
+        else:
+            cp_scale = 0.50   # data sedikit: beri kebebasan maksimal
+
+        # Jumlah changepoints — lebih banyak = lebih bisa naik-turun
+        n_cp = min(n_data // 4, 15) if n_data >= 8 else 3
+
         m = Prophet(
-            yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False,
-            holidays=holidays_df, seasonality_mode=s_mode, interval_width=0.80,
-            changepoint_prior_scale=cp_scale, seasonality_prior_scale=5.0,
-            holidays_prior_scale=5.0, growth='flat' if n_data < 12 else 'linear',
+            yearly_seasonality=yearly_seas,
+            weekly_seasonality=False,
+            daily_seasonality=False,
+            holidays=holidays_monthly,          # ← monthly holidays
+            seasonality_mode=s_mode,
+            interval_width=0.80,
+            changepoint_prior_scale=cp_scale,
+            seasonality_prior_scale=15.0,
+            holidays_prior_scale=15.0,          # lebih sensitif ke efek libur bulanan
+            growth=growth,
+            n_changepoints=n_cp,
         )
+
+        # Monthly seasonality (pola dalam setahun)
+        if n_data >= 12:
+            m.add_seasonality(name='monthly', period=30.5, fourier_order=3)
+
         m.fit(cat_df)
         future = m.make_future_dataframe(periods=n_months, freq='MS')
         fc = m.predict(future)
@@ -607,14 +671,101 @@ def run_prophet(df_monthly_raw, target: str, cat: str, n_months: int, use_holida
         else:
             r2_is = mape_is = 0.0
 
-        n_hol     = len(holidays_df) if holidays_df is not None else 0
-        h_col_map = _build_holiday_col_map(holidays_df) if holidays_df is not None else {}
+        n_hol     = len(holidays_monthly) if holidays_monthly is not None else 0
+        h_col_map = _build_holiday_col_map(holidays_monthly) if holidays_monthly is not None else {}
+
+        # ── Hitung holiday effects dengan benar ───────────────────────────
+        # Prophet menyimpan efek holiday dalam kolom 'holidays' (gabungan)
+        # dan per-nama dalam kolom sanitized. Kita ambil keduanya.
+        holiday_effects = {}
+        if holidays_monthly is not None and n_hol > 0:
+            try:
+                # Kolom 'holidays' adalah total efek gabungan semua hari libur
+                known_non_holiday = {
+                    'ds','yhat','yhat_lower','yhat_upper',
+                    'trend','trend_lower','trend_upper',
+                    'additive_terms','additive_terms_lower','additive_terms_upper',
+                    'multiplicative_terms','multiplicative_terms_lower','multiplicative_terms_upper',
+                    'yearly','yearly_lower','yearly_upper',
+                    'monthly','monthly_lower','monthly_upper',
+                }
+                # Semua kolom yang bukan komponen standar → kemungkinan holiday
+                h_cols = [c for c in fc.columns
+                          if c not in known_non_holiday
+                          and not c.endswith('_lower')
+                          and not c.endswith('_upper')]
+
+                for hc in h_cols:
+                    vals = fc[hc].values
+                    mean_eff = float(np.abs(vals).mean())
+                    max_eff  = float(vals.max())
+                    min_eff  = float(vals.min())
+                    # Hanya tampilkan jika ada efek nyata (bukan semua nol)
+                    if mean_eff > 1e-6 or abs(max_eff) > 1e-6 or abs(min_eff) > 1e-6:
+                        orig_name = h_col_map.get(hc, hc)
+                        holiday_effects[orig_name] = {
+                            'col': hc,
+                            'mean_abs_effect': round(mean_eff, 4),
+                            'max_effect':       round(max_eff, 4),
+                            'min_effect':       round(min_eff, 4),
+                        }
+
+                # Jika masih kosong, gunakan kolom 'holidays' gabungan
+                if not holiday_effects and 'holidays' in fc.columns:
+                    # Breakdown per nama hari libur dari forecast
+                    for h_name in holidays_monthly['holiday'].unique():
+                        h_san = _sanitize_prophet_name(h_name)
+                        if h_san in fc.columns:
+                            vals = fc[h_san].values
+                            mean_eff = float(np.abs(vals).mean())
+                            if mean_eff > 1e-6:
+                                holiday_effects[h_name] = {
+                                    'col': h_san,
+                                    'mean_abs_effect': round(mean_eff, 4),
+                                    'max_effect':       round(float(vals.max()), 4),
+                                    'min_effect':       round(float(vals.min()), 4),
+                                }
+                    # Fallback: pakai kolom 'holidays' total jika per-nama masih kosong
+                    if not holiday_effects:
+                        vals = fc['holidays'].values
+                        # Hitung per bulan mana efeknya besar
+                        fc_with_hol = fc[['ds','holidays']].copy()
+                        fc_with_hol['bulan'] = fc_with_hol['ds'].dt.month
+                        fc_with_hol['nama_bulan'] = fc_with_hol['ds'].dt.strftime('%B')
+                        mo_eff = fc_with_hol.groupby('nama_bulan')['holidays'].agg(
+                            mean_abs=lambda x: np.abs(x).mean(),
+                            max_eff='max', min_eff='min'
+                        ).reset_index()
+                        for _, row in mo_eff.iterrows():
+                            if row['mean_abs'] > 1e-6:
+                                holiday_effects[f"Bulan {row['nama_bulan']}"] = {
+                                    'col': 'holidays',
+                                    'mean_abs_effect': round(float(row['mean_abs']), 4),
+                                    'max_effect':       round(float(row['max_eff']), 4),
+                                    'min_effect':       round(float(row['min_eff']), 4),
+                                }
+
+                holiday_effects = dict(sorted(
+                    holiday_effects.items(),
+                    key=lambda x: x[1]['mean_abs_effect'], reverse=True
+                ))
+            except Exception as _he:
+                holiday_effects = {'_error': str(_he)}
+
+        # ── Simpan juga kolom 'holidays' total untuk chart gabungan ──────
+        holidays_total_col = fc['holidays'].values.tolist() if 'holidays' in fc.columns else []
 
         return {
             'model': m, 'forecast': fc, 'history': cat_df,
             'r2_insample': r2_is, 'mape_insample': mape_is,
             'n_holidays': n_hol, 'gcal_used': n_hol > 0,
             'holiday_col_map': h_col_map,
+            'holiday_effects': holiday_effects,
+            'holidays_total': holidays_total_col,
+            'n_data': n_data,
+            'growth': growth,
+            'seasonality_mode': s_mode,
+            'cp_scale': cp_scale,
         }, None
     except Exception as e:
         return None, str(e)

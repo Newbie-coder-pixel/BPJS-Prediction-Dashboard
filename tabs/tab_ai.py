@@ -1,5 +1,6 @@
 """tabs/tab_ai.py — Tab 5: AI Analyst BPJS (clean, tanpa history/new chat)."""
 import streamlit as st
+from ai_chart_utils import detect_chart_intent, build_chart_data, render_ai_chart, ChartIntent
 
 
 def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
@@ -14,6 +15,7 @@ def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
         ('_chat_pending', None),
         ('_last_web_search_result', ''),
         ('_last_web_search_query', ''),
+        ('ai_chart_history', []),   # list chart, tidak dihapus saat pertanyaan baru
     ]:
         if k not in st.session_state:
             st.session_state[k] = default
@@ -26,6 +28,28 @@ def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
         _spinner_lbl = "🤖 Gemini AI menganalisis..." if _api_provider == "gemini" else "🤖 AI menganalisis..."
         with st.spinner(_spinner_lbl):
             _ans = _chat_answer(_q, df, active_progs, years, has_nom, latest_year, prev_year)
+
+        # ── Deteksi intent chart — append ke history, tidak overwrite ──────────
+        _intent = detect_chart_intent(_q)
+        if _intent != ChartIntent.NO_CHART:
+            _chart_data = build_chart_data(
+                question     = _q,
+                df           = df,
+                intent       = _intent,
+                active_progs = list(active_progs),
+                years        = list(years),
+                has_nom      = has_nom,
+                latest_year  = latest_year,
+                colors       = COLORS,
+                dark         = DARK,
+            )
+            if _chart_data is not None:
+                # Simpan referensi ke pesan chat yang bersangkutan
+                _chart_data['chat_index'] = len(st.session_state.chat_history)
+                if 'ai_chart_history' not in st.session_state:
+                    st.session_state['ai_chart_history'] = []
+                st.session_state['ai_chart_history'].append(_chart_data)
+
         st.session_state.chat_history.append({"role": "assistant", "content": _ans})
         st.rerun()
 
@@ -168,6 +192,13 @@ def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
     else:
         st.markdown('<div class="chat-area">' + _msgs_html + '</div>', unsafe_allow_html=True)
 
+    # ── Chart AI — render per jawaban, tidak ada yang hilang ────────────────
+    _chart_history = st.session_state.get('ai_chart_history', [])
+    if _chart_history and st.session_state.chat_history:
+        # Grouping chart per chat_index agar tiap pertanyaan punya chart sendiri
+        for _cd in _chart_history:
+            render_ai_chart(_cd)
+
     # ── Quick chips (muncul setelah ada chat) ─────────────────────────────────
     if st.session_state.chat_history:
         _quick_list = [
@@ -210,4 +241,5 @@ def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
             if st.button("🗑 Hapus chat", key="clear_chat_btn", use_container_width=True):
                 st.session_state.chat_history = []
                 st.session_state["_last_web_search_result"] = ""
+                st.session_state["ai_chart_history"] = []
                 st.rerun()

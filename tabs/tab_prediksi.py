@@ -53,6 +53,11 @@ def render_tab_prediksi(df, df_plot, active_progs, filtered_progs, targets,
         st.session_state[f'forecast_monthly_{target_pred}'] = fut_monthly
         st.session_state[f'forecast_annual_{target_pred}']  = fut
 
+        # ── Simpan ml_pred & target agar AI Analyst bisa akses hasil prediksi ──
+        st.session_state['ml_result']            = ml_pred
+        st.session_state['ml_result_target']     = target_pred
+        st.session_state['ml_forecast_ready']    = True   # flag untuk invalidasi cache AI
+
         data_hash  = hashlib.md5(df.to_csv().encode()).hexdigest()[:8]
         eid_pred   = f"{data_hash}_{target_pred}_L{n_lags}_T{test_pct}"
         label_pred = f"📁 {datetime.now().strftime('%d/%m %H:%M')} | {target_pred} | {len(years)}yr"

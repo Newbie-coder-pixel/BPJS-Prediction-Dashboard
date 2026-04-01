@@ -644,13 +644,27 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
         ml_result        = ml_result,
     )
 
+    # ── Trim prompt jika terlalu panjang (cegah rate limit Groq/Gemini) ──────
+    # Groq free: ~6000 TPM. Estimasi kasar: 1 token ≈ 4 karakter.
+    # Batas aman: 12.000 karakter ≈ 3000 token (sisakan ruang untuk output).
+    _MAX_PROMPT_CHARS = 12_000
+    if len(prompt) > _MAX_PROMPT_CHARS:
+        # Potong dari bagian tengah (pertahankan system context & pertanyaan di akhir)
+        _keep_start = 4_000   # metadata + data historis
+        _keep_end   = 3_000   # instruksi + pertanyaan user
+        prompt = (
+            prompt[:_keep_start]
+            + f"\n\n[... context diperpendek karena terlalu panjang ({len(prompt):,} char) ...]\n\n"
+            + prompt[-_keep_end:]
+        )
+
     system = RAG_SYSTEM_PROMPT
 
     # ── Call AI ───────────────────────────────────────────────────────────────
     try:
         result = None
         if provider == "groq":
-            result = _call_ai_groq(prompt, system, key, max_tokens=1100)
+            result = _call_ai_groq(prompt, system, key, max_tokens=1200)
         elif provider == "gemini":
             result = _call_ai_gemini(prompt, system, key, max_tokens=1100)
         elif provider == "anthropic":
@@ -691,7 +705,29 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                         pass
             return f"❌ **API Key ditolak.** Provider: **{provider}**\nDetail: `{err[:200]}`"
         elif "429" in err or "Semua model" in err:
-            return "⏳ **Rate limit.** Tunggu 30–60 detik lalu coba lagi."
+            # Retry sekali dengan delay jika rate limit — sebelum menyerah
+            import time as _time
+            _time.sleep(8)
+            try:
+                if provider == "groq":
+                    result2 = _call_ai_groq(prompt, system, key, max_tokens=800)
+                elif provider == "gemini":
+                    result2 = _call_ai_gemini(prompt, system, key, max_tokens=800)
+                else:
+                    result2 = None
+                if result2:
+                    return result2
+            except Exception:
+                pass
+            # Fallback ke Gemini jika Groq rate limit dan Gemini key tersedia
+            if provider == "groq":
+                _gem_key = _secret("GEMINI_API_KEY", "")
+                if _gem_key:
+                    try:
+                        return _call_ai_gemini(prompt, system, _gem_key, max_tokens=800)
+                    except Exception:
+                        pass
+            return "⏳ **Rate limit.** API sedang sibuk — tunggu 30 detik lalu coba lagi.\n\nTips: Pertanyaan pendek menggunakan lebih sedikit token dan lebih jarang terkena limit."
         elif "timeout" in err.lower():
             return "⏱️ **Request timeout.** Coba lagi dalam beberapa detik."
         else:

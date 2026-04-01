@@ -116,11 +116,19 @@ with st.sidebar:
                 if st.button(h['label'], key=f"hbtn_{h['id']}", width='stretch'):
                     df_h, res_h, extra_h = load_history_entry(h['id'])
                     if df_h is not None:
+                        # Preserve df_raw_for_ai sebelum overwrite session state
+                        _preserved_sebab = st.session_state.get('df_raw_for_ai')
+
                         st.session_state.active_data     = df_h
                         st.session_state.active_results  = res_h
                         st.session_state.active_entry_id = h['id']
                         for k, v in extra_h.items():
                             st.session_state[k] = v
+
+                        # Restore df_raw_for_ai jika extra_h tidak menyimpannya
+                        if st.session_state.get('df_raw_for_ai') is None and _preserved_sebab is not None:
+                            st.session_state['df_raw_for_ai'] = _preserved_sebab
+
                         st.rerun()
                     else:
                         st.warning("Data riwayat tidak ditemukan.")
@@ -158,6 +166,7 @@ if uploaded:
         merged, errs = merge_all(files_info)
         for e in errs:
             st.sidebar.warning(e)
+
         if merged is not None and len(merged) > 0:
             dh  = hashlib.md5(merged.to_csv().encode()).hexdigest()[:8]
             cur = (hashlib.md5(st.session_state.active_data.to_csv().encode())
@@ -166,6 +175,7 @@ if uploaded:
                 st.session_state.active_data    = merged
                 st.session_state.active_results = {}
 
+            # ── Bangun raw_monthly (data agregat bulanan) ─────────────────────
             raw_monthly_frames = []
             for yh, raw_df, fname in files_info:
                 m_cols = _detect_cols_quick(raw_df)
@@ -179,6 +189,43 @@ if uploaded:
                 st.sidebar.success(f"📆 {len(rm_combined)} baris monthly tersimpan")
             else:
                 st.session_state['raw_monthly'] = None
+
+            # ── Deteksi & simpan file SEBAB_KLAIM untuk AI context ────────────
+            # File ini dikenali dari keberadaan kolom "sebab" + "program"
+            sebab_frames = []
+            for yh, raw_df, fname in files_info:
+                cols_lower = [c.lower().strip() for c in raw_df.columns]
+                has_sebab   = any("sebab" in c or "cause" in c or "reason" in c for c in cols_lower)
+                has_program = any("program" in c for c in cols_lower)
+
+                if has_sebab and has_program:
+                    df_sebab = raw_df.copy()
+
+                    # Tambahkan kolom Periode dari nama file jika belum ada
+                    has_periode = any(
+                        "periode" in c or "period" in c or "date" in c or "tahun" in c
+                        for c in cols_lower
+                    )
+                    if not has_periode:
+                        df_sebab['Periode'] = yh
+
+                    sebab_frames.append(df_sebab)
+                    st.sidebar.success(
+                        f"📋 {fname} → terdeteksi sebagai data Sebab Klaim ({len(df_sebab)} baris)"
+                    )
+
+            if sebab_frames:
+                df_sebab_combined = pd.concat(sebab_frames, ignore_index=True)
+                st.session_state['df_raw_for_ai']  = df_sebab_combined  # key utama untuk AI
+                st.session_state['df_sebab_klaim'] = df_sebab_combined  # key fallback
+                st.sidebar.success(f"🤖 AI context: {len(df_sebab_combined)} baris sebab klaim siap")
+            else:
+                # Fallback: pakai raw_monthly jika tidak ada file sebab klaim terpisah
+                if st.session_state.get('raw_monthly') is not None:
+                    st.session_state['df_raw_for_ai'] = st.session_state['raw_monthly']
+                else:
+                    st.session_state['df_raw_for_ai'] = None
+
         else:
             st.error("Gagal memproses data. Pastikan file punya kolom PROGRAM dan KASUS.")
 
@@ -189,11 +236,11 @@ df_raw_monthly = st.session_state.get('raw_monthly', None)
 # ══════════════════════════════════════════════════════════════════════════════
 # EMPTY STATE — belum ada data
 # ══════════════════════════════════════════════════════════════════════════════
-has_nom: bool   = False
-single_yr: bool = False
-years: list     = []
-latest_year     = None
-prev_year       = None
+has_nom: bool     = False
+single_yr: bool   = False
+years: list       = []
+latest_year       = None
+prev_year         = None
 active_progs: set = set()
 
 if df is None:
@@ -213,20 +260,30 @@ if df is None:
 
     f1, f2, f3 = st.columns(3)
     for col, icon, title, desc in [
-        (f1, "🤖", "Metode Adaptif", "Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
-        (f2, "📅", "Kalender Indonesia", "Prophet + Google Calendar Indonesia. Semua hari libur nasional otomatis diambil dari API resmi Google."),
-        (f3, "📥", "Export Excel", "Export prediksi tahunan & bulanan ke Excel dengan chart otomatis, siap untuk presentasi."),
+        (f1, "🤖", "Metode Adaptif",
+         "Holt Smoothing, SES, WMA untuk data kecil. ML (XGBoost, RF) otomatis aktif untuk data ≥ 8 tahun."),
+        (f2, "📅", "Kalender Indonesia",
+         "Prophet + Google Calendar Indonesia. Semua hari libur nasional otomatis diambil dari API resmi Google."),
+        (f3, "📥", "Export Excel",
+         "Export prediksi tahunan & bulanan ke Excel dengan chart otomatis, siap untuk presentasi."),
     ]:
         with col:
-            st.markdown(f'''<div style="background:#ffffff;border:1px solid #e2e8f0;
+            st.markdown(f'''
+            <div style="background:#ffffff;border:1px solid #e2e8f0;
             border-radius:14px;padding:24px;text-align:center;height:160px;
             border-top:3px solid #3b82f6;">
-            <div style="font-size:2rem;margin-bottom:8px;">{icon}</div>
-            <div style="font-weight:700;color:#0f172a;margin-bottom:8px;font-size:.95rem;">{title}</div>
-            <div style="color:#475569;font-size:.82rem;line-height:1.6;">{desc}</div>
+              <div style="font-size:2rem;margin-bottom:8px;">{icon}</div>
+              <div style="font-weight:700;color:#0f172a;margin-bottom:8px;font-size:.95rem;">{title}</div>
+              <div style="color:#475569;font-size:.82rem;line-height:1.6;">{desc}</div>
             </div>''', unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<div class="info-box">📋 <b>Format kolom yang didukung:</b> <code>PROGRAM</code> · <code>KASUS</code> · <code>NOMINAL</code> · <code>DATE</code><br>Upload 1+ file CSV/Excel.</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="info-box">📋 <b>Format kolom yang didukung:</b> '
+        '<code>PROGRAM</code> · <code>KASUS</code> · <code>NOMINAL</code> · <code>DATE</code>'
+        '<br>Upload 1+ file CSV/Excel.</div>',
+        unsafe_allow_html=True
+    )
     st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -242,6 +299,14 @@ targets      = ['Kasus'] + (['Nominal'] if has_nom else [])
 single_yr    = len(years) == 1
 prog_changes = analyze_program_changes(df)
 
+# ── Fallback chain: pastikan df_raw_for_ai selalu terisi ─────────────────────
+if st.session_state.get('df_raw_for_ai') is None:
+    for _fallback_key in ['df_sebab_klaim', 'raw_monthly']:
+        _val = st.session_state.get(_fallback_key)
+        if _val is not None:
+            st.session_state['df_raw_for_ai'] = _val
+            break
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DEBUG EXPANDER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -256,6 +321,7 @@ with st.expander("🔍 Info Parsing & Program Aktif (klik untuk cek)", expanded=
         for p in ch['stable']:
             change_html += f'<span class="tag-stable">{p}</span> '
         change_html += "<br>"
+
     st.markdown(f"""
     <div class="info-box">
     📋 <b>Kolom terbaca:</b> {', '.join(df.columns.tolist())}<br>
@@ -266,11 +332,26 @@ with st.expander("🔍 Info Parsing & Program Aktif (klik untuk cek)", expanded=
     <b>Perubahan Program per Tahun:</b><br>
     {change_html if change_html else 'Hanya 1 tahun data.'}
     </div>""", unsafe_allow_html=True)
-    vdf = df[['Tahun','Kategori','Kasus'] + (['Nominal'] if has_nom else [])].copy().sort_values(['Tahun','Kategori'])
+
+    vdf = df[['Tahun', 'Kategori', 'Kasus'] + (['Nominal'] if has_nom else [])].copy()
+    vdf = vdf.sort_values(['Tahun', 'Kategori'])
     if 'Nominal' in vdf.columns:
         vdf['Nominal (T)'] = (vdf['Nominal'] / 1e12).round(4)
         vdf['Nominal (B)'] = (vdf['Nominal'] / 1e9).round(2)
     st.dataframe(vdf, width='stretch', height=320)
+
+    # ── Status AI context (untuk troubleshoot) ────────────────────────────────
+    st.markdown("**🤖 Status AI Context (df_raw_for_ai)**")
+    df_ai_ctx = st.session_state.get('df_raw_for_ai')
+    if df_ai_ctx is not None:
+        st.success(
+            f"✅ df_raw_for_ai tersedia: {len(df_ai_ctx)} baris × {len(df_ai_ctx.columns)} kolom"
+        )
+        st.caption(f"Kolom: {list(df_ai_ctx.columns)}")
+        st.dataframe(df_ai_ctx.head(5), width='stretch')
+    else:
+        st.error("❌ df_raw_for_ai = None → AI tidak akan bisa membaca data sebab klaim!")
+        st.caption("Solusi: Upload file yang mengandung kolom 'Sebab Klaim' atau 'Sebab'")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HERO & KPI
@@ -278,28 +359,32 @@ with st.expander("🔍 Info Parsing & Program Aktif (klik untuk cek)", expanded=
 st.markdown(
     '<div class="hero-wrap">'
     '<div class="hero-logo">📊 Dashboard Prediksi Klaim BPJS Ketenagakerjaan</div>'
-    '<div class="hero-sub">Analisis tren historis &amp; proyeksi — model adaptif statistik &amp; machine learning per program</div>'
+    '<div class="hero-sub">Analisis tren historis &amp; proyeksi — '
+    'model adaptif statistik &amp; machine learning per program</div>'
     '</div>', unsafe_allow_html=True)
 
 if single_yr:
-    st.markdown("""<div class="warn">⚠️ <b>Mode 1 Tahun:</b>
+    st.markdown("""
+    <div class="warn">⚠️ <b>Mode 1 Tahun:</b>
     Prediksi menggunakan ekstrapolasi asumsi pertumbuhan 5%/tahun.
-    Upload data multi-tahun untuk prediksi ML penuh.</div>""", unsafe_allow_html=True)
+    Upload data multi-tahun untuk prediksi ML penuh.</div>
+    """, unsafe_allow_html=True)
 
 if prog_changes:
     last_change = list(prog_changes.items())[-1]
     (y0, y1), ch = last_change
     if ch['added'] or ch['removed']:
-        added_str   = ', '.join(ch['added']) if ch['added'] else '–'
+        added_str   = ', '.join(ch['added'])   if ch['added']   else '–'
         removed_str = ', '.join(ch['removed']) if ch['removed'] else '–'
-        st.markdown(f"""<div class="warn">
+        st.markdown(f"""
+        <div class="warn">
         📌 <b>Perubahan program {y0}→{y1}:</b>
         &nbsp; Ditambah: <b style="color:#86efac">{added_str}</b>
         &nbsp;|&nbsp; Dihapus: <b style="color:#fca5a5">{removed_str}</b>
         &nbsp;→ Prediksi hanya untuk program aktif tahun {y1}.
         </div>""", unsafe_allow_html=True)
 
-# Program filter
+# ── Program filter ────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("---")
     st.markdown("**🎯 Filter Program**")
@@ -316,7 +401,7 @@ with st.sidebar:
 filtered_progs = selected_filter
 df_active_only = df[df['Kategori'].isin(active_progs)]
 
-# KPI calcs
+# ── KPI calcs ─────────────────────────────────────────────────────────────────
 kpi_delta_k = kpi_delta_n = kpi_avg_growth = ""
 if len(years) >= 2:
     yr_kasus = df_active_only.groupby('Tahun')['Kasus'].sum()
@@ -334,33 +419,53 @@ if len(years) >= 2:
             kpi_delta_n = f'<div class="delta {cls_n}">{sign_n} {abs(delta_n_pct):.1f}% vs {prev_year}</div>'
     growths = []
     for i in range(1, len(years)):
-        k_prev = df_active_only[df_active_only['Tahun']==years[i-1]]['Kasus'].sum()
-        k_curr = df_active_only[df_active_only['Tahun']==years[i]]['Kasus'].sum()
+        k_prev = df_active_only[df_active_only['Tahun'] == years[i-1]]['Kasus'].sum()
+        k_curr = df_active_only[df_active_only['Tahun'] == years[i]]['Kasus'].sum()
         if k_prev > 0:
-            growths.append((k_curr/k_prev - 1)*100)
+            growths.append((k_curr / k_prev - 1) * 100)
     avg_g  = np.mean(growths) if growths else 0
     sign_g = "▲" if avg_g >= 0 else "▼"
     cls_g  = "delta-pos" if avg_g >= 0 else "delta-neg"
     kpi_avg_growth = f'<div class="delta {cls_g}">{sign_g} {abs(avg_g):.1f}%/thn ({years[0]}–{years[-1]})</div>'
 
 tk        = int(df_active_only['Kasus'].sum())
-tk_latest = int(df_active_only[df_active_only['Tahun']==latest_year]['Kasus'].sum())
+tk_latest = int(df_active_only[df_active_only['Tahun'] == latest_year]['Kasus'].sum())
 
 c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
-    st.markdown(f'<div class="kpi"><div class="val">{len(years)}</div><div class="lbl">📅 Tahun Data</div><div class="delta delta-neu">{years[0]} – {years[-1]}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi"><div class="val">{len(years)}</div>'
+        f'<div class="lbl">📅 Tahun Data</div>'
+        f'<div class="delta delta-neu">{years[0]} – {years[-1]}</div></div>',
+        unsafe_allow_html=True)
 with c2:
-    st.markdown(f'<div class="kpi"><div class="val">{len(active_progs)}</div><div class="lbl">🏷️ Program Aktif</div><div class="delta delta-neu">{", ".join(active_progs)}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi"><div class="val">{len(active_progs)}</div>'
+        f'<div class="lbl">🏷️ Program Aktif</div>'
+        f'<div class="delta delta-neu">{", ".join(active_progs)}</div></div>',
+        unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="kpi"><div class="val">{tk_latest:,}</div><div class="lbl">📋 Kasus {latest_year}</div>{kpi_delta_k}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi"><div class="val">{tk_latest:,}</div>'
+        f'<div class="lbl">📋 Kasus {latest_year}</div>{kpi_delta_k}</div>',
+        unsafe_allow_html=True)
 with c4:
     if has_nom:
-        tn = df_active_only[df_active_only['Tahun']==latest_year]['Nominal'].sum()/1e9
-        st.markdown(f'<div class="kpi"><div class="val">Rp{tn:,.1f}B</div><div class="lbl">💰 Nominal {latest_year}</div>{kpi_delta_n}</div>', unsafe_allow_html=True)
+        tn = df_active_only[df_active_only['Tahun'] == latest_year]['Nominal'].sum() / 1e9
+        st.markdown(
+            f'<div class="kpi"><div class="val">Rp{tn:,.1f}B</div>'
+            f'<div class="lbl">💰 Nominal {latest_year}</div>{kpi_delta_n}</div>',
+            unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="kpi"><div class="val">{latest_year}</div><div class="lbl">📅 Data Terbaru</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="kpi"><div class="val">{latest_year}</div>'
+            f'<div class="lbl">📅 Data Terbaru</div></div>',
+            unsafe_allow_html=True)
 with c5:
-    st.markdown(f'<div class="kpi"><div class="val">{tk:,}</div><div class="lbl">📊 Total Kasus</div>{kpi_avg_growth}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi"><div class="val">{tk:,}</div>'
+        f'<div class="lbl">📊 Total Kasus</div>{kpi_avg_growth}</div>',
+        unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 df_plot = df[df['Kategori'].isin(filtered_progs)].copy()
@@ -378,12 +483,14 @@ _is_single_prog = len(filtered_progs) == 1
 if _is_single_prog:
     _sp        = filtered_progs[0]
     _sp_total  = int(df_plot['Kasus'].sum())
-    _sp_latest = int(df_plot[df_plot['Tahun']==latest_year]['Kasus'].sum())
+    _sp_latest = int(df_plot[df_plot['Tahun'] == latest_year]['Kasus'].sum())
     st.markdown(
         f'<div style="background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1.5px solid #2563eb;'
         f'border-radius:14px;padding:14px 22px;margin-bottom:12px;">'
-        f'<div style="font-size:1.05rem;font-weight:800;color:#0f172a;">Mode: Program <span style="color:#2563eb">{_sp}</span></div>'
-        f'<div style="font-size:.8rem;color:#64748b;margin-top:2px;">Total historis: <b>{_sp_total:,}</b> · {latest_year}: <b>{_sp_latest:,}</b> kasus</div>'
+        f'<div style="font-size:1.05rem;font-weight:800;color:#0f172a;">'
+        f'Mode: Program <span style="color:#2563eb">{_sp}</span></div>'
+        f'<div style="font-size:.8rem;color:#64748b;margin-top:2px;">'
+        f'Total historis: <b>{_sp_total:,}</b> · {latest_year}: <b>{_sp_latest:,}</b> kasus</div>'
         f'</div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -392,7 +499,6 @@ if _is_single_prog:
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["📈 Overview", "🤖 ML Analysis", "🔮 Prediksi", "📥 Export", "💬 AI Analyst"])
 
-# ── Import tab renderers ──────────────────────────────────────────────────────
 from tabs.tab_overview  import render_tab_overview
 from tabs.tab_ml        import render_tab_ml
 from tabs.tab_prediksi  import render_tab_prediksi
