@@ -584,6 +584,9 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
     # ── Cache check ───────────────────────────────────────────────────────────
     hist_str = ""
     for h in st.session_state.chat_history[-6:]:
+        # Skip entry chart — tidak punya key 'content', hanya punya 'chart_data'
+        if h.get("role") == "chart" or "content" not in h:
+            continue
         role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
