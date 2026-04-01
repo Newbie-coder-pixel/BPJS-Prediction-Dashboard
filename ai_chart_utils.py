@@ -35,53 +35,117 @@ class ChartIntent(str, Enum):
 # INTENT DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
 
-_INTENT_RULES: list[tuple[ChartIntent, list[str]]] = [
-    (ChartIntent.FORECAST_BAR, [
-        "prediksi", "forecast", "proyeksi", "tahun depan", "estimasi",
-        "perkiraan", "2026", "2027", "2028", "outlook",
-    ]),
-    (ChartIntent.TREND_LINE, [
-        "tren", "trend", "historis", "dari tahun ke tahun", "pertumbuhan",
-        "perkembangan", "naik", "turun", "yoy", "5 tahun", "fluktuasi",
-        "perubahan", "grafik", "chart tren",
-    ]),
-    (ChartIntent.SEBAB_KLAIM_BAR, [
-        "sebab", "penyebab", "alasan", "kenapa", "mengapa",
-        "faktor", "driver", "terbesar", "dominan", "top",
-    ]),
-    (ChartIntent.PIE_SHARE, [
-        "porsi", "komposisi", "distribusi", "proporsi", "share",
-        "persentase", "berapa persen", "pie",
-    ]),
-    (ChartIntent.COMPARISON_BAR, [
-        "bandingkan", "perbandingan", "vs", "versus", "dibanding",
-        "lebih besar", "lebih kecil", "program mana", "ranking",
-    ]),
-    (ChartIntent.YOY_DELTA, [
-        "selisih", "delta", "kenaikan", "penurunan", "berapa naik",
-        "berapa turun", "berubah berapa",
-    ]),
+# ── Keyword ekslusif per intent — tidak overlap ──────────────────────────────
+
+# Pertanyaan yang TIDAK perlu chart meski mengandung kata analitik
+_NO_CHART_PATTERNS = [
+    # Pertanyaan "kenapa/mengapa" tentang perubahan = analisis naratif, bukan chart sebab
+    ("kenapa ada", ),
+    ("mengapa ada", ),
+    ("kenapa terjadi", ),
+    ("mengapa terjadi", ),
+    ("apa penyebab", ),
+    ("apa alasan", ),
+    # Pertanyaan definisi/konsep
+    ("apa itu", "apa yang dimaksud", "jelaskan apa", "pengertian"),
+    # Pertanyaan rekomendasi/saran
+    ("apa rekomendasi", "apa saran", "apa yang harus", "bagaimana cara"),
+]
+
+# Kata yang WAJIB ADA agar SEBAB_KLAIM_BAR aktif
+# (harus spesifik minta data sebab, bukan hanya bertanya "kenapa")
+_SEBAB_REQUIRED = [
+    "sebab klaim", "penyebab klaim", "data sebab", "top sebab",
+    "list sebab", "tabel sebab", "alasan klaim", "driver klaim",
+    "sebab terbesar", "penyebab terbesar",
+]
+
+# Chart hanya muncul jika pertanyaan EKSPLISIT minta visual
+_EXPLICIT_CHART_TRIGGERS = [
+    "grafik", "chart", "diagram", "visualisasi", "tampilkan", "tunjukkan",
+    "lihat grafik", "buat chart", "plot",
 ]
 
 
 def detect_chart_intent(question: str) -> ChartIntent:
     """
     Deteksi apakah pertanyaan memerlukan chart dan chart apa.
-    Mengembalikan ChartIntent.NO_CHART jika tidak relevan.
-    """
-    q = question.lower()
 
-    # Pertanyaan singkat / greeting / non-analitik → tidak perlu chart
+    Filosofi:
+    - Chart hanya muncul jika pertanyaan BENAR-BENAR memerlukan visualisasi.
+    - Pertanyaan analitik naratif ("kenapa ada penurunan?") → NO_CHART.
+    - Pertanyaan yang eksplisit minta data visual → chart sesuai tipe.
+    - Jika ragu → NO_CHART (lebih baik tidak ada chart daripada chart salah).
+    """
+    q = question.lower().strip()
+
+    # ── Pertanyaan terlalu pendek atau trivial ────────────────────────────────
     trivial = [
         "halo", "hai", "apa itu", "siapa", "terima kasih", "ok", "oke",
-        "bagus", "mantap", "tolong", "bantu", "cara", "gimana cara",
+        "bagus", "mantap", "tolong", "bantu", "cara", "gimana",
     ]
-    if len(q.strip()) < 12 or any(q.startswith(t) for t in trivial):
+    if len(q) < 12 or any(q.startswith(t) for t in trivial):
         return ChartIntent.NO_CHART
 
-    for intent, keywords in _INTENT_RULES:
-        if any(k in q for k in keywords):
-            return intent
+    # ── Pola yang TIDAK perlu chart (cek lebih dulu sebelum rules lain) ───────
+    for patterns in _NO_CHART_PATTERNS:
+        if any(p in q for p in patterns):
+            return ChartIntent.NO_CHART
+
+    # ── FORECAST — kata kunci prediksi/tahun masa depan ──────────────────────
+    _forecast_kw = [
+        "prediksi", "forecast", "proyeksi", "tahun depan", "estimasi",
+        "perkiraan", "2026", "2027", "2028", "outlook",
+    ]
+    if any(k in q for k in _forecast_kw):
+        return ChartIntent.FORECAST_BAR
+
+    # ── TREND LINE — kata kunci tren historis ────────────────────────────────
+    _trend_kw = [
+        "tren", "trend", "historis", "dari tahun ke tahun",
+        "yoy", "5 tahun", "fluktuasi", "grafik tren",
+        "perkembangan dari", "naik dari tahun", "turun dari tahun",
+    ]
+    if any(k in q for k in _trend_kw):
+        return ChartIntent.TREND_LINE
+
+    # ── TREND LINE juga jika ada trigger eksplisit visual + kata pertumbuhan ──
+    _growth_kw = ["pertumbuhan", "perkembangan", "perubahan", "naik turun"]
+    if any(t in q for t in _EXPLICIT_CHART_TRIGGERS) and any(k in q for k in _growth_kw):
+        return ChartIntent.TREND_LINE
+
+    # ── PIE SHARE — distribusi/porsi ─────────────────────────────────────────
+    _pie_kw = [
+        "porsi", "komposisi", "distribusi", "proporsi", "share",
+        "berapa persen", "pie chart", "diagram lingkaran",
+    ]
+    if any(k in q for k in _pie_kw):
+        return ChartIntent.PIE_SHARE
+
+    # ── COMPARISON BAR — perbandingan antar program ───────────────────────────
+    _comp_kw = [
+        "bandingkan", "perbandingan", " vs ", "versus", "dibanding",
+        "program mana yang lebih", "ranking program", "urutan program",
+    ]
+    if any(k in q for k in _comp_kw):
+        return ChartIntent.COMPARISON_BAR
+
+    # ── YOY DELTA — selisih tahun ini vs tahun lalu ───────────────────────────
+    _yoy_kw = [
+        "selisih", "delta klaim", "berapa naik", "berapa turun",
+        "berubah berapa", "naik berapa persen", "turun berapa persen",
+    ]
+    if any(k in q for k in _yoy_kw):
+        return ChartIntent.YOY_DELTA
+
+    # ── SEBAB KLAIM BAR — hanya jika eksplisit minta data sebab klaim ────────
+    # TIDAK aktif hanya karena ada "kenapa" atau "mengapa"
+    if any(k in q for k in _SEBAB_REQUIRED):
+        return ChartIntent.SEBAB_KLAIM_BAR
+
+    # ── Jika ada trigger visual eksplisit tapi tidak cocok di atas → trend ────
+    if any(t in q for t in _EXPLICIT_CHART_TRIGGERS):
+        return ChartIntent.TREND_LINE
 
     return ChartIntent.NO_CHART
 
