@@ -724,30 +724,10 @@ def _qa_memory_stats() -> dict:
 # MAIN CHAT ANSWER
 # ══════════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = """Kamu adalah AI Analyst ahli BPJS Ketenagakerjaan Indonesia dengan keahlian aktuaria dan ekonomi ketenagakerjaan.
-
-KONTEKS DATASET:
-- Data yang diberikan adalah DATA KLAIM BPJS Ketenagakerjaan.
-- Kolom "Kasus" = jumlah kejadian klaim. Kolom "Nominal" = nilai manfaat yang dibayarkan dalam Rp.
-
-PROGRAM BPJS KETENAGAKERJAAN:
-- JHT: tabungan hari tua, diklaim saat resign/pensiun/cacat/meninggal
-- JKK: klaim saat kecelakaan kerja/penyakit akibat kerja
-- JKM: santunan meninggal dunia bukan akibat kecelakaan kerja
-- JKP: klaim saat PHK, diluncurkan 2022
-- JPN: manfaat pensiun bulanan seumur hidup
-
-ATURAN ANALISIS:
-1. Analisis HANYA berdasarkan data klaim yang diberikan
-2. Jawab spesifik dengan angka kasus DAN nominal dari dataset
-3. Sebutkan regulasi spesifik jika relevan: PP 82/2019, PP 45/2015, UU Cipta Kerja 2020
-4. Jika ada hasil web search, integrasikan sebagai bukti pendukung
-5. Jawab TEKNIS dan SPESIFIK: sebutkan persentase, tahun, angka absolut
-6. Maksimal 10 kalimat kecuali diminta lebih panjang
-7. WAJIB: Selalu sebut URL lengkap dari sumber yang kamu gunakan. Format: "(Sumber: https://...)"
-8. Kamu SUDAH MELAKUKAN WEB SEARCH — jangan bilang kamu tidak bisa search
-9. Struktur jawaban: (a) Temuan dari data internal, (b) Konfirmasi dari riset web + URL, (c) Kesimpulan
-"""
+# SYSTEM_PROMPT di sini tidak dipakai — yang aktif adalah RAG_SYSTEM_PROMPT
+# dari rag_context.py yang sudah jauh lebih lengkap dan konsisten.
+# Variabel ini dipertahankan hanya untuk backward compatibility jika ada import.
+SYSTEM_PROMPT = ""  # deprecated — gunakan RAG_SYSTEM_PROMPT dari rag_context.py
 
 
 def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, prev_year) -> str:
@@ -779,11 +759,18 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
         role = "User" if h["role"] == "user" else "AI"
         hist_str += f"{role}: {h['content']}\n"
 
-    # Cache key menyertakan apakah forecast sudah ada, agar tidak
-    # serve cached jawaban lama yang tidak punya angka prediksi
+    # Cache key: sertakan fingerprint ML + forecast agar otomatis invalid
+    # setelah user jalankan model baru di tab ML / Prediksi
     _has_forecast = str(st.session_state.get('forecast_Kasus') is not None)
+    _ml_res       = st.session_state.get('ml_result')
+    _ml_sig       = str(id(_ml_res)) if _ml_res is not None else "none"
+    _fc            = st.session_state.get('forecast_Kasus')
+    _fc_sig        = "fc_none"
+    if isinstance(_fc, pd.DataFrame) and not _fc.empty:
+        try:    _fc_sig = str(_fc.iloc[:3].values.tolist())
+        except: _fc_sig = "fc_exists"
     _cache_id = hashlib.md5(
-        f"{question}|{hist_str[-200:]}|{_has_forecast}".encode()
+        f"{question}|{hist_str[-200:]}|{_has_forecast}|{_ml_sig}|{_fc_sig}".encode()
     ).hexdigest()
 
     if '_ai_resp_cache' not in st.session_state:
@@ -791,16 +778,42 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
     if _cache_id in st.session_state._ai_resp_cache:
         return st.session_state._ai_resp_cache[_cache_id]
 
-    # ── Web search ────────────────────────────────────────────────────────────
+    # ── Web search — hanya untuk pertanyaan yang BENAR butuh sumber eksternal ──
+    # Pertanyaan data internal (kasus, nominal, sebab klaim, tren historis)
+    # TIDAK perlu web search → hemat token, kurangi noise.
+    # Web search hanya aktif untuk: regulasi baru, makroekonomi terkini, berita PHK, dll.
     _search_ctx = ""
-    _skip_keywords = ["halo", "hai", "terima kasih", "makasih", "oke", "ok",
-                      "siapa kamu", "kamu apa", "test", "coba", "hitung saja",
-                      "berapa total", "tampilkan data"]
-    _is_trivial = (len(question.strip()) < 15 or
-                   any(question.lower().strip().startswith(w) for w in _skip_keywords))
+    _q_low      = question.lower()
 
-    if not _is_trivial:
-        _q_low = question.lower()
+    # Pertanyaan yang jelas cukup dari data internal — skip web search
+    _data_internal_kw = [
+        "berapa kasus", "berapa nominal", "terbesar", "terbanyak", "tertinggi",
+        "terendah", "tren klaim", "data klaim", "sebab klaim", "penyebab klaim",
+        "program apa", "ranking", "bandingkan program", "jht", "jkk", "jkm", "jkp", "jpn",
+        "prediksi", "forecast", "hitung", "berapa total", "jumlah kasus",
+        "tampilkan", "tabel", "grafik", "chart", "distribusi",
+    ]
+    # Pertanyaan yang butuh konteks eksternal — aktifkan web search
+    _external_kw = [
+        "regulasi", "peraturan", "undang-undang", "pp ", "uu ", "kebijakan baru",
+        "berita", "terkini", "2025", "2026", "phk massal", "pemutusan massal",
+        "makroekonomi", "inflasi", "suku bunga", "resesi", "pdb indonesia",
+        "omnibus", "cipta kerja", "reforma", "bpjs terbaru",
+        "mengapa naik", "kenapa naik", "mengapa turun", "kenapa turun",
+        "covid", "pandemi", "dampak ekonomi",
+    ]
+
+    _skip_keywords = ["halo", "hai", "terima kasih", "makasih", "oke", "ok",
+                      "siapa kamu", "kamu apa", "test", "coba"]
+    _is_trivial         = (len(question.strip()) < 15 or
+                           any(_q_low.strip().startswith(w) for w in _skip_keywords))
+    _needs_internal_only = any(k in _q_low for k in _data_internal_kw)
+    _needs_external      = any(k in _q_low for k in _external_kw)
+
+    # Search hanya jika: bukan trivial, bukan pure internal, dan ada sinyal external
+    _do_search = (not _is_trivial) and (not _needs_internal_only or _needs_external)
+
+    if _do_search:
         _prog_hint = ""
         if "jht" in _q_low:   _prog_hint = "JHT jaminan hari tua"
         elif "jkk" in _q_low: _prog_hint = "JKK jaminan kecelakaan kerja"
@@ -809,7 +822,7 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
         elif "jpn" in _q_low: _prog_hint = "JPN jaminan pensiun"
         _search_query = f"{question} {_prog_hint} BPJS Ketenagakerjaan Indonesia".strip()
         with st.spinner("🔍 Mencari referensi dari sumber terpercaya..."):
-            _search_ctx = _web_search(_search_query, max_results=5)
+            _search_ctx = _web_search(_search_query, max_results=4)
             if _search_ctx:
                 st.session_state['_last_web_search_query']  = _search_query
                 st.session_state['_last_web_search_result'] = _search_ctx
@@ -836,19 +849,38 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
         ml_result        = ml_result,
     )
 
-    # ── Trim prompt jika terlalu panjang (cegah rate limit Groq/Gemini) ──────
-    # Groq free: ~6000 TPM. Estimasi kasar: 1 token ≈ 4 karakter.
-    # Batas aman: 12.000 karakter ≈ 3000 token (sisakan ruang untuk output).
-    _MAX_PROMPT_CHARS = 12_000
+    # ── Trim prompt cerdas — pertahankan data internal, potong web search ──────
+    # Groq: ~30k token context. Gemini Flash: 1M token. Kita set 28k char ≈ 7k token.
+    # Strategi: potong [WEB SEARCH] dulu, baru [RIWAYAT CHAT], baru potong kasar.
+    _MAX_PROMPT_CHARS = 28_000
     if len(prompt) > _MAX_PROMPT_CHARS:
-        # Potong dari bagian tengah (pertahankan system context & pertanyaan di akhir)
-        _keep_start = 4_000   # metadata + data historis
-        _keep_end   = 3_000   # instruksi + pertanyaan user
-        prompt = (
-            prompt[:_keep_start]
-            + f"\n\n[... context diperpendek karena terlalu panjang ({len(prompt):,} char) ...]\n\n"
-            + prompt[-_keep_end:]
+        # Tahap 1: hapus blok web search jika ada (paling boros, paling tidak kritis)
+        import re as _re
+        prompt_no_web = _re.sub(
+            r'\[WEB SEARCH.*?\[/WEB SEARCH\]', '[WEB SEARCH: dihapus karena prompt terlalu panjang]',
+            prompt, flags=_re.DOTALL
         )
+        if len(prompt_no_web) <= _MAX_PROMPT_CHARS:
+            prompt = prompt_no_web
+        else:
+            # Tahap 2: hapus riwayat chat jika masih terlalu panjang
+            prompt_no_hist = _re.sub(
+                r'\[RIWAYAT CHAT\].*?(?=\nPERTANYAAN:)',
+                '[RIWAYAT CHAT: dihapus]\n',
+                prompt_no_web, flags=_re.DOTALL
+            )
+            if len(prompt_no_hist) <= _MAX_PROMPT_CHARS:
+                prompt = prompt_no_hist
+            else:
+                # Tahap 3: potong kasar — tapi pertahankan 6k awal (metadata+data)
+                # dan 4k akhir (instruksi+pertanyaan)
+                _keep_start = 6_000
+                _keep_end   = 4_000
+                prompt = (
+                    prompt_no_hist[:_keep_start]
+                    + f"\n\n[... sebagian konteks diperpendek ({len(prompt):,} char → {_MAX_PROMPT_CHARS:,}) ...]\n\n"
+                    + prompt_no_hist[-_keep_end:]
+                )
 
     system = RAG_SYSTEM_PROMPT
 
@@ -856,14 +888,14 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
     try:
         result = None
         if provider == "groq":
-            result = _call_ai_groq(prompt, system, key, max_tokens=1200)
+            result = _call_ai_groq(prompt, system, key, max_tokens=2000)
         elif provider == "gemini":
-            result = _call_ai_gemini(prompt, system, key, max_tokens=1100)
+            result = _call_ai_gemini(prompt, system, key, max_tokens=2000)
         elif provider == "anthropic":
             import urllib.request, json as _j
             body = _j.dumps({
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 1100,
+                "max_tokens": 2000,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}]
             }).encode("utf-8")
@@ -902,9 +934,9 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
             _time.sleep(8)
             try:
                 if provider == "groq":
-                    result2 = _call_ai_groq(prompt, system, key, max_tokens=800)
+                    result2 = _call_ai_groq(prompt, system, key, max_tokens=1200)
                 elif provider == "gemini":
-                    result2 = _call_ai_gemini(prompt, system, key, max_tokens=800)
+                    result2 = _call_ai_gemini(prompt, system, key, max_tokens=1200)
                 else:
                     result2 = None
                 if result2:
@@ -916,7 +948,7 @@ def _chat_answer(question: str, df, active_progs, years, has_nom, latest_year, p
                 _gem_key = _secret("GEMINI_API_KEY", "")
                 if _gem_key:
                     try:
-                        return _call_ai_gemini(prompt, system, _gem_key, max_tokens=800)
+                        return _call_ai_gemini(prompt, system, _gem_key, max_tokens=1200)
                     except Exception:
                         pass
             return "⏳ **Rate limit.** API sedang sibuk — tunggu 30 detik lalu coba lagi.\n\nTips: Pertanyaan pendek menggunakan lebih sedikit token dan lebih jarang terkena limit."
