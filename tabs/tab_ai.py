@@ -200,11 +200,15 @@ def render_tab_ai(df, active_progs, years, latest_year, prev_year, has_nom,
     # Iterasi chat_history, render chart entry langsung setelah chat area.
     # Urutan dijaga: chart pertama di atas, chart kedua di bawahnya, dst.
     _chart_entries = [
-        msg for msg in st.session_state.chat_history
+        (idx, msg) for idx, msg in enumerate(st.session_state.chat_history)
         if msg.get("role") == "chart" and msg.get("chart_data") is not None
     ]
-    for _ce in _chart_entries:
-        render_ai_chart(_ce["chart_data"])
+    for _idx, _ce in _chart_entries:
+        # Key unik per chart: gabungan index posisi + type + hash question
+        # Ini mencegah StreamlitDuplicateElementId saat 2+ chart tampil sekaligus
+        _cd   = _ce["chart_data"]
+        _ckey = f"aichart_{_idx}_{_cd.get('type','x')}_{hash(_cd.get('question',''))}"
+        render_ai_chart(_cd, chart_key=_ckey)
 
     # ── Quick chips (muncul setelah ada chat) ─────────────────────────────────
     if st.session_state.chat_history:

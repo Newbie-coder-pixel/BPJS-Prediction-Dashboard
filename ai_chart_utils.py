@@ -580,10 +580,13 @@ _CHART_NARASI = {
 # STREAMLIT RENDERER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def render_ai_chart(chart_data: dict) -> None:
+def render_ai_chart(chart_data: dict, chart_key: str = "") -> None:
     """
     Render satu chart beserta narasi penjelasan non-teknis.
     Dipanggil dari tab_ai.py untuk setiap chart dalam ai_chart_history.
+
+    chart_key: key unik wajib diisi agar tidak terjadi DuplicateElementId
+               saat ada 2+ chart di layar sekaligus.
     """
     if chart_data is None:
         return
@@ -597,8 +600,18 @@ def render_ai_chart(chart_data: dict) -> None:
     if fig is None:
         return
 
+    # ── Buat key unik jika tidak disuplai dari luar ───────────────────────────
+    if not chart_key:
+        import hashlib as _hl
+        chart_key = "aichart_" + _hl.md5(
+            f"{ctype}|{question[:60]}".encode()
+        ).hexdigest()[:10]
+
     # ── Header ───────────────────────────────────────────────────────────────
-    q_preview = f'<div style="font-size:.68rem;color:#86efac;margin-top:2px;">Untuk: <i>{question[:80]}{"..." if len(question)>80 else ""}</i></div>' if question else ""
+    q_preview = (
+        f'<div style="font-size:.68rem;color:#86efac;margin-top:2px;">'
+        f'Untuk: <i>{question[:80]}{"..." if len(question) > 80 else ""}</i></div>'
+    ) if question else ""
     st.markdown(
         f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
         f'border-radius:12px 12px 0 0;padding:10px 16px 8px;margin-top:14px;">'
@@ -608,8 +621,8 @@ def render_ai_chart(chart_data: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Plot ─────────────────────────────────────────────────────────────────
-    st.plotly_chart(fig, use_container_width=True)
+    # ── Plot — key unik wajib agar tidak DuplicateElementId ──────────────────
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
 
     # ── Narasi non-teknis ─────────────────────────────────────────────────────
     narasi = _CHART_NARASI.get(ctype)

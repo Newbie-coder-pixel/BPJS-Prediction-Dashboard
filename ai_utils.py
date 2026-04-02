@@ -190,8 +190,162 @@ def _fetch_worldbank(years_tuple: tuple) -> dict:
     return result
 
 
+# ── Domain knowledge per program — logika kausal yang benar ──────────────────
+_PROGRAM_DOMAIN = {
+    "JHT": {
+        "nama": "Jaminan Hari Tua",
+        "mekanisme": (
+            "JHT hanya bisa diklaim saat: berhenti bekerja/PHK (1 bulan setelah berhenti), "
+            "pensiun, cacat tetap, atau meninggal. PP 2/2022 menambahkan: bisa cair parsial "
+            "10% untuk persiapan pensiun dan 20% untuk KPR meski masih aktif bekerja. "
+            "LOGIKA KAUSAL WAJIB: PHK naik → klaim JHT NAIK. "
+            "Pengangguran naik = lebih banyak yang di-PHK = klaim JHT NAIK, bukan turun. "
+            "Relaksasi aturan pencairan → klaim JHT NAIK meski peserta masih bekerja."
+        ),
+        "driver_naik": [
+            "Gelombang PHK massal (krisis, otomasi, resesi pasca-pandemi)",
+            "Relaksasi aturan pencairan via PP 2/2022 (cair parsial tanpa harus berhenti kerja)",
+            "Banyak pekerja resign untuk pindah karir atau wirausaha",
+            "Peserta mencapai usia pensiun 56 tahun dalam jumlah besar",
+        ],
+        "driver_turun": [
+            "Pasar kerja stabil — PHK rendah, turnover karyawan rendah",
+            "Pandemi awal 2020: pekerja takut keluar meski mau resign",
+            "Aturan pencairan masih ketat (sebelum PP 2/2022)",
+        ],
+        "korelasi": {
+            "Pengangguran NAIK": "JHT NAIK — pengangguran meningkat berarti lebih banyak yang di-PHK dan mengklaim JHT",
+            "PDB TURUN (resesi)": "JHT NAIK — resesi memicu PHK massal yang langsung dorong klaim JHT",
+            "PDB NAIK (stabil)": "JHT cenderung TURUN — pasar kerja membaik, PHK berkurang",
+        }
+    },
+    "JKK": {
+        "nama": "Jaminan Kecelakaan Kerja",
+        "mekanisme": (
+            "JKK HANYA bisa diklaim oleh peserta yang SEDANG AKTIF BEKERJA saat kecelakaan. "
+            "Pengangguran TIDAK BISA klaim JKK sama sekali — ini aturan fundamental. "
+            "LOGIKA KAUSAL WAJIB: pengangguran naik = pekerja aktif berkurang = "
+            "potensi kecelakaan berkurang = klaim JKK TURUN. "
+            "Klaim JKK berkorelasi langsung dengan aktivitas industri berisiko tinggi: "
+            "konstruksi, manufaktur, pertambangan, transportasi."
+        ),
+        "driver_naik": [
+            "Ekspansi sektor konstruksi, manufaktur, pertambangan (industri padat risiko)",
+            "Boom infrastruktur pemerintah — proyek tol, bandara, gedung meningkat",
+            "Normalisasi aktivitas industri pasca-pandemi (pabrik dan proyek kembali berjalan)",
+            "Pertumbuhan jumlah peserta aktif terdaftar BPJS Ketenagakerjaan",
+            "Peningkatan kesadaran pelaporan kecelakaan kerja",
+        ],
+        "driver_turun": [
+            "Pandemi COVID-19: pabrik tutup, proyek konstruksi berhenti, pekerja WFH",
+            "PSBB/lockdown: aktivitas kerja fisik di lapangan berhenti total",
+            "Resesi: industri melambat, banyak pekerja dirumahkan",
+            "Pengangguran tinggi: lebih sedikit pekerja aktif = lebih sedikit kecelakaan",
+        ],
+        "korelasi": {
+            "Pengangguran NAIK": "JKK TURUN — lebih sedikit pekerja aktif berarti lebih sedikit yang bisa kecelakaan kerja",
+            "PDB NAIK": "JKK NAIK — aktivitas industri intensif, lebih banyak pekerja di lapangan",
+            "PDB TURUN (resesi/pandemi)": "JKK TURUN — aktivitas industri melambat drastis",
+        }
+    },
+    "JKM": {
+        "nama": "Jaminan Kematian",
+        "mekanisme": (
+            "JKM memberi santunan Rp42 juta + biaya pemakaman Rp10 juta kepada ahli waris "
+            "peserta aktif yang meninggal bukan karena kecelakaan kerja. "
+            "LOGIKA KAUSAL: pandemi COVID-19 secara langsung membunuh peserta aktif "
+            "→ klaim JKM melonjak. Normalisasi pasca-pandemi → klaim kembali ke baseline. "
+            "Pertumbuhan peserta aktif → pool risiko lebih besar → klaim perlahan naik."
+        ),
+        "driver_naik": [
+            "Pandemi/wabah: kematian peserta aktif melonjak drastis di luar kecelakaan kerja",
+            "Pertumbuhan jumlah peserta aktif (pool risiko lebih besar)",
+            "Penyakit kardiovaskular, kanker, dan penyakit tidak menular di usia produktif",
+        ],
+        "driver_turun": [
+            "Normalisasi pasca-pandemi: angka kematian kembali ke baseline alami",
+            "Penurunan jumlah peserta aktif",
+        ],
+        "korelasi": {
+            "Pandemi aktif": "JKM NAIK drastis karena kematian COVID-19 langsung mengenai peserta aktif",
+            "Pasca pandemi": "JKM TURUN ke baseline — angka kematian kembali normal",
+        }
+    },
+    "JKP": {
+        "nama": "Jaminan Kehilangan Pekerjaan",
+        "mekanisme": (
+            "JKP diluncurkan Februari 2022 (PP 37/2021), memberi manfaat cash 45%→25%→15% upah "
+            "selama max 6 bulan + pelatihan + akses loker. HANYA untuk yang di-PHK, bukan resign. "
+            "LOGIKA KAUSAL: PHK massal → klaim JKP langsung naik. "
+            "Di 2022 awal, klaim masih sangat rendah karena program baru dan sosialisasi belum merata. "
+            "Pertumbuhan JKP mencerminkan: kenaikan PHK formal + meningkatnya kesadaran peserta."
+        ),
+        "driver_naik": [
+            "Gelombang PHK massal — efisiensi perusahaan, otomasi, perlambatan ekonomi",
+            "Meningkatnya kesadaran peserta tentang hak klaim JKP",
+            "PHK di sektor manufaktur, tekstil, garmen yang padat karya",
+            "Penegakan kepesertaan BPJS (lebih banyak pekerja terdaftar = lebih banyak yang bisa klaim)",
+        ],
+        "driver_turun": [
+            "Program masih baru (2022): sosialisasi belum merata, banyak yang tidak tahu haknya",
+            "PHK rendah di periode pasar kerja stabil",
+        ],
+        "korelasi": {
+            "Pengangguran NAIK": "JKP NAIK — PHK formal meningkat langsung mendorong klaim JKP",
+            "PDB TURUN": "JKP NAIK — perlambatan ekonomi mendorong PHK massal",
+        }
+    },
+    "JPN": {
+        "nama": "Jaminan Pensiun",
+        "mekanisme": (
+            "JPN memberi manfaat pensiun bulanan seumur hidup, syarat: masa iur minimal 15 tahun "
+            "dan usia pensiun 56 tahun. Program baru mulai 2015. "
+            "Klaim masif baru terjadi sekitar 2030 ketika peserta pertama (2015) genap 15 tahun masa iur. "
+            "Pertumbuhan klaim saat ini dari: peserta awal yang cukup masa iur, "
+            "dan klaim cacat/janda/duda."
+        ),
+        "driver_naik": [
+            "Peserta awal 2015 mulai memenuhi syarat 15 tahun masa iur",
+            "Klaim manfaat cacat total tetap dari peserta aktif",
+            "Klaim janda/duda dari peserta yang meninggal sebelum pensiun",
+        ],
+        "driver_turun": [
+            "Masih fase akumulasi — mayoritas peserta belum memenuhi 15 tahun masa iur",
+        ],
+        "korelasi": {
+            "Catatan": "JPN tidak sensitif terhadap fluktuasi makro jangka pendek. Driver utama: demografi peserta dan masa iur."
+        }
+    },
+}
+
+_DEFAULT_DOMAIN = {
+    "nama": "Program BPJS Ketenagakerjaan",
+    "mekanisme": "Program jaminan sosial ketenagakerjaan Indonesia.",
+    "driver_naik": ["Pertumbuhan peserta aktif", "Perubahan regulasi yang meringankan syarat klaim"],
+    "driver_turun": ["Penurunan peserta aktif", "Aturan klaim diperketat"],
+    "korelasi": {}
+}
+
+
+def _get_prog_domain(prog_name: str) -> dict:
+    pn = prog_name.upper().strip()
+    for key, domain in _PROGRAM_DOMAIN.items():
+        if key in pn or pn.startswith(key):
+            return domain
+    return _DEFAULT_DOMAIN
+
+
 def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val, wb_data, api_info):
     import json as _j
+
+    domain    = _get_prog_domain(prog_name)
+    nama      = domain["nama"]
+    mekanisme = domain["mekanisme"]
+    drv_naik  = "\n".join(f"  - {d}" for d in domain.get("driver_naik", []))
+    drv_turun = "\n".join(f"  - {d}" for d in domain.get("driver_turun", []))
+    korelasi  = "\n".join(f"  - {k}: {v}" for k, v in domain.get("korelasi", {}).items())
+
+    # Data makro lengkap per tahun
     ekon_lines = []
     for yr in sorted(wb_data.keys()):
         d = wb_data[yr]
@@ -202,16 +356,51 @@ def _ai_analyze_peak_trough(prog_name, peak_yr, peak_val, trough_yr, trough_val,
         if 'export_growth'    in d: parts.append(f"ekspor {d['export_growth']:+.1f}%")
         ekon_lines.append(f"  {yr}: {', '.join(parts) if parts else 'data terbatas'}")
     ekon_str = "\n".join(ekon_lines)
-    prompt = (
-        f"Kamu analis ketenagakerjaan Indonesia. "
-        f"Program BPJS: {prog_name} | PEAK: {peak_yr} ({peak_val:,} kasus) | TROUGH: {trough_yr} ({trough_val:,} kasus). "
-        f"Data makroekonomi Indonesia (World Bank):\n{ekon_str}\n"
-        f"Jelaskan mengapa klaim TINGGI di {peak_yr} dan RENDAH di {trough_yr}. "
-        f"Jawab HANYA JSON: "
-        + '{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat+angka","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat+angka"}'
-    )
+
+    # Konteks ekonomi spesifik tahun peak & trough
+    def _fmt_ekon(yr):
+        d = wb_data.get(yr, {})
+        parts = []
+        if 'gdp_pct'          in d: parts.append(f"PDB {d['gdp_pct']:+.1f}%")
+        if 'unemployment_pct' in d: parts.append(f"pengangguran {d['unemployment_pct']:.1f}%")
+        if 'inflation_pct'    in d: parts.append(f"inflasi {d['inflation_pct']:.1f}%")
+        return ", ".join(parts) if parts else "data terbatas"
+
+    prompt = f"""Kamu adalah Senior Actuary BPJS Ketenagakerjaan Indonesia dengan 15 tahun pengalaman.
+
+PROGRAM YANG DIANALISIS: {prog_name} ({nama})
+
+MEKANISME KLAIM PROGRAM INI — WAJIB DIPAHAMI DAN DIPATUHI:
+{mekanisme}
+
+FAKTOR YANG MENAIKKAN KLAIM {prog_name}:
+{drv_naik}
+
+FAKTOR YANG MENURUNKAN KLAIM {prog_name}:
+{drv_turun}
+
+KORELASI KAUSAL DENGAN MAKROEKONOMI — GUNAKAN LOGIKA INI:
+{korelasi if korelasi else "Gunakan logika sesuai mekanisme program di atas."}
+
+DATA KLAIM:
+- PEAK  : tahun {peak_yr} = {peak_val:,} kasus | Ekonomi {peak_yr}: {_fmt_ekon(peak_yr)}
+- TROUGH: tahun {trough_yr} = {trough_val:,} kasus | Ekonomi {trough_yr}: {_fmt_ekon(trough_yr)}
+
+TREN MAKROEKONOMI INDONESIA (World Bank):
+{ekon_str}
+
+INSTRUKSI WAJIB:
+1. Reasoning HARUS konsisten dengan mekanisme program — contoh untuk JKK: jika pengangguran {trough_yr} tinggi, jelaskan bahwa pengangguran tinggi = pekerja aktif berkurang = kecelakaan kerja berkurang = JKK turun (BUKAN pengangguran tinggi karena pekerja takut klaim)
+2. Gunakan angka ekonomi aktual dari data di atas dalam penjelasan
+3. DILARANG KERAS menggunakan: "mungkin", "kemungkinan", "diperkirakan", "sepertinya", "tampaknya", "bisa jadi", "diduga"
+4. Gunakan pernyataan kausal langsung: "karena", "sehingga", "akibat", "mendorong", "mengakibatkan"
+5. Bahasa Indonesia formal, 2-3 kalimat per kondisi
+
+Jawab HANYA JSON ini tanpa teks lain:
+{{"peak_label":"emoji+3kata","peak_desc":"2-3 kalimat kausal dengan angka ekonomi","trough_label":"emoji+3kata","trough_desc":"2-3 kalimat kausal dengan angka ekonomi"}}"""
+
     try:
-        raw = _call_ai(prompt, api_info=api_info, max_tokens=500)
+        raw = _call_ai(prompt, api_info=api_info, max_tokens=700)
         if not raw:
             return None
         if "```" in raw:

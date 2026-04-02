@@ -89,6 +89,59 @@ def check_password():
             st.warning("⏰ Sesi Anda telah berakhir. Silakan login kembali.")
             st.rerun()
         else:
+            # ── Banner selamat datang — muncul sekali setelah login berhasil ──
+            if st.session_state.get('_show_welcome'):
+                st.session_state['_show_welcome'] = False
+                _user = st.session_state.get('auth_user', 'Admin')
+                import datetime as _dt
+                _now  = _dt.datetime.now().strftime('%H:%M')
+                _day  = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu'][_dt.datetime.now().weekday()]
+                _date = _dt.datetime.now().strftime('%d %B %Y')
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(135deg, #003F8A 0%, #008A4B 60%, #97C11F 100%);
+                    border-radius: 16px;
+                    padding: 20px 26px;
+                    margin-bottom: 20px;
+                    display: flex;
+                    align-items: center;
+                    gap: 18px;
+                    box-shadow: 0 8px 32px rgba(0,63,138,.18);
+                    animation: slideDown .4s cubic-bezier(.22,.68,0,1.1) both;
+                ">
+                    <div style="
+                        width:52px; height:52px; border-radius:50%;
+                        background:rgba(255,255,255,.18);
+                        display:flex; align-items:center; justify-content:center;
+                        font-size:1.6rem; flex-shrink:0;
+                    ">👋</div>
+                    <div>
+                        <div style="font-size:.68rem; font-weight:700; color:rgba(255,255,255,.7);
+                            text-transform:uppercase; letter-spacing:1.2px; margin-bottom:3px;">
+                            Login Berhasil
+                        </div>
+                        <div style="font-size:1.15rem; font-weight:700; color:#fff; margin-bottom:2px;">
+                            Selamat datang, {_user.capitalize()}!
+                        </div>
+                        <div style="font-size:.78rem; color:rgba(255,255,255,.65);">
+                            {_day}, {_date} &nbsp;·&nbsp; Pukul {_now} WIB
+                        </div>
+                    </div>
+                    <div style="margin-left:auto; text-align:right; flex-shrink:0;">
+                        <div style="font-size:.65rem; color:rgba(255,255,255,.5);
+                            text-transform:uppercase; letter-spacing:.8px;">Akses</div>
+                        <div style="font-size:.82rem; font-weight:600; color:#d4f5b0;">
+                            ✅ Terverifikasi
+                        </div>
+                    </div>
+                </div>
+                <style>
+                @keyframes slideDown {{
+                    from {{ opacity:0; transform:translateY(-14px); }}
+                    to   {{ opacity:1; transform:translateY(0); }}
+                }}
+                </style>
+                """, unsafe_allow_html=True)
             return
 
     st.markdown("""
@@ -383,7 +436,26 @@ def check_password():
 
             locked, remaining = _is_locked_out()
             if locked:
-                st.error(f"🔒 Dikunci. Coba dalam **{remaining//60}m {remaining%60}s**.")
+                st.markdown(f"""
+                <div style="
+                    background:#fdf2f8; border:1.5px solid #a21caf;
+                    border-radius:12px; padding:16px 20px;
+                    display:flex; align-items:center; gap:14px;
+                    margin:24px 0 8px;
+                ">
+                    <div style="font-size:1.5rem; flex-shrink:0;">🔒</div>
+                    <div>
+                        <div style="font-size:.88rem; font-weight:700; color:#6b21a8;">
+                            Akun Sementara Dikunci
+                        </div>
+                        <div style="font-size:.78rem; color:#7e22ce; margin-top:3px; line-height:1.6;">
+                            Terlalu banyak percobaan gagal.<br>
+                            Silakan coba kembali dalam
+                            <b style="color:#6b21a8;">{remaining//60}m {remaining%60}s</b>.
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 st.stop()
 
             # Heading langsung di atas form — tidak ada wrapper min-height
@@ -405,6 +477,9 @@ def check_password():
             </div>
             """, unsafe_allow_html=True)
 
+            # ── Placeholder notif — muncul di atas form, di dalam kolom tengah ─
+            _notif = st.empty()
+
             with st.form("login_form", clear_on_submit=True):
                 if multi_user:
                     username = st.text_input("Username", placeholder="username").strip().lower()
@@ -424,31 +499,92 @@ def check_password():
             </div>
             """, unsafe_allow_html=True)
 
-        if submitted:
-            if not password or (multi_user and not username):
-                st.warning("Lengkapi semua field.")
-                st.stop()
+            # ── Handle submit — di dalam _fm agar notif tampil di kolom tengah ─
+            if submitted:
+                if not password or (multi_user and not username):
+                    _notif.markdown("""
+                    <div style="
+                        background:#fffbeb; border:1.5px solid #f59e0b;
+                        border-radius:12px; padding:14px 18px;
+                        display:flex; align-items:center; gap:12px;
+                        margin-bottom:4px;
+                    ">
+                        <div style="font-size:1.3rem; flex-shrink:0;">⚠️</div>
+                        <div>
+                            <div style="font-size:.82rem; font-weight:700; color:#92400e;">
+                                Field belum lengkap
+                            </div>
+                            <div style="font-size:.76rem; color:#b45309; margin-top:2px;">
+                                Harap isi semua field sebelum melanjutkan.
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.stop()
 
-            hashed_input = _hash_pw(password)
-            stored_hash  = users.get(username) if multi_user else list(users.values())[0]
+                hashed_input = _hash_pw(password)
+                stored_hash  = users.get(username) if multi_user else list(users.values())[0]
 
-            if stored_hash and hashed_input == stored_hash:
-                st.session_state.authenticated  = True
-                st.session_state.auth_user      = username
-                st.session_state.auth_time      = time.time()
-                st.session_state.login_attempts = 0
-                st.session_state.lockout_until  = 0
-                st.rerun()
-            else:
-                st.session_state.login_attempts += 1
-                remaining_attempts = MAX_LOGIN_ATTEMPTS - st.session_state.login_attempts
-                if st.session_state.login_attempts >= MAX_LOGIN_ATTEMPTS:
-                    st.session_state.lockout_until  = time.time() + LOCKOUT_SECONDS
+                if stored_hash and hashed_input == stored_hash:
+                    st.session_state.authenticated  = True
+                    st.session_state.auth_user      = username
+                    st.session_state.auth_time      = time.time()
                     st.session_state.login_attempts = 0
-                    st.error(f"🔒 Akun dikunci selama {LOCKOUT_SECONDS//60} menit.")
+                    st.session_state.lockout_until  = 0
+                    st.session_state['_show_welcome'] = True
+                    st.rerun()
                 else:
-                    st.error(f"❌ Password salah. Sisa percobaan: **{remaining_attempts}**")
-                st.stop()
+                    st.session_state.login_attempts += 1
+                    remaining_attempts = MAX_LOGIN_ATTEMPTS - st.session_state.login_attempts
+                    if st.session_state.login_attempts >= MAX_LOGIN_ATTEMPTS:
+                        st.session_state.lockout_until  = time.time() + LOCKOUT_SECONDS
+                        st.session_state.login_attempts = 0
+                        _notif.markdown(f"""
+                        <div style="
+                            background:#fdf2f8; border:1.5px solid #a21caf;
+                            border-radius:12px; padding:14px 18px;
+                            display:flex; align-items:center; gap:12px;
+                            margin-bottom:4px;
+                        ">
+                            <div style="font-size:1.3rem; flex-shrink:0;">🔒</div>
+                            <div>
+                                <div style="font-size:.82rem; font-weight:700; color:#6b21a8;">
+                                    Akun Dikunci
+                                </div>
+                                <div style="font-size:.76rem; color:#7e22ce; margin-top:2px;">
+                                    Terlalu banyak percobaan gagal. Coba lagi dalam
+                                    <b>{LOCKOUT_SECONDS//60} menit</b>.
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        _notif.markdown(f"""
+                        <div style="
+                            background:#fef2f2; border:1.5px solid #ef4444;
+                            border-radius:12px; padding:14px 18px;
+                            display:flex; align-items:center; gap:12px;
+                            margin-bottom:4px;
+                        ">
+                            <div style="font-size:1.3rem; flex-shrink:0;">❌</div>
+                            <div>
+                                <div style="font-size:.82rem; font-weight:700; color:#991b1b;">
+                                    Password salah
+                                </div>
+                                <div style="font-size:.76rem; color:#b91c1c; margin-top:2px;">
+                                    Sisa percobaan: <b>{remaining_attempts}</b> dari {MAX_LOGIN_ATTEMPTS}
+                                </div>
+                            </div>
+                            <div style="margin-left:auto; flex-shrink:0;">
+                                <div style="
+                                    background:#fee2e2; border-radius:8px;
+                                    padding:4px 10px; font-size:.72rem;
+                                    font-weight:700; color:#dc2626;
+                                ">{remaining_attempts}/{MAX_LOGIN_ATTEMPTS}</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    st.stop()
 
     st.stop()
 

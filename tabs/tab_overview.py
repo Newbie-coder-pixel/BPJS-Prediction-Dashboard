@@ -155,58 +155,181 @@ def render_tab_overview(df, df_plot, df_active_only, active_progs, filtered_prog
                 + (f' <b>Konteks {_yr_max_k}:</b> {_peak_desc}' if _peak_desc else '')
                 + f'</div>', unsafe_allow_html=True)
 
-        # Peak & Trough
-        st.markdown('<div class="sec">📍 Analisis Peak & Trough per Program — Dianalisis oleh AI</div>', unsafe_allow_html=True)
-        _api_key = _get_api_key()
-        progs_to_analyze = sorted(filtered_progs)
-        n_pcols = min(len(progs_to_analyze), 3)
+        # ── Peak & Trough — Auto AI, per-tahun, to the point ──────────────────
+        st.markdown(
+            '<div class="sec">📍 Analisis Peak & Trough per Program — AI Auto-Analisis</div>',
+            unsafe_allow_html=True)
 
-        if n_pcols > 0:
-            peak_cols_list = st.columns(n_pcols)
-            for pi, prog in enumerate(progs_to_analyze):
-                prog_trend = trend[trend['Kategori']==prog].sort_values('Tahun')
-                if len(prog_trend) < 2: continue
+        _api_key         = _get_api_key()
+        _has_api         = bool(_api_key and _api_key[1])
+        progs_to_analyze = sorted(filtered_progs)
+
+        # ── Fungsi render timeline per-tahun untuk satu program ──────────────
+        def _render_program_timeline(prog, prog_trend, wb_ekon, EKON_CONTEXT, ai_res):
+            """
+            Render kartu timeline per-tahun untuk satu program.
+            Setiap tahun = satu baris: kasus, YoY, konteks ekonomi, flag AI.
+            """
+            rows = prog_trend.sort_values('Tahun').reset_index(drop=True)
+            peak_yr    = int(rows.loc[rows['Kasus'].idxmax(), 'Tahun'])
+            trough_yr  = int(rows.loc[rows['Kasus'].idxmin(), 'Tahun'])
+            peak_val   = int(rows['Kasus'].max())
+            trough_val = int(rows['Kasus'].min())
+            range_pct  = abs((peak_val - trough_val) / (trough_val + 1e-9) * 100)
+
+            # Ringkasan AI — hanya peak & trough dalam 1 kalimat
+            ai_peak_desc   = ""
+            ai_trough_desc = ""
+            if ai_res and isinstance(ai_res, dict):
+                ai_peak_desc   = ai_res.get("peak_desc",   "")
+                ai_trough_desc = ai_res.get("trough_desc", "")
+
+            # Header kartu
+            st.markdown(
+                f'<div style="background:#fff;border:1px solid #e2e8f0;border-radius:14px;'
+                f'padding:16px 18px 8px;margin-bottom:12px;">'
+                f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                f'margin-bottom:12px;">'
+                f'<div style="font-size:.82rem;font-weight:800;color:#0f172a;">'
+                f'🏷️ {prog}</div>'
+                f'<div style="font-size:.7rem;color:#64748b;">'
+                f'Range: <b style="color:#0f172a">{range_pct:.0f}%</b> &nbsp;|&nbsp; '
+                f'Peak: <b style="color:#b45309">{peak_yr}</b> &nbsp;|&nbsp; '
+                f'Trough: <b style="color:#1d4ed8">{trough_yr}</b>'
+                f'</div></div>',
+                unsafe_allow_html=True)
+
+            # Baris per tahun
+            for i, row in rows.iterrows():
+                yr   = int(row['Tahun'])
+                kss  = int(row['Kasus'])
+                is_peak   = (yr == peak_yr)
+                is_trough = (yr == trough_yr)
+
+                # YoY
+                if i > 0:
+                    prev_k = int(rows.iloc[i-1]['Kasus'])
+                    yoy = (kss - prev_k) / (prev_k + 1e-9) * 100
+                    yoy_str = f'{"▲" if yoy >= 0 else "▼"} {abs(yoy):.1f}%'
+                    yoy_clr = '#16a34a' if yoy >= 0 else '#dc2626'
+                else:
+                    yoy_str = "—"
+                    yoy_clr = '#94a3b8'
+
+                # Konteks ekonomi ringkas
+                ekon = wb_ekon.get(yr, {})
+                ekon_parts = []
+                if 'gdp_pct'          in ekon: ekon_parts.append(f'PDB {ekon["gdp_pct"]:+.1f}%')
+                if 'inflation_pct'    in ekon: ekon_parts.append(f'Inflasi {ekon["inflation_pct"]:.1f}%')
+                if 'unemployment_pct' in ekon: ekon_parts.append(f'Peng. {ekon["unemployment_pct"]:.1f}%')
+                ekon_str = " · ".join(ekon_parts) if ekon_parts else ""
+
+                # Flag & warna baris
+                if is_peak:
+                    bg       = '#fefce8'
+                    bord     = '#eab308'
+                    flag     = '🔺 PEAK'
+                    flag_clr = '#854d0e'
+                    # Teks AI penuh — tidak dipotong
+                    ai_note = (
+                        f'<div style="font-size:.75rem;color:#92400e;font-style:italic;'
+                        f'margin-top:5px;line-height:1.55;padding:6px 8px;'
+                        f'background:#fef3c7;border-radius:6px;">'
+                        f'{ai_peak_desc}</div>'
+                    ) if ai_peak_desc else ""
+                elif is_trough:
+                    bg       = '#eff6ff'
+                    bord     = '#3b82f6'
+                    flag     = '🔻 TROUGH'
+                    flag_clr = '#1e3a8a'
+                    # Teks AI penuh — tidak dipotong
+                    ai_note = (
+                        f'<div style="font-size:.75rem;color:#1d4ed8;font-style:italic;'
+                        f'margin-top:5px;line-height:1.55;padding:6px 8px;'
+                        f'background:#dbeafe;border-radius:6px;">'
+                        f'{ai_trough_desc}</div>'
+                    ) if ai_trough_desc else ""
+                else:
+                    bg       = '#f8fafc'
+                    bord     = '#e2e8f0'
+                    flag     = ""
+                    flag_clr = '#64748b'
+                    ai_note  = ""
+
+                flag_html = (
+                    f'<span style="font-size:.62rem;font-weight:700;color:{flag_clr};'
+                    f'background:{bg};border:1px solid {bord};border-radius:4px;'
+                    f'padding:2px 6px;margin-left:6px;">{flag}</span>'
+                ) if flag else ""
+
+                st.markdown(
+                    f'<div style="background:{bg};border-left:3px solid {bord};'
+                    f'border-radius:8px;padding:8px 12px;margin-bottom:5px;">'
+                    f'<div style="display:flex;align-items:flex-start;gap:10px;">'
+                    f'<div style="min-width:36px;font-size:.72rem;font-weight:700;'
+                    f'color:#475569;padding-top:1px;">{yr}</div>'
+                    f'<div style="flex:1;">'
+                    f'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
+                    f'<span style="font-size:.92rem;font-weight:800;color:#0f172a;">{kss:,}</span>'
+                    f'<span style="font-size:.7rem;font-weight:600;color:{yoy_clr};">{yoy_str}</span>'
+                    f'{flag_html}'
+                    f'</div>'
+                    f'<div style="font-size:.67rem;color:#94a3b8;margin-top:2px;">{ekon_str}</div>'
+                    f'</div></div>'
+                    f'{ai_note}'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+            # Tutup kartu
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── Auto-run AI untuk semua program yang belum di-analisis ───────────
+        if _has_api:
+            _need_run = []
+            for prog in progs_to_analyze:
+                prog_trend = trend[trend['Kategori'] == prog].sort_values('Tahun')
+                if len(prog_trend) < 2:
+                    continue
                 peak_yr    = int(prog_trend.loc[prog_trend['Kasus'].idxmax(), 'Tahun'])
                 trough_yr  = int(prog_trend.loc[prog_trend['Kasus'].idxmin(), 'Tahun'])
-                peak_val   = int(prog_trend['Kasus'].max())
-                trough_val = int(prog_trend['Kasus'].min())
-                range_pct  = abs((peak_val - trough_val) / (trough_val + 1e-9) * 100)
-                _cache_key = f"ai_pt_{prog}_{peak_yr}_{trough_yr}"
-                if _cache_key not in st.session_state:
-                    st.session_state[_cache_key] = None
-                ai_res = st.session_state.get(_cache_key)
-                if ai_res and isinstance(ai_res, dict):
-                    peak_label   = ai_res.get("peak_label",   "📊 Puncak")
-                    peak_desc    = ai_res.get("peak_desc",    EKON_CONTEXT.get(peak_yr, ("", "Data terbatas."))[1])
-                    trough_label = ai_res.get("trough_label", "📊 Lembah")
-                    trough_desc  = ai_res.get("trough_desc",  EKON_CONTEXT.get(trough_yr, ("", "Data terbatas."))[1])
-                else:
-                    _pk = EKON_CONTEXT.get(peak_yr,   ("📊 Data WB", "Set GROQ_API_KEY di Secrets untuk analisis AI."))
-                    _tr = EKON_CONTEXT.get(trough_yr, ("📊 Data WB", "Set GROQ_API_KEY di Secrets untuk analisis AI."))
-                    peak_label, peak_desc     = _pk
-                    trough_label, trough_desc = _tr
-                with peak_cols_list[pi % n_pcols]:
-                    if _api_key and _api_key[1] and st.session_state.get(_cache_key) is None:
-                        if st.button(f"🤖 Analisis AI: {prog}", key=f"btn_ai_{prog}_{pi}"):
-                            with st.spinner(f"AI menganalisis {prog}..."):
-                                st.session_state[_cache_key] = _ai_analyze_peak_trough(
-                                    prog, peak_yr, peak_val, trough_yr, trough_val, wb_ekon, _api_key)
-                            st.rerun()
-                    ai_res = st.session_state.get(_cache_key)
-                    st.markdown(
-                        f'<div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;'
-                        f'padding:16px 18px;margin-bottom:10px;">'
-                        f'<div style="font-size:.68rem;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:10px;">📊 {prog}</div>'
-                        f'<div style="background:#fef9c3;border-left:3px solid #eab308;border-radius:6px;padding:10px 12px;margin-bottom:8px;">'
-                        f'<div style="font-size:.7rem;font-weight:700;color:#854d0e;margin-bottom:3px;">🔺 PEAK — {peak_yr} &nbsp;{peak_label}</div>'
-                        f'<div style="font-size:.95rem;font-weight:800;color:#713f12">{peak_val:,} kasus</div>'
-                        f'<div style="font-size:.75rem;color:#92400e;margin-top:4px;line-height:1.6">{peak_desc}</div></div>'
-                        f'<div style="background:#eff6ff;border-left:3px solid #3b82f6;border-radius:6px;padding:10px 12px;">'
-                        f'<div style="font-size:.7rem;font-weight:700;color:#1e3a8a;margin-bottom:3px;">🔻 TROUGH — {trough_yr} &nbsp;{trough_label}</div>'
-                        f'<div style="font-size:.95rem;font-weight:800;color:#1e40af">{trough_val:,} kasus</div>'
-                        f'<div style="font-size:.75rem;color:#1d4ed8;margin-top:4px;line-height:1.6">{trough_desc}</div></div>'
-                        f'<div style="margin-top:8px;font-size:.75rem;color:#64748b;">Range peak↔trough: <b style="color:#0f172a">{range_pct:.0f}%</b></div>'
-                        f'</div>', unsafe_allow_html=True)
+                _ck = f"ai_pt_{prog}_{peak_yr}_{trough_yr}"
+                if st.session_state.get(_ck) is None:
+                    _need_run.append((prog, prog_trend, peak_yr, trough_yr, _ck))
+
+            if _need_run:
+                _pbar_txt = st.empty()
+                _pbar     = st.progress(0)
+                for _i, (_prog, _pt, _pyr, _tyr, _ck) in enumerate(_need_run):
+                    _pbar_txt.caption(f"🤖 AI menganalisis {_prog} ({_i+1}/{len(_need_run)})...")
+                    _pval = int(_pt['Kasus'].max())
+                    _tval = int(_pt['Kasus'].min())
+                    st.session_state[_ck] = _ai_analyze_peak_trough(
+                        _prog, _pyr, _pval, _tyr, _tval, wb_ekon, _api_key)
+                    _pbar.progress((_i + 1) / len(_need_run))
+                _pbar_txt.empty()
+                _pbar.empty()
+                st.rerun()
+
+        # ── Render kartu per program (1 kolom = 1 program, layout 2-col) ────
+        _prog_pairs = [
+            progs_to_analyze[i:i+2]
+            for i in range(0, len(progs_to_analyze), 2)
+        ]
+        for pair in _prog_pairs:
+            cols = st.columns(len(pair))
+            for col_i, prog in enumerate(pair):
+                prog_trend = trend[trend['Kategori'] == prog].sort_values('Tahun')
+                if len(prog_trend) < 2:
+                    continue
+                peak_yr   = int(prog_trend.loc[prog_trend['Kasus'].idxmax(), 'Tahun'])
+                trough_yr = int(prog_trend.loc[prog_trend['Kasus'].idxmin(), 'Tahun'])
+                _ck       = f"ai_pt_{prog}_{peak_yr}_{trough_yr}"
+                ai_res    = st.session_state.get(_ck)
+                with cols[col_i]:
+                    _render_program_timeline(prog, prog_trend, wb_ekon, EKON_CONTEXT, ai_res)
+
+        if not _has_api:
+            st.caption("💡 Set GROQ_API_KEY atau GEMINI_API_KEY di Secrets untuk mengaktifkan analisis AI otomatis.")
 
         # Stacked bar + Heatmap
         t3l, t3r = st.columns(2)
